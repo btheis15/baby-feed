@@ -96,9 +96,15 @@ struct FeedStatsTests {
         #expect(FeedStats.durationText(hours: 3.25) == "3h 15m")
     }
 
-    @Test func averagesDivideByWindowNotByDaysWithFeeds() throws {
+    /// An unlogged day is missing information, not a day the baby didn't eat.
+    ///
+    /// This is the reverse of how it first worked: dividing by the whole window
+    /// treated a gap in logging as a gap in feeding, which both understated the
+    /// average and implied a failure that never happened. Nobody logs every
+    /// feed.
+    @Test func averagesDivideByDaysWithDataNotByTheWholeWindow() throws {
         let context = try makeContext()
-        // Two feeds yesterday, nothing the other six days.
+        // Two feeds yesterday, nothing logged on the other six days.
         let entries = [
             FeedEntry(startTime: now.addingTimeInterval(-24 * 3600), kind: .formula, amountML: 100),
             FeedEntry(startTime: now.addingTimeInterval(-25 * 3600), kind: .formula, amountML: 50),
@@ -107,12 +113,64 @@ struct FeedStatsTests {
         let groups = FeedStats.groupByDay(entries, calendar: utc)
 
         let week = FeedStats.averages(groups, days: 7, skip: 1, calendar: utc, now: now)
-        #expect(week.dayCount == 7)
+        #expect(week.windowDays == 7)
+        #expect(week.daysWithData == 1)
         #expect(week.feedCount == 2)
         #expect(week.totalML == 150)
-        // 150 ml over the whole 7-day window, not over the single day that had feeds.
-        #expect(abs(week.mlPerDay - 150.0 / 7) < 0.001)
-        #expect(abs(week.feedsPerDay - 2.0 / 7) < 0.001)
+        // 150 ml over the one day that has data, not spread across seven.
+        #expect(abs(week.mlPerDay - 150) < 0.001)
+        #expect(abs(week.feedsPerDay - 2) < 0.001)
+        // And it reports that it only covers part of the window.
+        #expect(week.hasGaps)
+    }
+
+    @Test func aFullyLoggedWindowReportsNoGaps() throws {
+        let context = try makeContext()
+        // One feed on each of the seven complete days before today.
+        var entries: [FeedEntry] = []
+        for day in 1...7 {
+            let entry = FeedEntry(
+                startTime: now.addingTimeInterval(Double(-day) * 24 * 3600),
+                kind: .formula,
+                amountML: 100
+            )
+            context.insert(entry)
+            entries.append(entry)
+        }
+        let groups = FeedStats.groupByDay(entries, calendar: utc)
+
+        let week = FeedStats.averages(groups, days: 7, skip: 1, calendar: utc, now: now)
+        #expect(week.daysWithData == 7)
+        #expect(!week.hasGaps)
+        #expect(abs(week.mlPerDay - 100) < 0.001)
+        #expect(abs(week.feedsPerDay - 1) < 0.001)
+    }
+
+    /// Two weeks where one week was logged patchily must not read as a drop.
+    @Test func aPatchilyLoggedWeekDoesNotLookLikeADecline() throws {
+        let context = try makeContext()
+        // Last week: only two days logged, 100 ml each.
+        // Week before: all seven logged, 100 ml each.
+        var entries: [FeedEntry] = []
+        for day in [2, 4] {
+            let entry = FeedEntry(startTime: now.addingTimeInterval(Double(-day) * 24 * 3600), kind: .formula, amountML: 100)
+            context.insert(entry)
+            entries.append(entry)
+        }
+        for day in 8...14 {
+            let entry = FeedEntry(startTime: now.addingTimeInterval(Double(-day) * 24 * 3600), kind: .formula, amountML: 100)
+            context.insert(entry)
+            entries.append(entry)
+        }
+        let groups = FeedStats.groupByDay(entries, calendar: utc)
+
+        let lastWeek = FeedStats.averages(groups, days: 7, skip: 1, calendar: utc, now: now)
+        let priorWeek = FeedStats.averages(groups, days: 7, skip: 8, calendar: utc, now: now)
+
+        // Same volume per logged day, so no spurious decline from the gaps.
+        #expect(abs(lastWeek.mlPerDay - priorWeek.mlPerDay) < 0.001)
+        #expect(lastWeek.hasGaps)
+        #expect(!priorWeek.hasGaps)
     }
 
     @Test func averagesSkipExcludesTodaySoPartialDaysDoNotCount() throws {
@@ -130,7 +188,8 @@ struct FeedStatsTests {
         // A one-day window with no skip is today only.
         let today = FeedStats.averages(groups, days: 1, calendar: utc, now: now)
         #expect(today.totalML == 90)
-        #expect(today.dayCount == 1)
+        #expect(today.windowDays == 1)
+        #expect(today.daysWithData == 1)
     }
 
     @Test func averagesOfAnEmptyWindowAreZeroNotCrash() {
@@ -138,7 +197,9 @@ struct FeedStatsTests {
         #expect(empty.isEmpty)
         #expect(empty.mlPerDay == 0)
         #expect(empty.feedsPerDay == 0)
-        #expect(FeedStats.averages([], days: 0, calendar: utc, now: now).dayCount == 0)
+        #expect(FeedStats.averages([], days: 0, calendar: utc, now: now).windowDays == 0)
+        // An empty window has no data, so nothing to divide by.
+        #expect(FeedStats.averages([], days: 7, calendar: utc, now: now).daysWithData == 0)
     }
 
     @Test func windowKeepsOnlyRecentEntries() throws {

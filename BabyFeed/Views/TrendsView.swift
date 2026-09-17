@@ -55,7 +55,7 @@ struct TrendsView: View {
     // MARK: Last 7 days
 
     private var weekBlock: some View {
-        block("Last 7 days", subtitle: "Complete days, ending yesterday") {
+        block("Last 7 days", subtitle: weekSubtitle) {
             if lastWeek.isEmpty {
                 Text("Nothing logged in the last week.")
                     .font(.subheadline)
@@ -83,10 +83,22 @@ struct TrendsView: View {
                     statRow("Between feeds", value: FeedStats.durationText(hours: gap))
                 }
                 if let longest = FeedStats.longestGapHours(recentWeekEntries) {
-                    statRow("Longest stretch", value: FeedStats.durationText(hours: longest))
+                    statRow(
+                        "Longest logged gap",
+                        value: FeedStats.durationText(hours: longest),
+                        detail: "Could be a feed that wasn't logged"
+                    )
                 }
             }
         }
+    }
+
+    /// Says how many days the average actually covers, so a week with two
+    /// unlogged days doesn't read as a full week.
+    private var weekSubtitle: String {
+        let base = "Complete days, ending yesterday"
+        guard lastWeek.hasGaps, lastWeek.daysWithData > 0 else { return base }
+        return "\(base) · averaged over the \(lastWeek.daysWithData) with feeds logged"
     }
 
     /// Entries from the same seven complete days the averages cover.

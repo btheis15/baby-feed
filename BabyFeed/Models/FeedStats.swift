@@ -38,18 +38,28 @@ struct FeedSummary: Equatable {
 }
 
 /// Totals and per-day averages across a window of calendar days.
-/// `dayCount` is the length of the window, not the number of days that had
-/// feeds, so a day with nothing logged pulls the averages down instead of
-/// disappearing from them.
+///
+/// Averages divide by the days that actually have feeds logged, not by the
+/// length of the window. A day with nothing logged is *missing information*,
+/// not a day the baby didn't eat – nobody logs every feed, and treating a gap
+/// as a zero both drags the average down and implies a failure that didn't
+/// happen. `hasGaps` lets the screen say how many days it averaged over, so
+/// the number is transparent rather than quietly different.
 struct PeriodAverages: Equatable {
-    var dayCount = 0
+    /// Length of the window asked for, in days.
+    var windowDays = 0
+    /// Days inside that window with at least one logged feed.
+    var daysWithData = 0
     var feedCount = 0
     var totalML: Double = 0
     var nursingMinutes = 0
 
-    var mlPerDay: Double { dayCount > 0 ? totalML / Double(dayCount) : 0 }
-    var feedsPerDay: Double { dayCount > 0 ? Double(feedCount) / Double(dayCount) : 0 }
+    var mlPerDay: Double { daysWithData > 0 ? totalML / Double(daysWithData) : 0 }
+    var feedsPerDay: Double { daysWithData > 0 ? Double(feedCount) / Double(daysWithData) : 0 }
     var isEmpty: Bool { feedCount == 0 }
+    /// True when part of the window has no data, so the average covers less
+    /// than it looks like it does.
+    var hasGaps: Bool { daysWithData < windowDays }
 }
 
 /// Which quarter of the clock a feed falls in.
@@ -178,6 +188,9 @@ enum FeedStats {
     /// today are excluded first, then `days` days are measured – so
     /// `days: 7, skip: 1` is the last seven complete days, ending yesterday,
     /// which keeps a partial today from dragging the average down.
+    ///
+    /// Only days with logged feeds count towards the average; see
+    /// `PeriodAverages`.
     static func averages(
         _ groups: [DayGroup],
         days: Int,
@@ -191,9 +204,11 @@ enum FeedStats {
               let windowStart = calendar.date(byAdding: .day, value: -(days - 1), to: windowEnd)
         else { return PeriodAverages() }
 
-        var result = PeriodAverages(dayCount: days)
+        var result = PeriodAverages(windowDays: days)
         for group in groups where group.day >= windowStart && group.day <= windowEnd {
             let summary = group.summary
+            guard summary.feedCount > 0 else { continue }
+            result.daysWithData += 1
             result.feedCount += summary.feedCount
             result.totalML += summary.totalML
             result.nursingMinutes += summary.nursingMinutes

@@ -7,6 +7,166 @@ import FoundationModels
 /// string assembly and always works; the friendly version asks the on-device
 /// Apple Intelligence model to rewrite it, and is skipped when unavailable.
 enum DaySummaryGenerator {
+    /// The summary as data, so the screen can lay it out as a table and the
+    /// shared text can be assembled from the same numbers. Building both from
+    /// one report is the point – they can't drift apart.
+    struct Report {
+        /// One row of the day-by-day table.
+        struct Day: Identifiable {
+            let id: Date
+            /// "Today", "Yesterday", "Tue, Sep 15" – for the shared text.
+            let title: String
+            /// "Today", "Yesterday", "Tue 15" – short enough for a column.
+            let shortTitle: String
+            let feedCount: Int
+            /// Nil when the day had no bottles.
+            let volumeText: String?
+            /// Nil when the day had no nursing.
+            let nursingText: String?
+        }
+
+        /// One label/value pair, which is all most of this report is.
+        struct Item: Identifiable {
+            let id: String
+            let label: String
+            let value: String
+        }
+
+        var babyName: String
+        var ageText: String?
+        var windowText: String
+        /// Latest weight, its date, and the rate if there's a previous one.
+        var weightItems: [Item]
+        /// Per-day averages.
+        var averageItems: [Item]
+        /// Totals across the window.
+        var totalItems: [Item]
+        var days: [Day]
+
+        var hasFeeds: Bool { !days.isEmpty }
+    }
+
+    static func report(
+        entries: [FeedEntry],
+        weights: [WeightEntry],
+        days: Int,
+        unit: VolumeUnit,
+        weightUnit: WeightUnit,
+        profile: BabyProfile,
+        calendar: Calendar = .current,
+        now: Date = .now
+    ) -> Report {
+        let cutoff = calendar.date(byAdding: .day, value: -(days - 1), to: calendar.startOfDay(for: now)) ?? now
+        let recent = entries.filter { $0.startTime >= cutoff }
+        let groups = FeedStats.groupByDay(recent, calendar: calendar)
+        let total = FeedSummary(recent)
+
+        var weightItems: [Report.Item] = []
+        if let latest = weights.first {
+            weightItems.append(.init(
+                id: "latest",
+                label: "Latest weight",
+                value: weightUnit.format(grams: latest.grams)
+            ))
+            weightItems.append(.init(
+                id: "weighed",
+                label: "Weighed",
+                value: latest.date.formatted(date: .abbreviated, time: .omitted)
+            ))
+            if let rate = WeightStats.overallGramsPerWeek(weights) {
+                weightItems.append(.init(
+                    id: "rate",
+                    label: "Gain",
+                    value: weightUnit.formatGain(gramsPerWeek: rate)
+                ))
+            }
+        }
+
+        var averageItems: [Report.Item] = []
+        var totalItems: [Report.Item] = []
+        var dayRows: [Report.Day] = []
+
+        if !groups.isEmpty {
+            let dayCount = Double(groups.count)
+            averageItems.append(.init(
+                id: "feeds",
+                label: "Feeds",
+                value: (Double(total.feedCount) / dayCount).formatted(.number.precision(.fractionLength(1)))
+            ))
+            if total.bottleCount > 0 {
+                averageItems.append(.init(
+                    id: "bottle",
+                    label: "By bottle",
+                    value: unit.format(milliliters: total.totalML / dayCount)
+                ))
+            }
+            if total.nursingMinutes > 0 {
+                averageItems.append(.init(
+                    id: "nursing",
+                    label: "Nursing",
+                    value: "\(Int((Double(total.nursingMinutes) / dayCount).rounded())) min"
+                ))
+            }
+            if let gap = FeedStats.averageGapHours(recent) {
+                averageItems.append(.init(
+                    id: "gap",
+                    label: "Typical gap",
+                    value: FeedStats.durationText(hours: gap)
+                ))
+            }
+
+            let formulaML = recent.filter { $0.kind == .formula }.reduce(0) { $0 + ($1.amountML ?? 0) }
+            let breastMilkML = recent.filter { $0.kind == .breastMilk }.reduce(0) { $0 + ($1.amountML ?? 0) }
+            if formulaML > 0 {
+                totalItems.append(.init(id: "formula", label: "Formula", value: unit.format(milliliters: formulaML)))
+            }
+            if breastMilkML > 0 {
+                totalItems.append(.init(id: "breastMilk", label: "Breast milk", value: unit.format(milliliters: breastMilkML)))
+            }
+            if total.nursingCount > 0 {
+                totalItems.append(.init(
+                    id: "sessions",
+                    label: "Nursing sessions",
+                    value: "\(total.nursingCount)"
+                ))
+            }
+
+            dayRows = groups.map { group in
+                let summary = group.summary
+                return Report.Day(
+                    id: group.day,
+                    title: FeedStats.dayTitle(for: group.day, calendar: calendar, now: now),
+                    shortTitle: shortDayTitle(for: group.day, calendar: calendar, now: now),
+                    feedCount: summary.feedCount,
+                    volumeText: summary.bottleCount > 0 ? unit.format(milliliters: summary.totalML) : nil,
+                    nursingText: summary.nursingMinutes > 0 ? "\(summary.nursingMinutes) min" : nil
+                )
+            }
+        }
+
+        return Report(
+            babyName: profile.displayName,
+            ageText: profile.ageText(on: now, calendar: calendar),
+            windowText: "Last \(days) days",
+            weightItems: weightItems,
+            averageItems: averageItems,
+            totalItems: totalItems,
+            days: dayRows
+        )
+    }
+
+    /// "Today", "Yesterday", or "Tue 15" – narrow enough for a table column.
+    private static func shortDayTitle(for day: Date, calendar: Calendar, now: Date) -> String {
+        if calendar.isDate(day, inSameDayAs: now) { return "Today" }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+           calendar.isDate(day, inSameDayAs: yesterday) {
+            return "Yesterday"
+        }
+        return day.formatted(.dateTime.weekday(.abbreviated).day())
+    }
+
+    /// The shareable plain text, assembled from the same report the screen
+    /// shows, and also what the on-device rewrite is given.
     static func factualSummary(
         entries: [FeedEntry],
         weights: [WeightEntry],
@@ -17,62 +177,48 @@ enum DaySummaryGenerator {
         calendar: Calendar = .current,
         now: Date = .now
     ) -> String {
-        let cutoff = calendar.date(byAdding: .day, value: -(days - 1), to: calendar.startOfDay(for: now)) ?? now
-        let recent = entries.filter { $0.startTime >= cutoff }
-        let groups = FeedStats.groupByDay(recent, calendar: calendar)
-        let total = FeedSummary(recent)
+        plainText(from: report(
+            entries: entries,
+            weights: weights,
+            days: days,
+            unit: unit,
+            weightUnit: weightUnit,
+            profile: profile,
+            calendar: calendar,
+            now: now
+        ))
+    }
 
+    static func plainText(from report: Report) -> String {
         var lines: [String] = []
-        var header = "\(profile.displayName)"
-        if let age = profile.ageText(on: now, calendar: calendar) { header += ", \(age)" }
-        header += " — feeding, last \(days) days"
+
+        var header = report.babyName
+        if let age = report.ageText { header += ", \(age)" }
+        header += " — feeding, \(report.windowText.lowercased())"
         lines.append(header)
 
-        if let latest = weights.first {
-            var weightLine = "Latest weight: \(weightUnit.format(grams: latest.grams)) (\(latest.date.formatted(date: .abbreviated, time: .omitted)))"
-            if weights.count >= 2 {
-                let previous = weights[1]
-                let weeks = latest.date.timeIntervalSince(previous.date) / (7 * 24 * 3600)
-                if weeks > 0.2 {
-                    weightLine += ", \(weightUnit.formatGain(gramsPerWeek: (latest.grams - previous.grams) / weeks))"
-                }
-            }
-            lines.append(weightLine)
+        if !report.weightItems.isEmpty {
+            lines.append(report.weightItems.map { "\($0.label): \($0.value)" }.joined(separator: ", "))
         }
 
-        if groups.isEmpty {
+        guard report.hasFeeds else {
             lines.append("No feeds logged in this period.")
             return lines.joined(separator: "\n")
         }
 
-        let dayCount = Double(groups.count)
-        let avgFeeds = Double(total.feedCount) / dayCount
-        var average = "Average per day: \(avgFeeds.formatted(.number.precision(.fractionLength(1)))) feeds"
-        if total.bottleCount > 0 {
-            average += ", \(unit.format(milliliters: total.totalML / dayCount)) by bottle"
+        if !report.averageItems.isEmpty {
+            lines.append("Per day — " + report.averageItems.map { "\($0.label.lowercased()) \($0.value)" }.joined(separator: ", "))
         }
-        if total.nursingMinutes > 0 {
-            average += ", \(Int((Double(total.nursingMinutes) / dayCount).rounded())) min nursing"
-        }
-        lines.append(average)
-
-        if let gap = FeedStats.averageGapHours(recent) {
-            lines.append("Typical gap between feeds: \(gap.formatted(.number.precision(.fractionLength(1)))) hours")
-        }
-
-        let formulaML = recent.filter { $0.kind == .formula }.reduce(0) { $0 + ($1.amountML ?? 0) }
-        let breastMilkML = recent.filter { $0.kind == .breastMilk }.reduce(0) { $0 + ($1.amountML ?? 0) }
-        if formulaML > 0 || breastMilkML > 0 {
-            var mix: [String] = []
-            if formulaML > 0 { mix.append("formula \(unit.format(milliliters: formulaML))") }
-            if breastMilkML > 0 { mix.append("breast milk \(unit.format(milliliters: breastMilkML))") }
-            if total.nursingCount > 0 { mix.append("\(total.nursingCount) nursing sessions") }
-            lines.append("Totals: " + mix.joined(separator: ", "))
+        if !report.totalItems.isEmpty {
+            lines.append("Totals — " + report.totalItems.map { "\($0.label.lowercased()) \($0.value)" }.joined(separator: ", "))
         }
 
         lines.append("")
-        for group in groups {
-            lines.append("\(FeedStats.dayTitle(for: group.day, calendar: calendar, now: now)): \(group.summary.text(unit: unit))")
+        for day in report.days {
+            var parts = ["\(day.feedCount) feed\(day.feedCount == 1 ? "" : "s")"]
+            if let volume = day.volumeText { parts.append(volume) }
+            if let nursing = day.nursingText { parts.append("\(nursing) nursing") }
+            lines.append("\(day.title): " + parts.joined(separator: " · "))
         }
         return lines.joined(separator: "\n")
     }
