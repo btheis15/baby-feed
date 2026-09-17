@@ -126,27 +126,17 @@ struct BabyView: View {
                 }
             }
 
+            // The only place sex is set. Growth explains why it's wanted but
+            // doesn't ask again.
             Picker("Sex", selection: $sexRaw) {
                 ForEach(BabySex.allCases) { sex in
                     Text(sex.title).tag(sex.rawValue)
                 }
             }
-
-            if dueInterval > 0 {
-                DatePicker("Due date", selection: dueDateBinding, displayedComponents: .date)
-                if profile.isPreterm, let corrected = correctedAgeText {
-                    LabeledContent("Corrected age", value: corrected)
-                }
-                Button("Born on time – remove due date") { dueInterval = 0 }
-            } else if profile.birthDate != nil {
-                Button("Born early? Add a due date") {
-                    dueInterval = (profile.birthDate ?? .now).timeIntervalSince1970
-                }
-            }
         } header: {
             Text("Profile")
         } footer: {
-            Text("The birthday drives the age-based feeding guide and the default reminder interval. Sex is only used for growth percentiles, which are measured separately for girls and boys. A due date lets a baby born early be compared at corrected age.")
+            Text("The birthday drives the age-based feeding guide and the default reminder interval. Sex is only used for growth percentiles, which are measured separately for girls and boys.")
         }
     }
 
@@ -290,6 +280,8 @@ struct BabyView: View {
                         .foregroundStyle(.orange)
                 }
 
+                pretermRows(percentile: projection.anchorPercentile)
+
                 if drift?.hasFallenAChannel == true {
                     Label(
                         "\(profile.displayName) has dropped a full percentile band since the last weigh-in. That's worth mentioning to your pediatrician – it's the thing they watch for.",
@@ -304,18 +296,53 @@ struct BabyView: View {
                 Text("WHO Child Growth Standards\(profile.isPreterm ? ", at corrected age" : ""). Babies tend to follow their own percentile, so the estimate carries the last weigh-in forward – it isn't a measurement. The percentile re-anchors whenever you log a real weight.")
             }
         } else if profile.sex == .unspecified, !weights.isEmpty, profile.birthDate != nil {
+            // Explains what setting sex above unlocks. No second picker – the
+            // one in Profile is the only place it's set.
             Section {
-                Picker("Sex", selection: $sexRaw) {
-                    ForEach(BabySex.allCases) { sex in
-                        Text(sex.title).tag(sex.rawValue)
-                    }
-                }
+                Text("Choose \(profile.displayName)'s sex under Profile to see percentiles, and a daily target that keeps up as \(profile.displayName) grows.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             } header: {
                 Text("Growth")
             } footer: {
-                Text("Set \(profile.displayName)'s sex to see percentiles and a daily target that keeps up as \(profile.displayName) grows. WHO's growth standards are measured separately for girls and boys, so there's no way to average them.")
+                Text("WHO's growth standards are measured separately for girls and boys, so there's no honest way to average them.")
             }
         }
+    }
+
+    /// The due-date control, which lives here rather than in Profile because a
+    /// due date changes nothing except these percentiles.
+    ///
+    /// When it isn't set, the prompt is quiet unless the percentile is low —
+    /// the case where a preterm baby plotted at actual age looks like a problem
+    /// they don't have.
+    @ViewBuilder
+    private func pretermRows(percentile: Double) -> some View {
+        if dueInterval > 0 {
+            DatePicker("Due date", selection: dueDateBinding, displayedComponents: .date)
+            if profile.isPreterm, let corrected = correctedAgeText {
+                LabeledContent("Compared at", value: corrected)
+            }
+            Button("Born on time – remove due date") { dueInterval = 0 }
+        } else if percentile < GrowthProjector.askAboutPretermBelowPercentile {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Was \(profile.displayName) born early?")
+                    .font(.subheadline.weight(.medium))
+                Text("Babies born before their due date are compared at corrected age. Without that, this percentile reads lower than it should.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button("Add a due date") { addDueDate() }
+                    .buttonStyle(.bordered)
+            }
+            .padding(.vertical, 2)
+        } else {
+            Button("Born early? Compare at corrected age") { addDueDate() }
+                .font(.footnote)
+        }
+    }
+
+    private func addDueDate() {
+        dueInterval = (profile.birthDate ?? .now).timeIntervalSince1970
     }
 
     private var guidanceSection: some View {

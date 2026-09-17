@@ -65,6 +65,15 @@ enum GrowthProjector {
     /// being a guess wearing a number.
     static let staleAfterDays = 21
 
+    /// Below this percentile, ask whether the baby was born early.
+    ///
+    /// A preterm baby plotted against term standards reads alarmingly small –
+    /// an average four-week-old shown at ten weeks actual age falls under the
+    /// 3rd centile. Rather than put a "born early?" question in front of every
+    /// parent, the app asks here, where a low number would otherwise worry
+    /// someone whose baby is in fact growing normally for their corrected age.
+    static let askAboutPretermBelowPercentile = 10.0
+
     /// Projects today's weight from the most recent weigh-in.
     ///
     /// `weights` must be newest first. Returns nil when there's nothing to
