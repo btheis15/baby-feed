@@ -182,12 +182,22 @@ struct BabyView: View {
 
                 ForEach(weights) { entry in
                     HStack {
-                        Text(entry.date.formatted(date: .abbreviated, time: .omitted))
-                        if !entry.note.isEmpty {
-                            Text(entry.note)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(entry.date.formatted(date: .abbreviated, time: .omitted))
+                            // "Logged by", not "weighed by" – whoever entered
+                            // it isn't necessarily whoever held the scale.
+                            let detail = [
+                                entry.loggedByName.isEmpty ? "" : "Logged by \(entry.loggedByName)",
+                                entry.note,
+                            ]
+                                .filter { !$0.isEmpty }
+                                .joined(separator: " · ")
+                            if !detail.isEmpty {
+                                Text(detail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
                         }
                         Spacer()
                         Text(weightUnit.format(grams: entry.grams))

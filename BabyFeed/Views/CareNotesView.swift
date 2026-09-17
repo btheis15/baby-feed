@@ -79,14 +79,25 @@ struct CareNotesView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
-            if let severity = careNote.severity {
-                Text(severity.title)
-                    .font(.caption)
-                    .foregroundStyle(severity == .severe ? .orange : .secondary)
+            HStack(spacing: 6) {
+                if let severity = careNote.severity {
+                    Text(severity.title)
+                        .foregroundStyle(severity == .severe ? .orange : .secondary)
+                }
+                if !careNote.loggedByName.isEmpty {
+                    Text(severity_separator(careNote) + "Logged by \(careNote.loggedByName)")
+                        .foregroundStyle(.secondary)
+                }
             }
+            .font(.caption)
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
+    }
+
+    /// Keeps "Moderate · Brian" from reading as "ModerateBrian".
+    private func severity_separator(_ careNote: CareNote) -> String {
+        careNote.severity == nil ? "" : "· "
     }
 
     private func delete(at offsets: IndexSet) {

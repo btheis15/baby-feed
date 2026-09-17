@@ -112,6 +112,47 @@ struct CareNoteTests {
         #expect(!text.contains("well outside the window"))
     }
 
+    /// A shared log has to say who did what, so the author reaches the report.
+    @Test func theReportSaysWhoWroteTheNote() throws {
+        let note = CareNote(
+            date: now,
+            kind: .crying,
+            note: "inconsolable for an hour",
+            loggedByName: "Brian"
+        )
+        let report = DaySummaryGenerator.report(
+            entries: [],
+            weights: [],
+            careNotes: [note],
+            days: 7,
+            unit: .ounces,
+            weightUnit: .poundsOunces,
+            profile: BabyProfile(name: "Nora", birthDate: now),
+            calendar: utc,
+            now: now
+        )
+        #expect(report.notes.first?.author == "Brian")
+        #expect(DaySummaryGenerator.plainText(from: report).contains("logged by Brian"))
+    }
+
+    /// And an unnamed caregiver mustn't produce "logged by ".
+    @Test func anUnnamedCaregiverIsLeftOutRatherThanLeftBlank() throws {
+        let note = CareNote(date: now, kind: .crying, note: "an hour")
+        let report = DaySummaryGenerator.report(
+            entries: [],
+            weights: [],
+            careNotes: [note],
+            days: 7,
+            unit: .ounces,
+            weightUnit: .poundsOunces,
+            profile: BabyProfile(name: "Nora", birthDate: now),
+            calendar: utc,
+            now: now
+        )
+        #expect(report.notes.first?.author == "")
+        #expect(!DaySummaryGenerator.plainText(from: report).contains("logged by"))
+    }
+
     @Test func deletedNotesStayOutOfTheReport() throws {
         let context = try makeContext()
         let note = CareNote(date: now, kind: .rash, note: "red cheeks")

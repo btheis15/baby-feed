@@ -21,6 +21,7 @@ struct SettingsView: View {
     @AppStorage(AppSettings.useAlarmKey) private var useAlarm = false
     @AppStorage(AppSettings.liveActivityKey) private var liveActivity = true
     @AppStorage(BabyProfile.nameKey) private var babyName = ""
+    @AppStorage(AppSettings.displayNameKey) private var displayName = ""
     @AppStorage(BabyProfile.birthDateKey) private var birthInterval: Double = 0
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
@@ -97,13 +98,20 @@ struct SettingsView: View {
     }
 
     private var caregiversSubtitle: String {
+        // Attribution is worthless if nobody's set a name, and the app never
+        // asks outright – so say so here, where the setting lives.
+        if displayName.isEmpty {
+            return "Add your name so entries show who logged them"
+        }
         switch SyncEngine.shared.status {
-        case .notConfigured: "Not set up in this build"
-        case .signedOut: "Sign in to share with other caregivers"
-        case .syncing: "Syncing…"
+        case .localOnly: return "On this iPhone only · logging as \(displayName)"
+        case .syncing: return "Syncing…"
         case .idle(let lastSync):
-            if let lastSync { "Synced \(lastSync.formatted(date: .omitted, time: .shortened))" } else { "Signed in" }
-        case .error: "Sync problem – tap for details"
+            if let lastSync {
+                return "Synced \(lastSync.formatted(date: .omitted, time: .shortened))"
+            }
+            return "Logging as \(displayName)"
+        case .error: return "Sync problem – tap for details"
         }
     }
 

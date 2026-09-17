@@ -55,6 +55,7 @@ enum DebugSeed {
         defaults.set(BabySex.female.rawValue, forKey: BabyProfile.sexKey)
         defaults.set(0, forKey: BabyProfile.dueDateKey)
         defaults.set(VolumeUnit.ounces.rawValue, forKey: FeedDefaults.volumeUnit)
+        defaults.set("Brian", forKey: AppSettings.displayNameKey)
         // Let the guidance and the interval drive themselves.
         defaults.set(0, forKey: AppSettings.feedsPerDayKey)
         defaults.set(0, forKey: AppSettings.intervalMinutesKey)

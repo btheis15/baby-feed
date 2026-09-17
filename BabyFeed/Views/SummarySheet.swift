@@ -220,7 +220,7 @@ struct SummarySheet: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 8)
-                        Text(note.dateText)
+                        Text(note.author.isEmpty ? note.dateText : "\(note.dateText) · \(note.author)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

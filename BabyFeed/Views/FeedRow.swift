@@ -4,6 +4,13 @@ struct FeedRow: View {
     let entry: FeedEntry
     let unit: VolumeUnit
 
+    private var subtitle: String {
+        var parts: [String] = []
+        if !entry.loggedByName.isEmpty { parts.append("Logged by \(entry.loggedByName)") }
+        if !entry.note.isEmpty { parts.append(entry.note) }
+        return parts.joined(separator: " · ")
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: entry.kind.systemImage)
@@ -15,8 +22,11 @@ struct FeedRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.kind.title)
                     .font(.headline)
-                if !entry.note.isEmpty || !entry.loggedByName.isEmpty {
-                    Text([entry.loggedByName, entry.note].filter { !$0.isEmpty }.joined(separator: " · "))
+                // "Logged by", never "fed by": the person who tapped Save
+                // isn't necessarily the person who held the bottle. The
+                // attribution comes first so truncation eats the note instead.
+                if !subtitle.isEmpty {
+                    Text(subtitle)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

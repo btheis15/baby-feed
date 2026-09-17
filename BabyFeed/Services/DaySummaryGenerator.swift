@@ -39,6 +39,8 @@ enum DaySummaryGenerator {
             let kindTitle: String
             /// "Moderate", when the kind has a severity.
             let severityTitle: String?
+            /// Who wrote it, when a name was set. Empty otherwise.
+            let author: String
             let text: String
         }
 
@@ -166,6 +168,7 @@ enum DaySummaryGenerator {
                     dateText: FeedStats.dayTitle(for: calendar.startOfDay(for: careNote.date), calendar: calendar, now: now),
                     kindTitle: careNote.kind.title,
                     severityTitle: careNote.severity?.title,
+                    author: careNote.loggedByName,
                     text: careNote.note
                 )
             }
@@ -264,6 +267,7 @@ enum DaySummaryGenerator {
         for note in report.notes {
             var heading = "\(note.dateText) — \(note.kindTitle)"
             if let severity = note.severityTitle { heading += " (\(severity.lowercased()))" }
+            if !note.author.isEmpty { heading += ", logged by \(note.author)" }
             lines.append("\(heading): \(note.text)")
         }
         return lines
