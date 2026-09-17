@@ -4,12 +4,15 @@ import SwiftUI
 /// Baby profile, weight log with its numbers, and the age-based feeding guide.
 struct BabyView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.calendar) private var calendar
     @Query(sort: \WeightEntry.date, order: .reverse) private var allWeights: [WeightEntry]
     @Query private var babies: [Baby]
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
     @AppStorage(BabyProfile.nameKey) private var babyName = ""
     @AppStorage(BabyProfile.birthDateKey) private var birthInterval: Double = 0
+    @AppStorage(BabyProfile.sexKey) private var sexRaw = BabySex.unspecified.rawValue
+    @AppStorage(BabyProfile.dueDateKey) private var dueInterval: Double = 0
     @AppStorage(AppSettings.weightUnitKey) private var weightUnitRaw = WeightUnit.poundsOunces.rawValue
     @AppStorage(FeedDefaults.volumeUnit) private var unitRaw = VolumeUnit.ounces.rawValue
     @AppStorage(AppSettings.feedingStyleKey) private var feedingStyleRaw = FeedingStyle.formula.rawValue
@@ -21,14 +24,32 @@ struct BabyView: View {
     private var unit: VolumeUnit { VolumeUnit(rawValue: unitRaw) ?? .ounces }
     private var feedingStyle: FeedingStyle { FeedingStyle(rawValue: feedingStyleRaw) ?? .formula }
     private var profile: BabyProfile {
-        BabyProfile(name: babyName, birthDate: birthInterval > 0 ? Date(timeIntervalSince1970: birthInterval) : nil)
+        BabyProfile(
+            name: babyName,
+            birthDate: birthInterval > 0 ? Date(timeIntervalSince1970: birthInterval) : nil,
+            sex: BabySex(rawValue: sexRaw) ?? .unspecified,
+            dueDate: dueInterval > 0 ? Date(timeIntervalSince1970: dueInterval) : nil
+        )
+    }
+    private var projection: GrowthProjection? {
+        GrowthProjector.project(weights: weights, profile: profile, calendar: calendar)
+    }
+    private var drift: GrowthDrift? {
+        GrowthProjector.drift(weights: weights, profile: profile)
+    }
+
+    private var dueDateBinding: Binding<Date> {
+        Binding(
+            get: { profile.dueDate ?? profile.birthDate ?? AppSettings.calendar.startOfDay(for: .now) },
+            set: { dueInterval = $0.timeIntervalSince1970 }
+        )
     }
     private var weights: [WeightEntry] { allWeights.active(for: UUID(uuidString: currentBabyIDRaw)) }
     private var activeBabies: [Baby] { babies.filter { $0.deletedAt == nil } }
 
     private var birthDateBinding: Binding<Date> {
         Binding(
-            get: { profile.birthDate ?? Calendar.current.startOfDay(for: .now) },
+            get: { profile.birthDate ?? AppSettings.calendar.startOfDay(for: .now) },
             set: { birthInterval = $0.timeIntervalSince1970 }
         )
     }
@@ -38,6 +59,7 @@ struct BabyView: View {
             Form {
                 profileSection
                 weightSection
+                growthSection
                 guidanceSection
                 caregiversSection
             }
@@ -94,19 +116,47 @@ struct BabyView: View {
                 .textInputAutocapitalization(.words)
             if profile.birthDate == nil {
                 Button("Set birthday") {
-                    birthInterval = Calendar.current.startOfDay(for: .now).timeIntervalSince1970
+                    birthInterval = AppSettings.calendar.startOfDay(for: .now).timeIntervalSince1970
                 }
             } else {
                 DatePicker("Birthday", selection: birthDateBinding, in: ...Date.now, displayedComponents: .date)
-                if let age = profile.ageText() {
+                if let age = profile.ageText(calendar: calendar) {
                     LabeledContent("Age", value: age)
+                }
+            }
+
+            Picker("Sex", selection: $sexRaw) {
+                ForEach(BabySex.allCases) { sex in
+                    Text(sex.title).tag(sex.rawValue)
+                }
+            }
+
+            if dueInterval > 0 {
+                DatePicker("Due date", selection: dueDateBinding, displayedComponents: .date)
+                if profile.isPreterm, let corrected = correctedAgeText {
+                    LabeledContent("Corrected age", value: corrected)
+                }
+                Button("Born on time – remove due date") { dueInterval = 0 }
+            } else if profile.birthDate != nil {
+                Button("Born early? Add a due date") {
+                    dueInterval = (profile.birthDate ?? .now).timeIntervalSince1970
                 }
             }
         } header: {
             Text("Profile")
         } footer: {
-            Text("The birthday drives the age-based feeding guide and the default reminder interval.")
+            Text("The birthday drives the age-based feeding guide and the default reminder interval. Sex is only used for growth percentiles, which are measured separately for girls and boys. A due date lets a baby born early be compared at corrected age.")
         }
+    }
+
+    /// Corrected age in whole weeks and days, for a baby born early.
+    private var correctedAgeText: String? {
+        guard let days = profile.growthAgeDays(), days >= 0 else { return "not yet at due date" }
+        let whole = Int(days)
+        if whole < 14 { return whole == 1 ? "1 day" : "\(whole) days" }
+        let weeks = whole / 7
+        let extra = whole % 7
+        return extra == 0 ? "\(weeks) weeks" : "\(weeks)w \(extra)d"
     }
 
     private var weightSection: some View {
@@ -165,7 +215,7 @@ struct BabyView: View {
     /// steadier whole-log rate, and the total since the first weigh-in.
     @ViewBuilder
     private var weightTrend: some View {
-        if let change = WeightStats.lastChange(weights) {
+        if let change = WeightStats.lastChange(weights, calendar: calendar) {
             LabeledContent("Since last weigh-in") {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(weightUnit.formatChange(grams: change.grams))
@@ -203,10 +253,82 @@ struct BabyView: View {
         }
     }
 
+    /// Where the baby sits on the WHO curve, and what that implies for today.
+    @ViewBuilder
+    private var growthSection: some View {
+        if let projection {
+            Section {
+                LabeledContent("Percentile") {
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text(GrowthProjector.ordinal(percentile: projection.anchorPercentile))
+                            .monospacedDigit()
+                        if let drift, abs(drift.deltaPercentile) >= 1 {
+                            Text("was \(GrowthProjector.ordinal(percentile: drift.fromPercentile)) on \(drift.fromDate.formatted(date: .abbreviated, time: .omitted))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                if !projection.isMeasured {
+                    LabeledContent("Estimated today") {
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text(weightUnit.format(grams: projection.estimatedGrams))
+                                .monospacedDigit()
+                            Text("\(weightUnit.format(grams: projection.rangeGrams.lowerBound))–\(weightUnit.format(grams: projection.rangeGrams.upperBound))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                if let days = GrowthProjector.daysUntilFreshWeight(projection) {
+                    LabeledContent("Weigh-in due", value: days == 1 ? "in 1 day" : "in \(days) days")
+                } else {
+                    Label("Time for a fresh weight", systemImage: "scalemass")
+                        .foregroundStyle(.orange)
+                }
+
+                if drift?.hasFallenAChannel == true {
+                    Label(
+                        "\(profile.displayName) has dropped a full percentile band since the last weigh-in. That's worth mentioning to your pediatrician – it's the thing they watch for.",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                }
+            } header: {
+                Text("Growth")
+            } footer: {
+                Text("WHO Child Growth Standards\(profile.isPreterm ? ", at corrected age" : ""). Babies tend to follow their own percentile, so the estimate carries the last weigh-in forward – it isn't a measurement. The percentile re-anchors whenever you log a real weight.")
+            }
+        } else if profile.sex == .unspecified, !weights.isEmpty, profile.birthDate != nil {
+            Section {
+                Picker("Sex", selection: $sexRaw) {
+                    ForEach(BabySex.allCases) { sex in
+                        Text(sex.title).tag(sex.rawValue)
+                    }
+                }
+            } header: {
+                Text("Growth")
+            } footer: {
+                Text("Set \(profile.displayName)'s sex to see percentiles and a daily target that keeps up as \(profile.displayName) grows. WHO's growth standards are measured separately for girls and boys, so there's no way to average them.")
+            }
+        }
+    }
+
     private var guidanceSection: some View {
-        let ageDays = profile.ageInDays()
+        let ageDays = profile.ageInDays(calendar: calendar)
         let band = ageDays.map(FeedingGuidance.ageBand(forAgeDays:))
-        let target = FeedingGuidance.dailyTarget(
+        // Same projection the Today tab uses, so the two tabs can't disagree.
+        let target = projection.flatMap {
+            FeedingGuidance.dailyTarget(
+                projection: $0,
+                ageDays: ageDays,
+                style: feedingStyle,
+                feedsPerDay: feedsPerDay
+            )
+        } ?? FeedingGuidance.dailyTarget(
             weightGrams: weights.first?.grams,
             ageDays: ageDays,
             style: feedingStyle,
@@ -273,7 +395,7 @@ struct BabyView: View {
 
     // MARK: Helpers
 
-    private var weeklyGain: Double? { WeightStats.lastChange(weights)?.gramsPerWeek }
+    private var weeklyGain: Double? { WeightStats.lastChange(weights, calendar: calendar)?.gramsPerWeek }
 
     private func deleteWeights(at offsets: IndexSet) {
         let visible = weights

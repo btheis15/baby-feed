@@ -100,6 +100,49 @@ enum FeedingGuidance {
         var perFeedML: Double { targetML / Double(max(1, feedsPerDay)) }
     }
 
+    /// Daily target from a projected weight rather than a measured one.
+    ///
+    /// Feeding off an estimate is only honest with a range attached, so the
+    /// band either side of the baby's percentile becomes the target range –
+    /// unless the weight rule already supplied one (the first-two-weeks
+    /// ramp-up), which is more useful to a newborn's parent than the band.
+    static func dailyTarget(
+        projection: GrowthProjection,
+        ageDays: Int?,
+        style: FeedingStyle,
+        feedsPerDay: Int = 0
+    ) -> DailyTarget? {
+        guard let middle = dailyTarget(
+            weightGrams: projection.estimatedGrams,
+            ageDays: ageDays,
+            style: style,
+            feedsPerDay: feedsPerDay
+        ) else { return nil }
+
+        // A weight measured today needs no band, and an existing range wins.
+        guard !projection.isMeasured, middle.rangeML == nil,
+              let low = dailyTarget(
+                  weightGrams: projection.rangeGrams.lowerBound,
+                  ageDays: ageDays, style: style, feedsPerDay: feedsPerDay
+              ),
+              let high = dailyTarget(
+                  weightGrams: projection.rangeGrams.upperBound,
+                  ageDays: ageDays, style: style, feedsPerDay: feedsPerDay
+              )
+        else { return middle }
+
+        // Collapses to a point for breastfed babies past the plateau, where
+        // weight legitimately stops driving the number.
+        guard low.targetML != high.targetML else { return middle }
+
+        return DailyTarget(
+            targetML: middle.targetML,
+            rangeML: min(low.targetML, high.targetML)...max(low.targetML, high.targetML),
+            feedsPerDay: middle.feedsPerDay,
+            basis: middle.basis
+        )
+    }
+
     /// Daily target from weight and/or age. Returns nil when there is nothing to go on.
     /// - Parameters:
     ///   - weightGrams: most recent weight, if any.

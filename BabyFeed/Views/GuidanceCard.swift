@@ -9,6 +9,10 @@ struct GuidanceCard: View {
     let unit: VolumeUnit
     let weightText: String?
     let babyName: String
+    /// Set when the target came from a percentile projection rather than a
+    /// weight measured today, so the card can say where the number came from.
+    var projection: GrowthProjection?
+    var weightUnit: WeightUnit = .poundsOunces
     let onAddDetails: () -> Void
 
     var body: some View {
@@ -51,6 +55,21 @@ struct GuidanceCard: View {
                 Text(basisText(for: target))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if let provenance {
+                    Text(provenance)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if projection?.isStale == true {
+                    Label(
+                        "It's been a while since \(babyName) was weighed – a fresh weight will sharpen this.",
+                        systemImage: "scalemass"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                }
             } else {
                 Text("Add \(babyName)'s weight or birthday to see how much to feed.")
                     .font(.subheadline)
@@ -70,9 +89,22 @@ struct GuidanceCard: View {
     /// The basis sentence with the weight it was derived from appended.
     /// `basis` only sometimes ends in a period – the weight-based one reads
     /// "…at 7.5 lb" – so close it off before starting the next sentence.
+    ///
+    /// When the weight is projected the provenance moves to its own line
+    /// instead, so "Using 7 lb 8 oz" can't be mistaken for a measurement.
     private func basisText(for target: FeedingGuidance.DailyTarget) -> String {
-        guard let weightText else { return target.basis }
         let sentence = target.basis.hasSuffix(".") ? target.basis : target.basis + "."
+        guard let weightText, projection == nil || projection?.isMeasured == true else { return sentence }
         return "\(sentence) Using \(weightText)."
+    }
+
+    /// Where a projected number came from. Nil when the weight was measured,
+    /// because then the basis line already says it.
+    private var provenance: String? {
+        guard let projection, !projection.isMeasured else { return nil }
+        let centile = GrowthProjector.ordinal(percentile: projection.anchorPercentile)
+        let weighed = projection.anchorDate.formatted(date: .abbreviated, time: .omitted)
+        let anchor = weightUnit.format(grams: projection.anchorGrams)
+        return "Estimated for today from the \(centile) percentile · last weighed \(anchor) on \(weighed)."
     }
 }
