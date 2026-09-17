@@ -4,15 +4,24 @@ import Foundation
 struct BabyProfile {
     static let nameKey = "baby.name"
     static let birthDateKey = "baby.birthDate"   // timeIntervalSince1970, 0 = unset
+    static let sexKey = "baby.sex"
+    static let dueDateKey = "baby.dueDate"       // timeIntervalSince1970, 0 = unset
 
     var name: String
     var birthDate: Date?
+    /// Only used for WHO percentiles, which are sex-specific.
+    var sex: BabySex = .unspecified
+    /// The original due date, for babies born early. Optional and usually nil.
+    var dueDate: Date?
 
     static func load(from defaults: UserDefaults = .standard) -> BabyProfile {
         let interval = defaults.double(forKey: birthDateKey)
+        let due = defaults.double(forKey: dueDateKey)
         return BabyProfile(
             name: defaults.string(forKey: nameKey) ?? "",
-            birthDate: interval > 0 ? Date(timeIntervalSince1970: interval) : nil
+            birthDate: interval > 0 ? Date(timeIntervalSince1970: interval) : nil,
+            sex: BabySex(rawValue: defaults.string(forKey: sexKey) ?? "") ?? .unspecified,
+            dueDate: due > 0 ? Date(timeIntervalSince1970: due) : nil
         )
     }
 
@@ -23,6 +32,25 @@ struct BabyProfile {
         let start = calendar.startOfDay(for: birthDate)
         let end = calendar.startOfDay(for: date)
         return max(0, calendar.dateComponents([.day], from: start, to: end).day ?? 0)
+    }
+
+    /// True when the due date says the baby arrived more than three weeks early,
+    /// the point at which plotting actual age against term standards misleads.
+    var isPreterm: Bool {
+        guard let birthDate, let dueDate else { return false }
+        return dueDate.timeIntervalSince(birthDate) > 21 * 24 * 3600
+    }
+
+    /// Age to plot on the WHO charts, in days, which may be fractional.
+    ///
+    /// A baby born early is plotted at *corrected* age – measured from the due
+    /// date, not the birthday – because WHO's standards describe babies born at
+    /// term. Without this a 34-weeker reads as alarmingly small. Negative
+    /// before the due date passes, where the term standards simply don't apply.
+    func growthAgeDays(on date: Date = .now) -> Double? {
+        guard let birthDate else { return nil }
+        let anchor = dueDate ?? birthDate
+        return date.timeIntervalSince(anchor) / (24 * 3600)
     }
 
     /// "3 days old", "2 weeks old", "3 months old".
