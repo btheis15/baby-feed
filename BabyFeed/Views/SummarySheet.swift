@@ -15,6 +15,7 @@ struct SummarySheet: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Query(sort: \FeedEntry.startTime, order: .reverse) private var entries: [FeedEntry]
     @Query(sort: \WeightEntry.date, order: .reverse) private var weights: [WeightEntry]
+    @Query(sort: \CareNote.date, order: .reverse) private var careNotes: [CareNote]
 
     @AppStorage(FeedDefaults.volumeUnit) private var unitRaw = VolumeUnit.ounces.rawValue
     @AppStorage(AppSettings.weightUnitKey) private var weightUnitRaw = WeightUnit.poundsOunces.rawValue
@@ -31,6 +32,7 @@ struct SummarySheet: View {
         DaySummaryGenerator.report(
             entries: entries.active(for: UUID(uuidString: currentBabyIDRaw)),
             weights: weights.active(for: UUID(uuidString: currentBabyIDRaw)),
+            careNotes: careNotes.active(for: UUID(uuidString: currentBabyIDRaw)),
             days: days,
             unit: unit,
             weightUnit: weightUnit,
@@ -62,6 +64,10 @@ struct SummarySheet: View {
                         Text("No feeds logged in this period.")
                             .foregroundStyle(.secondary)
                     }
+                }
+
+                if report.hasNotes {
+                    notesSection(report.notes)
                 }
 
                 if let friendly {
@@ -198,6 +204,37 @@ struct SummarySheet: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// The notes, which are the part a doctor reads rather than scans.
+    private func notesSection(_ notes: [DaySummaryGenerator.Report.Note]) -> some View {
+        Section {
+            ForEach(notes) { note in
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(note.kindTitle)
+                            .font(.subheadline.weight(.medium))
+                        if let severity = note.severityTitle {
+                            Text(severity)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        Text(note.dateText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(note.text)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 2)
+            }
+        } header: {
+            Text("Notes")
+        } footer: {
+            Text("Anything logged outside feeds in this period.")
+        }
     }
 
     @ViewBuilder

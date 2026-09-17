@@ -22,31 +22,74 @@ enum FeedDefaults {
         "defaultAmountML.\(kind.rawValue)"
     }
 
+    /// What this caregiver actually tends to give for a kind, in ml – the
+    /// median of recent feeds, mirrored out by `FeedCoordinator`. 0 when there
+    /// isn't enough history to call it a habit.
+    static func typicalKey(for kind: FeedKind) -> String {
+        "typicalAmountML.\(kind.rawValue)"
+    }
+
     static var recommendedPerFeedML: Double {
         get { UserDefaults.standard.double(forKey: recommendedPerFeedKey) }
         set { UserDefaults.standard.set(newValue, forKey: recommendedPerFeedKey) }
     }
 
-    /// The amount a bottle should start at, in ml.
+    /// Where a bottle's starting amount comes from.
+    enum AmountSource: Equatable {
+        /// The caregiver pinned a number in Settings.
+        case pinned
+        /// The median of what they actually give, once it's a habit.
+        case learned
+        /// The guidance's per-feed amount from weight and age.
+        case recommended
+        /// Nothing known about the baby yet.
+        case fallback
+    }
+
+    /// The amount a bottle should start at, in ml, and where it came from.
     ///
-    /// A pinned amount wins, because a caregiver who says their baby takes
-    /// 5 oz shouldn't be argued with. Otherwise the guidance's per-feed amount,
-    /// which follows the baby's weight and age, rounded to the unit's step so
-    /// it reads as "2.5 oz" rather than "2.35 oz". Failing both – no weight and
-    /// no birthday yet – a plain starting amount.
+    /// In order:
+    /// 1. A pinned amount, because an explicit choice shouldn't be argued with.
+    /// 2. What this caregiver actually tends to give. If every bottle is 20 ml,
+    ///    offering 70 is just something to tap past – their baby beats a rule
+    ///    of thumb, and this moves as they do.
+    /// 3. The guidance's per-feed amount, which follows weight and age.
+    /// 4. A plain starting amount, with no birthday or weight to work from.
+    ///
+    /// The recommendation stays visible either way – in the log sheet note and
+    /// in Settings – so following the habit never hides the guidance.
+    static func amount(
+        for kind: FeedKind,
+        unit: VolumeUnit,
+        defaults: UserDefaults = .standard
+    ) -> (ml: Double, source: AmountSource) {
+        let pinned = defaults.double(forKey: amountKey(for: kind))
+        if pinned > 0 { return (pinned, .pinned) }
+
+        let learned = defaults.double(forKey: typicalKey(for: kind))
+        if learned > 0 { return (snap(learned, unit: unit), .learned) }
+
+        let recommended = defaults.double(forKey: recommendedPerFeedKey)
+        if recommended > 0 { return (snap(recommended, unit: unit), .recommended) }
+
+        return (unit.toMilliliters(unit.defaultAmount), .fallback)
+    }
+
     static func defaultAmountML(
         for kind: FeedKind,
         unit: VolumeUnit,
         defaults: UserDefaults = .standard
     ) -> Double {
-        let pinned = defaults.double(forKey: amountKey(for: kind))
-        if pinned > 0 { return pinned }
+        amount(for: kind, unit: unit, defaults: defaults).ml
+    }
 
-        let recommended = defaults.double(forKey: recommendedPerFeedKey)
-        if recommended > 0 {
-            return unit.toMilliliters(unit.rounded(unit.fromMilliliters(recommended)))
-        }
-        return unit.toMilliliters(unit.defaultAmount)
+    /// Rounded to the unit's step, so it reads as "2.5 oz" not "2.35 oz".
+    private static func snap(_ ml: Double, unit: VolumeUnit) -> Double {
+        unit.toMilliliters(unit.rounded(unit.fromMilliliters(ml)))
+    }
+
+    static func setTypicalAmountML(_ ml: Double?, for kind: FeedKind, defaults: UserDefaults = .standard) {
+        defaults.set(ml ?? 0, forKey: typicalKey(for: kind))
     }
 
     /// True when this kind is following the recommendation rather than a pin.

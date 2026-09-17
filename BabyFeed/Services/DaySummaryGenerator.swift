@@ -32,6 +32,16 @@ enum DaySummaryGenerator {
             let value: String
         }
 
+        /// A note logged in the window – the thing you'd otherwise forget.
+        struct Note: Identifiable {
+            let id: UUID
+            let dateText: String
+            let kindTitle: String
+            /// "Moderate", when the kind has a severity.
+            let severityTitle: String?
+            let text: String
+        }
+
         var babyName: String
         var ageText: String?
         var windowText: String
@@ -42,13 +52,16 @@ enum DaySummaryGenerator {
         /// Totals across the window.
         var totalItems: [Item]
         var days: [Day]
+        var notes: [Note]
 
         var hasFeeds: Bool { !days.isEmpty }
+        var hasNotes: Bool { !notes.isEmpty }
     }
 
     static func report(
         entries: [FeedEntry],
         weights: [WeightEntry],
+        careNotes: [CareNote] = [],
         days: Int,
         unit: VolumeUnit,
         weightUnit: WeightUnit,
@@ -144,6 +157,19 @@ enum DaySummaryGenerator {
             }
         }
 
+        let notes = careNotes
+            .filter { $0.date >= cutoff && $0.deletedAt == nil }
+            .sorted { $0.date > $1.date }
+            .map { careNote in
+                Report.Note(
+                    id: careNote.uuid ?? UUID(),
+                    dateText: FeedStats.dayTitle(for: calendar.startOfDay(for: careNote.date), calendar: calendar, now: now),
+                    kindTitle: careNote.kind.title,
+                    severityTitle: careNote.severity?.title,
+                    text: careNote.note
+                )
+            }
+
         return Report(
             babyName: profile.displayName,
             ageText: profile.ageText(on: now, calendar: calendar),
@@ -151,7 +177,8 @@ enum DaySummaryGenerator {
             weightItems: weightItems,
             averageItems: averageItems,
             totalItems: totalItems,
-            days: dayRows
+            days: dayRows,
+            notes: notes
         )
     }
 
@@ -170,6 +197,7 @@ enum DaySummaryGenerator {
     static func factualSummary(
         entries: [FeedEntry],
         weights: [WeightEntry],
+        careNotes: [CareNote] = [],
         days: Int,
         unit: VolumeUnit,
         weightUnit: WeightUnit,
@@ -180,6 +208,7 @@ enum DaySummaryGenerator {
         plainText(from: report(
             entries: entries,
             weights: weights,
+            careNotes: careNotes,
             days: days,
             unit: unit,
             weightUnit: weightUnit,
@@ -201,8 +230,9 @@ enum DaySummaryGenerator {
             lines.append(report.weightItems.map { "\($0.label): \($0.value)" }.joined(separator: ", "))
         }
 
-        guard report.hasFeeds else {
+        if !report.hasFeeds {
             lines.append("No feeds logged in this period.")
+            lines.append(contentsOf: noteLines(report))
             return lines.joined(separator: "\n")
         }
 
@@ -220,7 +250,23 @@ enum DaySummaryGenerator {
             if let nursing = day.nursingText { parts.append("\(nursing) nursing") }
             lines.append("\(day.title): " + parts.joined(separator: " · "))
         }
+
+        lines.append(contentsOf: noteLines(report))
         return lines.joined(separator: "\n")
+    }
+
+    /// Pulled out so a window with no feeds still carries its notes – the
+    /// point of them is the appointment, and they mustn't depend on whether
+    /// anyone remembered to log bottles that week.
+    private static func noteLines(_ report: Report) -> [String] {
+        guard report.hasNotes else { return [] }
+        var lines = ["", "Notes"]
+        for note in report.notes {
+            var heading = "\(note.dateText) — \(note.kindTitle)"
+            if let severity = note.severityTitle { heading += " (\(severity.lowercased()))" }
+            lines.append("\(heading): \(note.text)")
+        }
+        return lines
     }
 
     /// True when Apple Intelligence is available on this device.

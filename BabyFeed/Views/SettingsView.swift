@@ -12,6 +12,8 @@ struct SettingsView: View {
     @AppStorage(FeedDefaults.amountKey(for: .breastMilk)) private var breastMilkML: Double = 0
     /// Read so these rows update as the guidance follows the baby.
     @AppStorage(FeedDefaults.recommendedPerFeedKey) private var recommendedML: Double = 0
+    @AppStorage(FeedDefaults.typicalKey(for: .formula)) private var formulaTypicalML: Double = 0
+    @AppStorage(FeedDefaults.typicalKey(for: .breastMilk)) private var breastMilkTypicalML: Double = 0
 
     @AppStorage(AppSettings.remindersEnabledKey) private var remindersEnabled = false
     /// 0 means "typical for age".
@@ -166,6 +168,17 @@ struct SettingsView: View {
         }
     }
 
+    private var defaultsFooter: String {
+        let name = babyName.isEmpty ? "Baby" : babyName
+        if formulaTypicalML > 0 || breastMilkTypicalML > 0 {
+            return "Bottles start at what you usually give, worked out from your recent feeds, so it moves as \(name) does. The recommendation for \(name)'s weight and age still shows when you log a feed. Pin an amount to stop both."
+        }
+        if recommendedML > 0 {
+            return "Bottles start at the recommended amount for \(name)'s weight and age and follow it as they grow. Once you've logged a few, they'll start at what you usually give instead."
+        }
+        return "Bottles will start at the recommended amount once there's a weight and a birthday to work from. Until then they start at \(unit.format(milliliters: unit.toMilliliters(unit.defaultAmount)))."
+    }
+
     private var timeZoneSection: some View {
         Section {
             NavigationLink {
@@ -194,9 +207,7 @@ struct SettingsView: View {
         } header: {
             Text("Default amounts")
         } footer: {
-            Text(recommendedML > 0
-                 ? "Bottles start at the recommended amount for \(babyName.isEmpty ? "Baby" : babyName)'s weight and age, and follow it as they grow \u{2013} nothing to keep up with by hand. Pin an amount if your baby reliably takes something else."
-                 : "Bottles will start at the recommended amount once there's a weight and a birthday to work from. Until then they start at \(unit.format(milliliters: unit.toMilliliters(unit.defaultAmount))).")
+            Text(defaultsFooter)
         }
     }
 
@@ -259,18 +270,29 @@ struct SettingsView: View {
             }
             .font(.footnote)
         } else {
+            let resolved = FeedDefaults.amount(for: kind, unit: unit)
             LabeledContent(title) {
-                Text(recommendedML > 0
-                     ? "Recommended · \(unit.format(milliliters: FeedDefaults.defaultAmountML(for: kind, unit: unit)))"
-                     : "Recommended")
+                Text(sourceLabel(resolved))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
             Button("Pin an amount for \(title.lowercased()) instead") {
                 // Seed from whatever is showing, so pinning never jumps.
-                ml.wrappedValue = FeedDefaults.defaultAmountML(for: kind, unit: unit)
+                ml.wrappedValue = resolved.ml
             }
             .font(.footnote)
+        }
+    }
+
+    /// "Your usual · 20 ml" vs "Recommended · 70 ml" – a learned default that
+    /// doesn't say so just looks like a wrong recommendation.
+    private func sourceLabel(_ resolved: (ml: Double, source: FeedDefaults.AmountSource)) -> String {
+        let amount = unit.format(milliliters: resolved.ml)
+        switch resolved.source {
+        case .learned: return "Your usual · \(amount)"
+        case .recommended: return "Recommended · \(amount)"
+        case .fallback: return "Starting at \(amount)"
+        case .pinned: return amount
         }
     }
 

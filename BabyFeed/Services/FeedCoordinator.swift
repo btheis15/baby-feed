@@ -34,8 +34,14 @@ enum FeedCoordinator {
         ).target
 
         // Mirrored out so the log sheet, quick-log buttons and Siri can all
-        // start a bottle at the recommended amount without touching SwiftData.
+        // start a bottle at the right amount without touching SwiftData.
         FeedDefaults.recommendedPerFeedML = target?.perFeedML ?? 0
+        for kind in FeedKind.allCases where kind.usesVolume {
+            FeedDefaults.setTypicalAmountML(
+                FeedStats.typicalAmountML(entries, kind: kind),
+                for: kind
+            )
+        }
 
         let snapshot = FeedSnapshot(
             lastFeed: lastFeed.map {

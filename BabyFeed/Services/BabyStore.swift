@@ -15,7 +15,12 @@ enum BabyStore {
         if current == nil {
             // First launch (or upgrade from the profile-in-defaults version).
             let profile = BabyProfile.load()
-            let baby = Baby(name: profile.name, birthDate: profile.birthDate)
+            let baby = Baby(
+                name: profile.name,
+                birthDate: profile.birthDate,
+                sex: profile.sex,
+                dueDate: profile.dueDate
+            )
             context.insert(baby)
             current = baby
         }
@@ -34,6 +39,11 @@ enum BabyStore {
         for weight in weights {
             if weight.uuid == nil { weight.uuid = UUID() }
             if weight.babyID == nil { weight.babyID = current.uuid }
+        }
+        let careNotes = (try? context.fetch(FetchDescriptor<CareNote>())) ?? []
+        for careNote in careNotes {
+            if careNote.uuid == nil { careNote.uuid = UUID() }
+            if careNote.babyID == nil { careNote.babyID = current.uuid }
         }
         try? context.save()
     }
@@ -74,6 +84,14 @@ enum BabyStore {
             baby.birthDate = profile.birthDate
             changed = true
         }
+        if baby.sex != profile.sex {
+            baby.sex = profile.sex
+            changed = true
+        }
+        if baby.dueDate != profile.dueDate {
+            baby.dueDate = profile.dueDate
+            changed = true
+        }
         if changed {
             baby.markChanged()
             try? context.save()
@@ -88,11 +106,19 @@ enum BabyStore {
         let defaults = UserDefaults.standard
         defaults.set(baby.name, forKey: BabyProfile.nameKey)
         defaults.set(baby.birthDate?.timeIntervalSince1970 ?? 0, forKey: BabyProfile.birthDateKey)
+        defaults.set(baby.sexRaw, forKey: BabyProfile.sexKey)
+        defaults.set(baby.dueDate?.timeIntervalSince1970 ?? 0, forKey: BabyProfile.dueDateKey)
     }
 
     /// Adds a new local baby (e.g. a twin) and makes it current.
-    static func addBaby(name: String, birthDate: Date?, in context: ModelContext) -> Baby {
-        let baby = Baby(name: name, birthDate: birthDate)
+    static func addBaby(
+        name: String,
+        birthDate: Date?,
+        sex: BabySex = .unspecified,
+        dueDate: Date? = nil,
+        in context: ModelContext
+    ) -> Baby {
+        let baby = Baby(name: name, birthDate: birthDate, sex: sex, dueDate: dueDate)
         context.insert(baby)
         try? context.save()
         setCurrent(baby, in: context)
@@ -106,6 +132,8 @@ enum BabyStore {
         feeds.forEach(context.delete)
         let weights = (try? context.fetch(FetchDescriptor<WeightEntry>(predicate: #Predicate { $0.babyID == id }))) ?? []
         weights.forEach(context.delete)
+        let careNotes = (try? context.fetch(FetchDescriptor<CareNote>(predicate: #Predicate { $0.babyID == id }))) ?? []
+        careNotes.forEach(context.delete)
         context.delete(baby)
         try? context.save()
 

@@ -184,6 +184,44 @@ enum FeedStats {
         ElapsedText.compact(minutes: Int((hours * 60).rounded()))
     }
 
+    /// The amount this caregiver actually tends to give for a kind of bottle.
+    ///
+    /// The median of the most recent feeds rather than the mean, so one 150 ml
+    /// outlier or a mis-tapped 10 ml doesn't drag it. Nil until there are
+    /// enough feeds to be a habit rather than a coincidence – guessing from two
+    /// bottles would make the default jump around.
+    ///
+    /// - Parameters:
+    ///   - recentCount: how many of the latest feeds of that kind to consider.
+    ///   - minimumSamples: below this, there's no habit to learn.
+    static func typicalAmountML(
+        _ entries: [FeedEntry],
+        kind: FeedKind,
+        recentCount: Int = 10,
+        minimumSamples: Int = 4
+    ) -> Double? {
+        let amounts = entries
+            .filter { $0.kind == kind && $0.deletedAt == nil }
+            .sorted { $0.startTime > $1.startTime }
+            .prefix(recentCount)
+            .compactMap(\.amountML)
+            .filter { $0 > 0 }
+
+        guard amounts.count >= minimumSamples else { return nil }
+        return median(of: amounts)
+    }
+
+    /// Middle value, averaging the two middles for an even count.
+    static func median(of values: [Double]) -> Double? {
+        guard !values.isEmpty else { return nil }
+        let sorted = values.sorted()
+        let middle = sorted.count / 2
+        if sorted.count.isMultiple(of: 2) {
+            return (sorted[middle - 1] + sorted[middle]) / 2
+        }
+        return sorted[middle]
+    }
+
     /// Averages over a window of whole calendar days. `skip` days back from
     /// today are excluded first, then `days` days are measured – so
     /// `days: 7, skip: 1` is the last seven complete days, ending yesterday,
