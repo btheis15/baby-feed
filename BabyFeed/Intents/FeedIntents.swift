@@ -49,11 +49,11 @@ struct LogFeedIntent: AppIntent {
         let entry: FeedEntry
         if feedKind.usesVolume {
             let ml = amount.map { unit.toMilliliters($0) } ?? FeedDefaults.defaultAmountML(for: feedKind, unit: unit)
-            entry = FeedEntry(kind: feedKind, amountML: ml)
+            entry = FeedEntry(babyID: AppSettings.currentBabyID, kind: feedKind, amountML: ml, loggedByName: AppSettings.displayName)
             FeedDefaults.setDefaultAmountML(ml, for: feedKind)
         } else {
             let duration = minutes ?? FeedDefaults.defaultNursingMinutes()
-            entry = FeedEntry(kind: feedKind, durationMinutes: duration)
+            entry = FeedEntry(babyID: AppSettings.currentBabyID, kind: feedKind, durationMinutes: duration, loggedByName: AppSettings.displayName)
             FeedDefaults.setDefaultNursingMinutes(duration)
         }
 
@@ -74,10 +74,10 @@ struct LastFeedIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let context = ModelContext(AppModelContainer.shared)
-        var fetch = FetchDescriptor<FeedEntry>(sortBy: [SortDescriptor(\.startTime, order: .reverse)])
-        fetch.fetchLimit = 1
+        let fetch = FetchDescriptor<FeedEntry>(sortBy: [SortDescriptor(\.startTime, order: .reverse)])
+        let all = try context.fetch(fetch)
 
-        guard let last = try context.fetch(fetch).first else {
+        guard let last = all.active(for: AppSettings.currentBabyID).first else {
             return .result(dialog: "No feeds logged yet.")
         }
 

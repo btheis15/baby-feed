@@ -16,8 +16,12 @@ lack of sleep and washing bottles.
 - History by day with a 24-hour strip of feed times, trend charts, and a plain-text
   summary for the pediatrician (optionally rewritten on-device by Apple Intelligence)
 - Weight log with chart and weekly gain
-- Ounces or milliliters, CSV export, no account, no subscription, everything stays on
-  your phone
+- **Share with other caregivers**: sign in with Apple, share the baby, and hand your
+  partner (or grandparents, or the nanny) a 6-character code. Everyone sees the same log
+  within seconds, sees who logged what, and it all keeps working offline. Any number of
+  caregivers, and more than one baby per phone
+- Ounces or milliliters, CSV export, no subscription, no ads. Signing in is only needed
+  for sharing
 
 See [PLAN.md](PLAN.md) for the research behind the features, the guidance sources, the
 iOS integration list, and what's planned next.
@@ -32,6 +36,11 @@ Requires **Xcode 26 or newer** and **iOS 26 or newer**.
 3. Pick a simulator or your iPhone and press Run (`Cmd+R`).
 4. `Cmd+U` runs the unit tests.
 
+**Sharing between phones** needs a small backend: follow [supabase/README.md](supabase/README.md)
+(free tier, about five minutes) and paste the project URL and key into
+`BabyFeed/Services/Sync/SupabaseConfig.swift`. The Xcode project pulls in the
+`supabase-swift` package on first open.
+
 **Free personal team?** Widgets/Live Activity use an App Group and reminders use the Time
 Sensitive entitlement; both need a paid developer membership. Remove those capabilities
 from `BabyFeed/BabyFeed.entitlements` and `BabyFeedWidget/BabyFeedWidget.entitlements`
@@ -40,10 +49,11 @@ from `BabyFeed/BabyFeed.entitlements` and `BabyFeedWidget/BabyFeedWidget.entitle
 ## Project layout
 
 ```
-BabyFeed/            SwiftUI app: Models, Services (reminders, alarm, live activity), Intents (Siri), Views
+BabyFeed/            SwiftUI app: Models, Services (reminders, alarm, live activity, sync), Intents (Siri), Views
 Shared/              Types compiled into both the app and the widget
 BabyFeedWidget/      Lock Screen / Home Screen widget and the Live Activity
-BabyFeedTests/       Unit tests for guidance rules, units, stats, CSV, snapshot
+BabyFeedTests/       Unit tests for guidance rules, units, stats, CSV, snapshot, sync merge rules
+supabase/            Database schema and setup guide for caregiver sync
 ```
 
 ## Medical note

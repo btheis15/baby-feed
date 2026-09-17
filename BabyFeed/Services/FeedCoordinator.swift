@@ -3,18 +3,18 @@ import SwiftData
 import WidgetKit
 
 /// The one place that reacts to data changing. Every save or delete funnels
-/// through here so widgets, the reminder, and the Live Activity stay in step.
+/// through here so widgets, the reminder, the Live Activity and sync stay in step.
 @MainActor
 enum FeedCoordinator {
-    static func feedsDidChange(in context: ModelContext) {
+    static func feedsDidChange(in context: ModelContext, triggerSync: Bool = true) {
         try? context.save()
 
-        var feedFetch = FetchDescriptor<FeedEntry>(sortBy: [SortDescriptor(\.startTime, order: .reverse)])
-        feedFetch.fetchLimit = 200
-        let entries = (try? context.fetch(feedFetch)) ?? []
+        let babyID = AppSettings.currentBabyID
+        let allFeeds = (try? context.fetch(FetchDescriptor<FeedEntry>(sortBy: [SortDescriptor(\.startTime, order: .reverse)]))) ?? []
+        let entries = allFeeds.active(for: babyID)
 
-        let weightFetch = FetchDescriptor<WeightEntry>(sortBy: [SortDescriptor(\.date, order: .reverse)])
-        let weights = (try? context.fetch(weightFetch)) ?? []
+        let allWeights = (try? context.fetch(FetchDescriptor<WeightEntry>(sortBy: [SortDescriptor(\.date, order: .reverse)]))) ?? []
+        let weights = allWeights.active(for: babyID)
 
         let unit = AppSettings.volumeUnit
         let profile = BabyProfile.load()
@@ -53,10 +53,25 @@ enum FeedCoordinator {
                 babyName: profile.displayName
             )
         }
+
+        if triggerSync {
+            SyncEngine.shared.requestSync()
+        }
     }
 
     /// Weight, profile or settings changed. Same refresh; reads the new values.
     static func settingsDidChange(in context: ModelContext) {
         feedsDidChange(in: context)
+    }
+
+    /// Deletes are soft so they reach other caregivers' phones.
+    static func delete(_ entry: FeedEntry, in context: ModelContext) {
+        entry.softDelete()
+        feedsDidChange(in: context)
+    }
+
+    static func delete(_ weight: WeightEntry, in context: ModelContext) {
+        weight.softDelete()
+        settingsDidChange(in: context)
     }
 }

@@ -15,14 +15,17 @@ struct SettingsView: View {
     @AppStorage(AppSettings.useAlarmKey) private var useAlarm = false
     @AppStorage(AppSettings.liveActivityKey) private var liveActivity = true
     @AppStorage(BabyProfile.birthDateKey) private var birthInterval: Double = 0
+    @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
     @State private var permissionMessage: String?
 
     private var unit: VolumeUnit { VolumeUnit(rawValue: unitRaw) ?? .ounces }
+    private var activeEntries: [FeedEntry] { entries.active(for: UUID(uuidString: currentBabyIDRaw)) }
 
     var body: some View {
         NavigationStack {
             Form {
+                caregiversSection
                 remindersSection
                 unitsSection
                 defaultsSection
@@ -63,6 +66,38 @@ struct SettingsView: View {
     }
 
     // MARK: Sections
+
+    private var caregiversSection: some View {
+        Section {
+            NavigationLink {
+                FamilyView()
+            } label: {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Caregivers & sync")
+                        Text(caregiversSubtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "person.2.fill")
+                }
+            }
+        } footer: {
+            Text("Share the log with your partner or anyone else who feeds the baby. Everyone sees the same feeds.")
+        }
+    }
+
+    private var caregiversSubtitle: String {
+        switch SyncEngine.shared.status {
+        case .notConfigured: "Not set up in this build"
+        case .signedOut: "Sign in to share with other caregivers"
+        case .syncing: "Syncing…"
+        case .idle(let lastSync):
+            if let lastSync { "Synced \(lastSync.formatted(date: .omitted, time: .shortened))" } else { "Signed in" }
+        case .error: "Sync problem – tap for details"
+        }
+    }
 
     private var remindersSection: some View {
         Section {
@@ -152,23 +187,23 @@ struct SettingsView: View {
 
     private var exportSection: some View {
         Section {
-            ShareLink(item: FeedStats.csv(entries, unit: unit), subject: Text("Baby Feed log")) {
+            ShareLink(item: FeedStats.csv(activeEntries, unit: unit), subject: Text("Baby Feed log")) {
                 Label("Export as CSV", systemImage: "square.and.arrow.up")
             }
-            .disabled(entries.isEmpty)
+            .disabled(activeEntries.isEmpty)
         } header: {
             Text("Export")
         } footer: {
-            Text(entries.isEmpty
+            Text(activeEntries.isEmpty
                  ? "Log a feed first, then you can export your history."
-                 : "\(entries.count) feeds. The History tab also has a plain-text summary for the pediatrician.")
+                 : "\(activeEntries.count) feeds. The History tab also has a plain-text summary for the pediatrician.")
         }
     }
 
     private var aboutSection: some View {
         Section("About") {
             LabeledContent("Version", value: appVersion)
-            Text("Feeds are stored only on this device. No account, no cloud, no tracking.")
+            Text("Feeds are stored on this device and, only if you share with other caregivers, in your own private sync backend. No ads, no tracking.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -218,5 +253,6 @@ struct SettingsView: View {
 
 #Preview {
     SettingsView()
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self], inMemory: true)
+        .environment(AppRouter())
+        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self], inMemory: true)
 }

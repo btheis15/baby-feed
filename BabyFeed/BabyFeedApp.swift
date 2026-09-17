@@ -5,7 +5,7 @@ import UserNotifications
 /// One container for the app and its App Intents (Siri runs intents in-process).
 enum AppModelContainer {
     static let shared: ModelContainer = {
-        let schema = Schema([FeedEntry.self, WeightEntry.self])
+        let schema = Schema([FeedEntry.self, WeightEntry.self, Baby.self])
         do {
             return try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema)])
         } catch {
@@ -17,7 +17,13 @@ enum AppModelContainer {
 @main
 struct BabyFeedApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
     @State private var router = AppRouter()
+
+    init() {
+        BabyStore.bootstrap(in: AppModelContainer.shared.mainContext)
+        SyncEngine.shared.start(container: AppModelContainer.shared)
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -31,6 +37,11 @@ struct BabyFeedApp: App {
                 }
         }
         .modelContainer(AppModelContainer.shared)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                SyncEngine.shared.requestSync()
+            }
+        }
     }
 }
 

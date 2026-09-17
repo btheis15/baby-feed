@@ -15,8 +15,8 @@ struct FeedRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.kind.title)
                     .font(.headline)
-                if !entry.note.isEmpty {
-                    Text(entry.note)
+                if !entry.note.isEmpty || !entry.loggedByName.isEmpty {
+                    Text([entry.loggedByName, entry.note].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

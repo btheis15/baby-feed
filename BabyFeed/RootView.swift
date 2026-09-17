@@ -29,11 +29,14 @@ struct RootView: View {
         .sheet(isPresented: $router.showLogSheet) {
             LogFeedSheet(mode: .new(router.pendingLogKind ?? .formula))
         }
+        .sheet(isPresented: $router.showJoinSheet) {
+            JoinBabySheet(initialCode: router.pendingJoinCode ?? "")
+        }
     }
 }
 
 #Preview {
     RootView()
         .environment(AppRouter())
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self], inMemory: true)
+        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self], inMemory: true)
 }

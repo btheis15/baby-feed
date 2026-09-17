@@ -83,9 +83,9 @@ struct AddWeightSheet: View {
     }
 
     private func prefillFromLatest() {
-        var fetch = FetchDescriptor<WeightEntry>(sortBy: [SortDescriptor(\.date, order: .reverse)])
-        fetch.fetchLimit = 1
-        guard let latest = try? modelContext.fetch(fetch).first else { return }
+        let fetch = FetchDescriptor<WeightEntry>(sortBy: [SortDescriptor(\.date, order: .reverse)])
+        let all = (try? modelContext.fetch(fetch)) ?? []
+        guard let latest = all.active(for: AppSettings.currentBabyID).first else { return }
         let split = WeightUnit.poundsAndOunces(grams: latest.grams)
         pounds = split.pounds
         ounces = split.ounces
@@ -94,7 +94,13 @@ struct AddWeightSheet: View {
 
     private func save() {
         guard let grams else { return }
-        let entry = WeightEntry(date: date, grams: grams, note: note.trimmingCharacters(in: .whitespacesAndNewlines))
+        let entry = WeightEntry(
+            babyID: AppSettings.currentBabyID,
+            date: date,
+            grams: grams,
+            note: note.trimmingCharacters(in: .whitespacesAndNewlines),
+            loggedByName: AppSettings.displayName
+        )
         modelContext.insert(entry)
         FeedCoordinator.settingsDidChange(in: modelContext)
         dismiss()
@@ -103,5 +109,5 @@ struct AddWeightSheet: View {
 
 #Preview {
     AddWeightSheet(weightUnit: .poundsOunces)
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self], inMemory: true)
+        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self], inMemory: true)
 }

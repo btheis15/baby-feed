@@ -10,6 +10,8 @@ enum AppSettings {
     static let feedingStyleKey = "guidance.feedingStyle"
     static let feedsPerDayKey = "guidance.feedsPerDay"
     static let weightUnitKey = "weightUnit"
+    static let currentBabyIDKey = "baby.currentID"
+    static let displayNameKey = "sync.displayName"
 
     static let defaultIntervalMinutes = 180
     static let intervalChoices = [120, 150, 180, 210, 240]
@@ -46,6 +48,18 @@ enum AppSettings {
 
     static var weightUnit: WeightUnit {
         WeightUnit(rawValue: defaults.string(forKey: weightUnitKey) ?? "") ?? .poundsOunces
+    }
+
+    /// The baby whose log is showing. Set by `BabyStore`.
+    static var currentBabyID: UUID? {
+        get { defaults.string(forKey: currentBabyIDKey).flatMap(UUID.init(uuidString:)) }
+        set { defaults.set(newValue?.uuidString, forKey: currentBabyIDKey) }
+    }
+
+    /// How this caregiver appears to others ("Brian").
+    static var displayName: String {
+        get { defaults.string(forKey: displayNameKey) ?? "" }
+        set { defaults.set(newValue, forKey: displayNameKey) }
     }
 
     static func nextDue(after lastFeed: Date) -> Date {

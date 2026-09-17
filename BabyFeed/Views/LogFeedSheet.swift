@@ -299,12 +299,14 @@ struct LogFeedSheet: View {
         switch mode {
         case .new:
             let entry = FeedEntry(
+                babyID: AppSettings.currentBabyID,
                 startTime: time,
                 kind: kind,
                 amountML: amountML,
                 durationMinutes: duration,
                 side: nursingSide,
-                note: trimmedNote
+                note: trimmedNote,
+                loggedByName: AppSettings.displayName
             )
             modelContext.insert(entry)
         case .edit(let entry):
@@ -314,6 +316,7 @@ struct LogFeedSheet: View {
             entry.durationMinutes = duration
             entry.side = nursingSide
             entry.note = trimmedNote
+            entry.markChanged()
         }
 
         // What you just saved becomes the next default.
@@ -329,8 +332,7 @@ struct LogFeedSheet: View {
 
     private func deleteEntry() {
         if case .edit(let entry) = mode {
-            modelContext.delete(entry)
-            FeedCoordinator.feedsDidChange(in: modelContext)
+            FeedCoordinator.delete(entry, in: modelContext)
         }
         dismiss()
     }
@@ -338,10 +340,10 @@ struct LogFeedSheet: View {
 
 #Preview("New formula") {
     LogFeedSheet(mode: .new(.formula))
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self], inMemory: true)
+        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self], inMemory: true)
 }
 
 #Preview("New nursing") {
     LogFeedSheet(mode: .new(.nursing))
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self], inMemory: true)
+        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self], inMemory: true)
 }

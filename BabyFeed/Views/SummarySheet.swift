@@ -10,6 +10,7 @@ struct SummarySheet: View {
 
     @AppStorage(FeedDefaults.volumeUnit) private var unitRaw = VolumeUnit.ounces.rawValue
     @AppStorage(AppSettings.weightUnitKey) private var weightUnitRaw = WeightUnit.poundsOunces.rawValue
+    @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
     @State private var days = 7
     @State private var friendly: String?
@@ -20,8 +21,8 @@ struct SummarySheet: View {
 
     private var facts: String {
         DaySummaryGenerator.factualSummary(
-            entries: entries,
-            weights: weights,
+            entries: entries.active(for: UUID(uuidString: currentBabyIDRaw)),
+            weights: weights.active(for: UUID(uuidString: currentBabyIDRaw)),
             days: days,
             unit: unit,
             weightUnit: weightUnit,
@@ -112,5 +113,5 @@ struct SummarySheet: View {
 
 #Preview {
     SummarySheet()
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self], inMemory: true)
+        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self], inMemory: true)
 }

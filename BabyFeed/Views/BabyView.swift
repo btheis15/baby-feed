@@ -5,7 +5,9 @@ import SwiftUI
 /// Baby profile, weight log with chart, and the age-based feeding guide.
 struct BabyView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \WeightEntry.date, order: .reverse) private var weights: [WeightEntry]
+    @Query(sort: \WeightEntry.date, order: .reverse) private var allWeights: [WeightEntry]
+    @Query private var babies: [Baby]
+    @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
     @AppStorage(BabyProfile.nameKey) private var babyName = ""
     @AppStorage(BabyProfile.birthDateKey) private var birthInterval: Double = 0
@@ -22,6 +24,8 @@ struct BabyView: View {
     private var profile: BabyProfile {
         BabyProfile(name: babyName, birthDate: birthInterval > 0 ? Date(timeIntervalSince1970: birthInterval) : nil)
     }
+    private var weights: [WeightEntry] { allWeights.active(for: UUID(uuidString: currentBabyIDRaw)) }
+    private var activeBabies: [Baby] { babies.filter { $0.deletedAt == nil } }
 
     private var birthDateBinding: Binding<Date> {
         Binding(
@@ -36,9 +40,29 @@ struct BabyView: View {
                 profileSection
                 weightSection
                 guidanceSection
+                caregiversSection
             }
             .navigationTitle(profile.displayName)
             .toolbar {
+                if activeBabies.count > 1 {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Menu {
+                            ForEach(activeBabies) { baby in
+                                Button {
+                                    BabyStore.setCurrent(baby, in: modelContext)
+                                } label: {
+                                    if baby.uuid.uuidString == currentBabyIDRaw {
+                                        Label(baby.displayName, systemImage: "checkmark")
+                                    } else {
+                                        Text(baby.displayName)
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("Switch baby", systemImage: "arrow.left.arrow.right")
+                        }
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showAddWeight = true
@@ -50,8 +74,14 @@ struct BabyView: View {
             .sheet(isPresented: $showAddWeight) {
                 AddWeightSheet(weightUnit: weightUnit)
             }
-            .onChange(of: birthInterval) { _, _ in FeedCoordinator.settingsDidChange(in: modelContext) }
-            .onChange(of: babyName) { _, _ in FeedCoordinator.settingsDidChange(in: modelContext) }
+            .onChange(of: birthInterval) { _, _ in
+                BabyStore.profileDefaultsChanged(in: modelContext)
+                FeedCoordinator.settingsDidChange(in: modelContext)
+            }
+            .onChange(of: babyName) { _, _ in
+                BabyStore.profileDefaultsChanged(in: modelContext)
+                FeedCoordinator.settingsDidChange(in: modelContext)
+            }
             .onChange(of: feedingStyleRaw) { _, _ in FeedCoordinator.settingsDidChange(in: modelContext) }
             .onChange(of: feedsPerDay) { _, _ in FeedCoordinator.settingsDidChange(in: modelContext) }
         }
@@ -207,6 +237,18 @@ struct BabyView: View {
         }
     }
 
+    private var caregiversSection: some View {
+        Section {
+            NavigationLink {
+                FamilyView()
+            } label: {
+                Label("Caregivers & sync", systemImage: "person.2.fill")
+            }
+        } footer: {
+            Text("Share \(profile.displayName)'s log with your partner or other caregivers so everyone sees the same feeds.")
+        }
+    }
+
     // MARK: Helpers
 
     private var weeklyGain: Double? {
@@ -225,8 +267,9 @@ struct BabyView: View {
     }
 
     private func deleteWeights(at offsets: IndexSet) {
+        let visible = weights
         for index in offsets {
-            modelContext.delete(weights[index])
+            visible[index].softDelete()
         }
         FeedCoordinator.settingsDidChange(in: modelContext)
     }
@@ -234,5 +277,6 @@ struct BabyView: View {
 
 #Preview {
     BabyView()
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self], inMemory: true)
+        .environment(AppRouter())
+        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self], inMemory: true)
 }

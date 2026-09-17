@@ -3,29 +3,48 @@ import SwiftData
 
 /// One feed. Bottle feeds carry a volume (always stored in ml);
 /// nursing carries a duration and optionally a side.
+///
+/// Sync fields: `uuid` identifies the row across devices, `babyID` says whose
+/// log it belongs to, `updatedAt` decides conflicts, `deletedAt` is a soft
+/// delete so removals propagate, and `needsUpload` queues it for the next push.
 @Model
 final class FeedEntry {
+    var uuid: UUID?
+    var babyID: UUID?
     var startTime: Date = Date()
     var kindRaw: String = FeedKind.formula.rawValue
     var amountML: Double?
     var durationMinutes: Int?
     var sideRaw: String?
     var note: String = ""
+    /// Display name of whoever logged it, for shared logs.
+    var loggedByName: String = ""
+    var updatedAt: Date = Date()
+    var deletedAt: Date?
+    var needsUpload: Bool = true
 
     init(
+        uuid: UUID = UUID(),
+        babyID: UUID? = nil,
         startTime: Date = .now,
         kind: FeedKind,
         amountML: Double? = nil,
         durationMinutes: Int? = nil,
         side: NursingSide? = nil,
-        note: String = ""
+        note: String = "",
+        loggedByName: String = ""
     ) {
+        self.uuid = uuid
+        self.babyID = babyID
         self.startTime = startTime
         self.kindRaw = kind.rawValue
         self.amountML = amountML
         self.durationMinutes = durationMinutes
         self.sideRaw = side?.rawValue
         self.note = note
+        self.loggedByName = loggedByName
+        self.updatedAt = .now
+        self.needsUpload = true
     }
 
     var kind: FeedKind {
@@ -36,6 +55,19 @@ final class FeedEntry {
     var side: NursingSide? {
         get { sideRaw.flatMap(NursingSide.init(rawValue:)) }
         set { sideRaw = newValue?.rawValue }
+    }
+
+    var isActive: Bool { deletedAt == nil }
+
+    /// Call after editing so the change is timestamped and queued for sync.
+    func markChanged() {
+        updatedAt = .now
+        needsUpload = true
+    }
+
+    func softDelete() {
+        deletedAt = .now
+        markChanged()
     }
 
     /// "3 oz" / "15 min · Left" – the short description used in lists.
@@ -56,5 +88,12 @@ final class FeedEntry {
             }
             return parts.isEmpty ? "Nursed" : parts.joined(separator: " · ")
         }
+    }
+}
+
+extension Array where Element == FeedEntry {
+    /// Undeleted feeds for one baby (or all babies when `babyID` is nil).
+    func active(for babyID: UUID?) -> [FeedEntry] {
+        filter { $0.deletedAt == nil && (babyID == nil || $0.babyID == babyID) }
     }
 }

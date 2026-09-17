@@ -17,6 +17,7 @@ struct HomeView: View {
     @AppStorage(AppSettings.feedsPerDayKey) private var feedsPerDay = 0
     @AppStorage(BabyProfile.nameKey) private var babyName = ""
     @AppStorage(BabyProfile.birthDateKey) private var birthInterval: Double = 0
+    @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
     @State private var newFeedKind: FeedKind?
     @State private var editingEntry: FeedEntry?
@@ -24,6 +25,7 @@ struct HomeView: View {
     private var unit: VolumeUnit { VolumeUnit(rawValue: unitRaw) ?? .ounces }
     private var weightUnit: WeightUnit { WeightUnit(rawValue: weightUnitRaw) ?? .poundsOunces }
     private var feedingStyle: FeedingStyle { FeedingStyle(rawValue: feedingStyleRaw) ?? .formula }
+    private var currentBabyID: UUID? { UUID(uuidString: currentBabyIDRaw) }
     private var profile: BabyProfile {
         BabyProfile(name: babyName, birthDate: birthInterval > 0 ? Date(timeIntervalSince1970: birthInterval) : nil)
     }
@@ -33,20 +35,22 @@ struct HomeView: View {
             // Re-renders every 30 seconds so the counter stays live.
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 let now = context.date
-                let recent = FeedStats.entries(entries, within: 24 * 60 * 60, now: now)
+                let visible = entries.active(for: currentBabyID)
+                let latestWeight = weights.active(for: currentBabyID).first
+                let recent = FeedStats.entries(visible, within: 24 * 60 * 60, now: now)
                 let summary = FeedSummary(recent)
                 let target = FeedingGuidance.dailyTarget(
-                    weightGrams: weights.first?.grams,
+                    weightGrams: latestWeight?.grams,
                     ageDays: profile.ageInDays(on: now),
                     style: feedingStyle,
                     feedsPerDay: feedsPerDay
                 )
-                let dueDate = entries.first.map { $0.startTime.addingTimeInterval(Double(intervalMinutes) * 60) }
+                let dueDate = visible.first.map { $0.startTime.addingTimeInterval(Double(intervalMinutes) * 60) }
 
                 List {
                     Section {
                         LastFedCard(
-                            lastFeed: entries.first,
+                            lastFeed: visible.first,
                             unit: unit,
                             now: now,
                             nudgeAfter: remindersEnabled ? Double(intervalMinutes) * 60 : 3 * 60 * 60,
@@ -68,7 +72,7 @@ struct HomeView: View {
                             consumedML: summary.totalML,
                             nursingMinutes: summary.nursingMinutes,
                             unit: unit,
-                            weightText: weights.first.map { weightUnit.format(grams: $0.grams) },
+                            weightText: latestWeight.map { weightUnit.format(grams: $0.grams) },
                             babyName: profile.displayName
                         ) {
                             router.tab = .baby
@@ -107,7 +111,7 @@ struct HomeView: View {
     private func delete(_ toDelete: [FeedEntry]) {
         withAnimation {
             for entry in toDelete {
-                modelContext.delete(entry)
+                entry.softDelete()
             }
         }
         FeedCoordinator.feedsDidChange(in: modelContext)
@@ -117,5 +121,5 @@ struct HomeView: View {
 #Preview {
     HomeView()
         .environment(AppRouter())
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self], inMemory: true)
+        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self], inMemory: true)
 }

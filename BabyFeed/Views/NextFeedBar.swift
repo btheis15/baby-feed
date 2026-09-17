@@ -8,15 +8,17 @@ struct NextFeedBar: View {
     @AppStorage(AppSettings.remindersEnabledKey) private var remindersEnabled = false
     @AppStorage(AppSettings.intervalMinutesKey) private var intervalMinutes = AppSettings.defaultIntervalMinutes
     @AppStorage(FeedDefaults.volumeUnit) private var unitRaw = VolumeUnit.ounces.rawValue
+    @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
     private var unit: VolumeUnit { VolumeUnit(rawValue: unitRaw) ?? .ounces }
+    private var lastFeed: FeedEntry? { entries.active(for: UUID(uuidString: currentBabyIDRaw)).first }
 
     var body: some View {
         Button {
-            router.openLog(kind: entries.first?.kind)
+            router.openLog(kind: lastFeed?.kind)
         } label: {
             HStack(spacing: 10) {
-                if let last = entries.first {
+                if let last = lastFeed {
                     Image(systemName: last.kind.systemImage)
                         .foregroundStyle(last.kind.color)
                     VStack(alignment: .leading, spacing: 0) {

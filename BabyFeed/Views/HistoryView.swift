@@ -17,18 +17,21 @@ struct HistoryView: View {
     @AppStorage(AppSettings.feedingStyleKey) private var feedingStyleRaw = FeedingStyle.formula.rawValue
     @AppStorage(AppSettings.feedsPerDayKey) private var feedsPerDay = 0
     @AppStorage(BabyProfile.birthDateKey) private var birthInterval: Double = 0
+    @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
     @State private var mode: Mode = .days
     @State private var editingEntry: FeedEntry?
     @State private var showSummary = false
 
     private var unit: VolumeUnit { VolumeUnit(rawValue: unitRaw) ?? .ounces }
-    private var groups: [DayGroup] { FeedStats.groupByDay(entries) }
+    private var currentBabyID: UUID? { UUID(uuidString: currentBabyIDRaw) }
+    private var activeEntries: [FeedEntry] { entries.active(for: currentBabyID) }
+    private var groups: [DayGroup] { FeedStats.groupByDay(activeEntries) }
 
     private var targetML: Double? {
         let profile = BabyProfile(name: "", birthDate: birthInterval > 0 ? Date(timeIntervalSince1970: birthInterval) : nil)
         return FeedingGuidance.dailyTarget(
-            weightGrams: weights.first?.grams,
+            weightGrams: weights.active(for: currentBabyID).first?.grams,
             ageDays: profile.ageInDays(),
             style: FeedingStyle(rawValue: feedingStyleRaw) ?? .formula,
             feedsPerDay: feedsPerDay
@@ -38,7 +41,7 @@ struct HistoryView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if entries.isEmpty {
+                if activeEntries.isEmpty {
                     ContentUnavailableView(
                         "No feeds yet",
                         systemImage: "list.bullet.clipboard",
@@ -78,7 +81,7 @@ struct HistoryView: View {
                     } label: {
                         Label("Summary for the pediatrician", systemImage: "stethoscope")
                     }
-                    .disabled(entries.isEmpty)
+                    .disabled(activeEntries.isEmpty)
                 }
             }
             .sheet(item: $editingEntry) { entry in
@@ -121,7 +124,7 @@ struct HistoryView: View {
     private func delete(_ toDelete: [FeedEntry]) {
         withAnimation {
             for entry in toDelete {
-                modelContext.delete(entry)
+                entry.softDelete()
             }
         }
         FeedCoordinator.feedsDidChange(in: modelContext)
@@ -130,5 +133,5 @@ struct HistoryView: View {
 
 #Preview {
     HistoryView()
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self], inMemory: true)
+        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self], inMemory: true)
 }

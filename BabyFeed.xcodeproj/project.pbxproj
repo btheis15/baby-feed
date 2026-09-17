@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		BF0000000000000000000028 /* BabyFeedWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BF000000000000000000001B /* BabyFeedWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		BF000000000000000000002B /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = BF000000000000000000002A /* Supabase */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -75,6 +76,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BF000000000000000000002B /* Supabase in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -139,6 +141,7 @@
 			);
 			name = BabyFeed;
 			packageProductDependencies = (
+				BF000000000000000000002A /* Supabase */,
 			);
 			productName = BabyFeed;
 			productReference = BF0000000000000000000005 /* BabyFeed.app */;
@@ -221,6 +224,9 @@
 			);
 			mainGroup = BF0000000000000000000002;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				BF0000000000000000000029 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = BF0000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -598,6 +604,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		BF0000000000000000000029 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		BF000000000000000000002A /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BF0000000000000000000029 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = BF0000000000000000000001 /* Project object */;
 }

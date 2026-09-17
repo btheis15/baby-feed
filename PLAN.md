@@ -30,7 +30,7 @@ Nara, Baby Connect, Feedr and others. Recurring themes:
 | Knowing whether the baby is getting enough              | Weight- and age-based daily target vs. last 24 h            |
 | Seeing patterns ("is she clustering at night?")         | Per-day 24-hour strips and trend charts                     |
 | Something to show the pediatrician                      | Plain-text summary (optionally rewritten on-device) + CSV   |
-| Partner / caregiver sync (the #1 complaint when broken)  | v3: iCloud sync (see below)                                 |
+| Partner / caregiver sync (the #1 complaint when broken)  | Shared baby with invite codes; any number of caregivers; offline-first |
 | No subscription, no ads, privacy                        | Free, local-only, no accounts                               |
 | Apple Watch, nursing timer, diapers, sleep              | Later                                                       |
 
@@ -88,6 +88,36 @@ How the app applies them:
   this stays in the app target. [WWDC25 – Wake up to the AlarmKit API](https://developer.apple.com/videos/play/wwdc2025/230/)
 - The tab-bar accessory, widgets and Live Activity all show the due time.
 
+## Sharing between caregivers
+
+Husband and wife (and grandparents, a nanny, a night nurse) each install the app, sign
+in, and see one log. Implemented in `Services/Sync/` with the schema in
+`supabase/migrations/`; setup steps in `supabase/README.md`.
+
+- **Accounts**: Sign in with Apple, or a 6-digit code by email. Signing in is only
+  needed to share; the app is fully usable without it.
+- **Share**: the owner taps *Share* under Caregivers. The baby and its history are
+  uploaded and a 6-character invite code is created (valid 7 days, 20 uses). The code
+  can be sent as a message with a `babyfeed://join/CODE` link that opens the Join sheet.
+- **Join**: anyone with the code becomes a caregiver. There is no limit on caregivers.
+  A phone can follow more than one baby (twins, or two families); the Baby tab has a
+  switcher.
+- **Who logged it**: each feed carries the caregiver's display name, shown in the list.
+- **Offline-first**: the local SwiftData store stays the source of truth; every screen
+  reads it. Rows carry a client UUID, `updated_at`, and a soft `deleted_at`; changes are
+  flagged `needs_upload` and pushed in batches. Pulls fetch rows whose
+  `server_updated_at` is newer than a per-baby watermark and merge last-writer-wins,
+  keeping an un-pushed local edit on ties.
+- **Live**: Supabase realtime subscriptions on `feeds`, `weights`, `babies` and
+  `baby_members` trigger a pull, so the other phone updates within seconds. Sync also
+  runs on foreground and after every local change.
+- **Privacy**: row-level security means a signed-in user can only read or write babies
+  they are a member of. Owners can remove members; members can leave.
+- **Why Supabase and not iCloud**: the user asked for accounts so any caregiver can join,
+  regardless of Apple Family Sharing. CloudKit sharing would also require moving from
+  SwiftData to Core Data. Supabase's free tier covers a family easily, and the schema is
+  plain Postgres. CloudKit remains an option later for the single-user, no-sign-in case.
+
 ## iOS integration
 
 | Feature                                      | Framework                        | Where                                  |
@@ -101,6 +131,8 @@ How the app applies them:
 | Persistent strip above the tab bar, glass buttons, minimizing tab bar | SwiftUI iOS 26 (`tabViewBottomAccessory`, `.glassProminent`, `tabBarMinimizeBehavior`) | `RootView.swift`, `LogFeedSheet.swift` |
 | Charts for trends and weight                 | Swift Charts                     | `TrendsView.swift`, `BabyView.swift`   |
 | Deep links from widgets & notifications      | `babyfeed://log/<kind>` URL scheme | `AppRouter.swift`                    |
+| Sign in with Apple                           | AuthenticationServices + Supabase Auth | `SignInSheet.swift`, `SyncEngine.swift` |
+| Multi-caregiver sync, realtime               | Supabase (Postgres, RLS, Realtime) | `Services/Sync/`, `supabase/`        |
 
 Widgets never open the database: the app writes a small JSON `FeedSnapshot` into the
 App Group after every change and calls `WidgetCenter.reloadAllTimelines()`.
@@ -146,19 +178,22 @@ Name and birthday (drives age text and the age-based guide), weight log with cha
 weekly gain, feeding style and feeds-per-day, and the age band's typical amounts.
 
 ### Settings
-Reminders (interval, alarm vs. notification, Live Activity), units (oz/ml, lb·oz/kg),
-default amounts, Siri phrases, CSV export.
+Caregivers & sync (sign in, share, invite codes, members, join, switch babies), reminders
+(interval, alarm vs. notification, Live Activity), units (oz/ml, lb·oz/kg), default
+amounts, Siri phrases, CSV export.
 
 ## Data model
 
 | Model         | Fields                                                                 |
 |---------------|------------------------------------------------------------------------|
-| `FeedEntry`   | `startTime`, `kindRaw`, `amountML?`, `durationMinutes?`, `sideRaw?`, `note` |
-| `WeightEntry` | `date`, `grams`, `note`                                                |
+| `Baby`        | `uuid`, `name`, `birthDate?`, `isShared`, `ownerUserID?` + sync fields |
+| `FeedEntry`   | `uuid`, `babyID`, `startTime`, `kindRaw`, `amountML?`, `durationMinutes?`, `sideRaw?`, `note`, `loggedByName` + sync fields |
+| `WeightEntry` | `uuid`, `babyID`, `date`, `grams`, `note`, `loggedByName` + sync fields |
 
-Profile and preferences live in UserDefaults (`BabyProfile`, `AppSettings`, `FeedDefaults`).
-Both models are CloudKit-compatible (defaults/optionals, no unique constraints) so sync
-can be turned on later without a migration.
+Sync fields on every model: `updatedAt`, `deletedAt` (soft delete), `needsUpload`.
+The current baby's name and birthday are mirrored into UserDefaults (`BabyProfile`) so
+the rest of the app can read them synchronously; `BabyStore` keeps the two in step.
+Preferences live in `AppSettings` / `FeedDefaults`.
 
 ## Project layout
 
@@ -170,10 +205,12 @@ BabyFeed/                 App target (iOS 26+)
   RootView.swift          Tabs, bottom accessory
   Info.plist              URL scheme, AlarmKit usage string, Live Activities
   BabyFeed.entitlements   App Group, time-sensitive notifications
-  Models/                 FeedEntry, WeightEntry, FeedStats, FeedingGuidance, BabyProfile, units, settings
-  Services/               FeedCoordinator, ReminderScheduler, FeedAlarmScheduler, LiveActivityManager, DaySummaryGenerator
+  Models/                 Baby, FeedEntry, WeightEntry, FeedStats, FeedingGuidance, BabyProfile, units, settings
+  Services/               FeedCoordinator, BabyStore, ReminderScheduler, FeedAlarmScheduler, LiveActivityManager, DaySummaryGenerator
+  Services/Sync/          SupabaseConfig, SyncEngine, SyncMerge (pure rules), SyncDTOs
   Intents/                LogFeedIntent, LastFeedIntent, App Shortcuts
-  Views/                  Home, LogFeedSheet, History, Trends, Baby, Settings, cards
+  Views/                  Home, LogFeedSheet, History, Trends, Baby, Settings, Family (caregivers), SignIn, Join, cards
+supabase/                 Schema migration + setup guide for the sync backend
 Shared/                   Compiled into app AND widget: FeedKind, FeedSnapshot, activity attributes, ElapsedText
 BabyFeedWidget/           Widget extension: Last Feed widget + Live Activity
 BabyFeedTests/            Unit tests (Swift Testing)
@@ -181,7 +218,6 @@ BabyFeedTests/            Unit tests (Swift Testing)
 
 ## Later (v3)
 
-- **Caregiver sync** via CloudKit (SwiftData `cloudKitDatabase`) so both parents see one log.
 - **Live nursing timer** with a Live Activity, and pumping.
 - **Apple Watch** quick-log and complication.
 - Diapers, sleep, medication; growth percentiles (WHO charts).
@@ -194,6 +230,8 @@ BabyFeedTests/            Unit tests (Swift Testing)
 2. Select the `BabyFeed` target → Signing & Capabilities → pick your team. Do the same
    for `BabyFeedWidget`.
 3. Run on an iPhone or simulator running iOS 26+. `Cmd+U` runs the tests.
+4. To share between phones, follow `supabase/README.md` (about five minutes) and fill in
+   `SupabaseConfig.swift`. Without it the app is local-only and says so under Caregivers.
 
 Widgets and the Live Activity share data through an **App Group**
 (`group.com.babyfeed.shared`), and reminders use the **Time Sensitive Notifications**
