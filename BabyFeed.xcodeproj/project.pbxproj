@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		BF0000000000000000000028 /* BabyFeedWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BF000000000000000000001B /* BabyFeedWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		BF000000000000000000002B /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = BF000000000000000000002A /* Supabase */; };
+		D3AB46F7305C55A800F289E2 /* BabyFeedWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BF000000000000000000001B /* BabyFeedWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -19,13 +19,6 @@
 			remoteGlobalIDString = BF0000000000000000000004;
 			remoteInfo = BabyFeed;
 		};
-		BF0000000000000000000025 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = BF0000000000000000000001 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = BF000000000000000000001E;
-			remoteInfo = BabyFeedWidget;
-		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -35,7 +28,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				BF0000000000000000000028 /* BabyFeedWidget.appex in Embed Foundation Extensions */,
+				D3AB46F7305C55A800F289E2 /* BabyFeedWidget.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -48,9 +41,29 @@
 		BF000000000000000000001B /* BabyFeedWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BabyFeedWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		D3AB46F5305C4E3E00F289E2 /* Exceptions for "BabyFeed" folder in "BabyFeed" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = BF0000000000000000000004 /* BabyFeed */;
+		};
+		D3AB46F6305C552200F289E2 /* Exceptions for "BabyFeedWidget" folder in "BabyFeedWidget" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = BF000000000000000000001E /* BabyFeedWidget */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		BF0000000000000000000009 /* BabyFeed */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D3AB46F5305C4E3E00F289E2 /* Exceptions for "BabyFeed" folder in "BabyFeed" target */,
+			);
 			path = BabyFeed;
 			sourceTree = "<group>";
 		};
@@ -66,6 +79,9 @@
 		};
 		BF000000000000000000001D /* BabyFeedWidget */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D3AB46F6305C552200F289E2 /* Exceptions for "BabyFeedWidget" folder in "BabyFeedWidget" target */,
+			);
 			path = BabyFeedWidget;
 			sourceTree = "<group>";
 		};
@@ -133,7 +149,6 @@
 			buildRules = (
 			);
 			dependencies = (
-				BF0000000000000000000026 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				BF0000000000000000000009 /* BabyFeed */,
@@ -292,11 +307,6 @@
 			isa = PBXTargetDependency;
 			target = BF0000000000000000000004 /* BabyFeed */;
 			targetProxy = BF0000000000000000000019 /* PBXContainerItemProxy */;
-		};
-		BF0000000000000000000026 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = BF000000000000000000001E /* BabyFeedWidget */;
-			targetProxy = BF0000000000000000000025 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
