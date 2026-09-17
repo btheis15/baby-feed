@@ -56,7 +56,7 @@ enum ReminderScheduler {
         content.categoryIdentifier = categoryID
         content.interruptionLevel = .timeSensitive
 
-        let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        let components = AppSettings.calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
         let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
         let request = UNNotificationRequest(identifier: requestID, content: content, trigger: trigger)
         try? await UNUserNotificationCenter.current().add(request)

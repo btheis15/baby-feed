@@ -3,6 +3,8 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppRouter.self) private var router
     @AppStorage(BabyProfile.nameKey) private var babyName = ""
+    /// Read so the whole tree re-renders when the time zone setting changes.
+    @AppStorage(AppSettings.timeZoneKey) private var timeZoneIdentifier = ""
 
     var body: some View {
         @Bindable var router = router
@@ -26,6 +28,11 @@ struct RootView: View {
             NextFeedBar()
         }
         .tabBarMinimizeBehavior(.onScrollDown)
+        // Publish the chosen time zone once, here, so both SwiftUI's own date
+        // rendering and every view that reads \.calendar agree on what "today"
+        // means. Empty identifier = follow the device, which is the default.
+        .environment(\.calendar, AppSettings.calendar)
+        .environment(\.timeZone, AppSettings.timeZone)
         .sheet(isPresented: $router.showLogSheet) {
             LogFeedSheet(mode: .new(router.pendingLogKind ?? .formula))
         }

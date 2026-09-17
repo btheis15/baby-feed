@@ -6,17 +6,20 @@ struct TrendsView: View {
     let groups: [DayGroup]
     let unit: VolumeUnit
     let targetML: Double?
+    /// The user's calendar, so a pinned time zone reaches day boundaries and
+    /// the hour-of-day breakdown, not just the clock face.
+    var calendar: Calendar = .current
     var now: Date = .now
 
     /// Seven *complete* days ending yesterday, compared with the seven before
     /// that. Today is excluded from both so a half-finished day doesn't read as
     /// a drop.
-    private var lastWeek: PeriodAverages { FeedStats.averages(groups, days: 7, skip: 1, now: now) }
-    private var priorWeek: PeriodAverages { FeedStats.averages(groups, days: 7, skip: 8, now: now) }
-    private var today: PeriodAverages { FeedStats.averages(groups, days: 1, now: now) }
+    private var lastWeek: PeriodAverages { FeedStats.averages(groups, days: 7, skip: 1, calendar: calendar, now: now) }
+    private var priorWeek: PeriodAverages { FeedStats.averages(groups, days: 7, skip: 8, calendar: calendar, now: now) }
+    private var today: PeriodAverages { FeedStats.averages(groups, days: 1, calendar: calendar, now: now) }
 
     private var recentGroups: [DayGroup] { Array(groups.prefix(14)) }
-    private var breakdown: DayPartBreakdown { DayPartBreakdown(recentGroups.flatMap(\.entries)) }
+    private var breakdown: DayPartBreakdown { DayPartBreakdown(recentGroups.flatMap(\.entries), calendar: calendar) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
@@ -88,7 +91,6 @@ struct TrendsView: View {
 
     /// Entries from the same seven complete days the averages cover.
     private var recentWeekEntries: [FeedEntry] {
-        let calendar = Calendar.current
         let today = calendar.startOfDay(for: now)
         guard let end = calendar.date(byAdding: .day, value: -1, to: today),
               let start = calendar.date(byAdding: .day, value: -7, to: today)
@@ -145,7 +147,7 @@ struct TrendsView: View {
                         .font(.subheadline)
                         .monospacedDigit()
                 } label: {
-                    Text(FeedStats.dayTitle(for: group.day, now: now))
+                    Text(FeedStats.dayTitle(for: group.day, calendar: calendar, now: now))
                 }
             }
         }

@@ -10,6 +10,8 @@ struct HistoryView: View {
     }
 
     @Environment(\.modelContext) private var modelContext
+    /// Set by RootView from the time zone setting; drives what counts as a day.
+    @Environment(\.calendar) private var calendar
     @Query(sort: \FeedEntry.startTime, order: .reverse) private var entries: [FeedEntry]
     @Query(sort: \WeightEntry.date, order: .reverse) private var weights: [WeightEntry]
 
@@ -26,7 +28,7 @@ struct HistoryView: View {
     private var unit: VolumeUnit { VolumeUnit(rawValue: unitRaw) ?? .ounces }
     private var currentBabyID: UUID? { UUID(uuidString: currentBabyIDRaw) }
     private var activeEntries: [FeedEntry] { entries.active(for: currentBabyID) }
-    private var groups: [DayGroup] { FeedStats.groupByDay(activeEntries) }
+    private var groups: [DayGroup] { FeedStats.groupByDay(activeEntries, calendar: calendar) }
 
     private var targetML: Double? {
         let profile = BabyProfile(name: "", birthDate: birthInterval > 0 ? Date(timeIntervalSince1970: birthInterval) : nil)
@@ -65,7 +67,7 @@ struct HistoryView: View {
                             daySections
                         case .trends:
                             Section {
-                                TrendsView(groups: groups, unit: unit, targetML: targetML)
+                                TrendsView(groups: groups, unit: unit, targetML: targetML, calendar: calendar)
                                     .padding(.vertical, 8)
                             }
                         }
@@ -96,7 +98,7 @@ struct HistoryView: View {
     private var daySections: some View {
         ForEach(groups) { group in
             Section {
-                FeedTimelineStrip(entries: group.entries, day: group.day)
+                FeedTimelineStrip(entries: group.entries, day: group.day, calendar: calendar)
                     .padding(.vertical, 6)
                 ForEach(group.entries) { entry in
                     FeedRow(entry: entry, unit: unit)
@@ -108,7 +110,7 @@ struct HistoryView: View {
                 }
             } header: {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(FeedStats.dayTitle(for: group.day))
+                    Text(FeedStats.dayTitle(for: group.day, calendar: calendar))
                         .font(.headline)
                         .foregroundStyle(.primary)
                         .textCase(nil)

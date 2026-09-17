@@ -7,6 +7,7 @@ struct SettingsView: View {
 
     @AppStorage(FeedDefaults.volumeUnit) private var unitRaw = VolumeUnit.ounces.rawValue
     @AppStorage(AppSettings.weightUnitKey) private var weightUnitRaw = WeightUnit.poundsOunces.rawValue
+    @AppStorage(AppSettings.timeZoneKey) private var timeZoneIdentifier = ""
     @AppStorage(FeedDefaults.amountKey(for: .formula)) private var formulaML: Double = 0
     @AppStorage(FeedDefaults.amountKey(for: .breastMilk)) private var breastMilkML: Double = 0
 
@@ -28,6 +29,7 @@ struct SettingsView: View {
                 caregiversSection
                 remindersSection
                 unitsSection
+                timeZoneSection
                 defaultsSection
                 siriSection
                 exportSection
@@ -159,6 +161,27 @@ struct SettingsView: View {
                     Text(unit.title).tag(unit.rawValue)
                 }
             }
+        }
+    }
+
+    private var timeZoneSection: some View {
+        Section {
+            NavigationLink {
+                TimeZonePicker(identifier: $timeZoneIdentifier)
+            } label: {
+                LabeledContent("Time zone") {
+                    Text(timeZoneIdentifier.isEmpty ? "Automatic" : TimeZonePicker.friendlyName(timeZoneIdentifier))
+                }
+            }
+            if !timeZoneIdentifier.isEmpty {
+                Button("Follow this iPhone again") { timeZoneIdentifier = "" }
+            }
+        } header: {
+            Text("Time zone")
+        } footer: {
+            Text(timeZoneIdentifier.isEmpty
+                 ? "Feed times follow this iPhone, so they adjust on their own when you travel."
+                 : "Feed times stay on \(TimeZonePicker.friendlyName(timeZoneIdentifier)) wherever you are, so a night away doesn't get split across two days.")
         }
     }
 

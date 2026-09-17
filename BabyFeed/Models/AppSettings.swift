@@ -12,6 +12,8 @@ enum AppSettings {
     static let weightUnitKey = "weightUnit"
     static let currentBabyIDKey = "baby.currentID"
     static let displayNameKey = "sync.displayName"
+    /// A TimeZone identifier, or empty for "follow the device".
+    static let timeZoneKey = "timeZone.identifier"
 
     static let defaultIntervalMinutes = 180
     static let intervalChoices = [120, 150, 180, 210, 240]
@@ -54,6 +56,33 @@ enum AppSettings {
     static var currentBabyID: UUID? {
         get { defaults.string(forKey: currentBabyIDKey).flatMap(UUID.init(uuidString:)) }
         set { defaults.set(newValue?.uuidString, forKey: currentBabyIDKey) }
+    }
+
+    /// The time zone the log reads in.
+    ///
+    /// Follows the device by default, so flying from Chicago to London shifts
+    /// everything automatically. A caregiver who'd rather keep the log on home
+    /// time – so "Today" doesn't split a night in half while travelling – can
+    /// pin one in Settings.
+    static var timeZone: TimeZone {
+        guard let identifier = defaults.string(forKey: timeZoneKey), !identifier.isEmpty else {
+            return .current
+        }
+        return TimeZone(identifier: identifier) ?? .current
+    }
+
+    /// True when the time zone is following the device rather than pinned.
+    static var followsDeviceTimeZone: Bool {
+        (defaults.string(forKey: timeZoneKey) ?? "").isEmpty
+    }
+
+    /// The calendar every user-facing date calculation should go through, so a
+    /// pinned time zone reaches day grouping, "Today"/"Yesterday" and the
+    /// day-part breakdown rather than only the clock face.
+    static var calendar: Calendar {
+        var calendar = Calendar.current
+        calendar.timeZone = timeZone
+        return calendar
     }
 
     /// How this caregiver appears to others ("Brian").
