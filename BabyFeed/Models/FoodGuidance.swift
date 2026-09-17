@@ -79,6 +79,38 @@ enum FoodGuidance {
             title: "Infant and young child feeding",
             url: "https://www.who.int/news-room/fact-sheets/detail/infant-and-young-child-feeding"
         ),
+        // Cited by IntakeGuidance – how much per feed, and how to tell a baby
+        // is getting enough.
+        Source(
+            id: "aap-amount-schedule",
+            organisation: "American Academy of Pediatrics",
+            title: "Amount and Schedule of Baby Formula Feedings",
+            url: "https://www.healthychildren.org/English/ages-stages/baby/formula-feeding/Pages/amount-and-schedule-of-formula-feedings.aspx"
+        ),
+        Source(
+            id: "aap-responsive",
+            organisation: "American Academy of Pediatrics",
+            title: "Is Your Baby Hungry or Full? Responsive Feeding Explained",
+            url: "https://www.healthychildren.org/English/ages-stages/baby/feeding-nutrition/Pages/Is-Your-Baby-Hungry-or-Full-Responsive-Feeding-Explained.aspx"
+        ),
+        Source(
+            id: "aap-enough-milk",
+            organisation: "American Academy of Pediatrics",
+            title: "How to Tell if Your Breastfed Baby is Getting Enough Milk",
+            url: "https://www.healthychildren.org/English/ages-stages/baby/breastfeeding/Pages/How-to-Tell-if-Baby-is-Getting-Enough-Milk.aspx"
+        ),
+        Source(
+            id: "cdc-cues",
+            organisation: "CDC",
+            title: "Signs Your Child Is Hungry or Full",
+            url: "https://www.cdc.gov/infant-toddler-nutrition/mealtime/signs-your-child-is-hungry-or-full.html"
+        ),
+        Source(
+            id: "cdc-how-much-formula",
+            organisation: "CDC",
+            title: "How Much and How Often to Feed Infant Formula",
+            url: "https://www.cdc.gov/infant-toddler-nutrition/formula-feeding/how-much-and-how-often.html"
+        ),
     ]
 
     static func source(_ id: String) -> Source? { sources.first { $0.id == id } }

@@ -174,31 +174,39 @@ struct TrendsView: View {
         }
     }
 
+    /// Laid out by hand rather than with `LabeledContent`: the trend line is a
+    /// whole sentence, and putting it in a trailing accessory slot stretched
+    /// the row to several hundred points.
     private func statRow(
         _ label: String,
         value: String,
         detail: String? = nil,
         trend: TrendChange? = nil
     ) -> some View {
-        LabeledContent {
-            VStack(alignment: .trailing, spacing: 1) {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(label)
+                Spacer(minLength: 12)
                 Text(value)
                     .font(.headline)
                     .monospacedDigit()
-                if let detail {
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if let trend {
-                    Label(trend.text, systemImage: trend.symbol)
-                        .font(.caption)
-                        .foregroundStyle(trend.tint)
-                }
             }
-        } label: {
-            Text(label)
+            if let detail {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let trend {
+                HStack(spacing: 4) {
+                    Image(systemName: trend.symbol)
+                        .imageScale(.small)
+                    Text(trend.text)
+                }
+                .font(.caption)
+                .foregroundStyle(trend.tint)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Direction and size of a change against the previous period.

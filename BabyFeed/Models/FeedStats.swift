@@ -113,15 +113,22 @@ struct DayPartBreakdown: Equatable {
         total > 0 ? Double(count(part)) / Double(total) : 0
     }
 
-    /// The part with the most feeds. Nil when there are no feeds, or when the
-    /// top two are tied – there's no honest single answer then.
+    /// How far ahead the leading part has to be before it's fair to name it.
+    ///
+    /// Four parts means an even spread is 25% each. A part on 29% against a
+    /// runner-up on 26% is not "mostly" anything, and saying so would invent a
+    /// pattern out of noise.
+    static let busiestMargin = 0.08
+
+    /// The part with clearly the most feeds, or nil when no part leads by
+    /// enough to be worth naming.
     var busiest: DayPart? {
         let ranked = DayPart.allCases
-            .map { (part: $0, count: count($0)) }
-            .sorted { $0.count > $1.count }
-        guard let top = ranked.first, top.count > 0 else { return nil }
-        if ranked.count > 1, ranked[1].count == top.count { return nil }
-        return top.part
+            .map { (part: $0, share: share($0)) }
+            .sorted { $0.share > $1.share }
+        guard let top = ranked.first, top.share > 0 else { return nil }
+        guard ranked.count > 1 else { return top.part }
+        return top.share - ranked[1].share >= Self.busiestMargin ? top.part : nil
     }
 }
 

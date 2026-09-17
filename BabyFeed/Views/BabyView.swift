@@ -6,6 +6,7 @@ struct BabyView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.calendar) private var calendar
     @Query(sort: \WeightEntry.date, order: .reverse) private var allWeights: [WeightEntry]
+    @Query(sort: \FeedEntry.startTime, order: .reverse) private var allFeeds: [FeedEntry]
     @Query private var babies: [Baby]
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
@@ -45,6 +46,11 @@ struct BabyView: View {
         )
     }
     private var weights: [WeightEntry] { allWeights.active(for: UUID(uuidString: currentBabyIDRaw)) }
+    /// Volume over the last 24 hours, for the "getting enough" screen.
+    private var consumedTodayML: Double {
+        let recent = FeedStats.entries(allFeeds.active(for: UUID(uuidString: currentBabyIDRaw)), within: 24 * 60 * 60)
+        return FeedSummary(recent).totalML
+    }
     private var activeBabies: [Baby] { babies.filter { $0.deletedAt == nil } }
 
     private var birthDateBinding: Binding<Date> {
@@ -407,6 +413,33 @@ struct BabyView: View {
     /// the app that stays useful once bottle timing stops mattering so much.
     private var foodsSection: some View {
         Section {
+            NavigationLink {
+                IntakeView(
+                    babyName: profile.displayName,
+                    ageDays: profile.ageInDays(calendar: calendar),
+                    consumedML: consumedTodayML,
+                    targetML: FeedingGuidance.currentTarget(
+                        weights: weights,
+                        profile: profile,
+                        style: feedingStyle,
+                        feedsPerDay: feedsPerDay,
+                        calendar: calendar
+                    ).target?.targetML,
+                    unit: unit
+                )
+            } label: {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Is \(profile.displayName) getting enough?")
+                        Text("One small feed isn't a problem")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "checkmark.seal")
+                }
+            }
+
             NavigationLink {
                 FoodsView(
                     ageMonths: profile.ageInDays(calendar: calendar).map(FoodGuidance.months(fromDays:)),

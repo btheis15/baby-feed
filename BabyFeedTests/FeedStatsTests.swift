@@ -266,4 +266,32 @@ struct DayPartTests {
         let tied = [feed(atHour: 2, in: context), feed(atHour: 9, in: context)]
         #expect(DayPartBreakdown(tied, calendar: utc).busiest == nil)
     }
+
+    /// A near-even spread must not be described as "mostly" anything. Real
+        /// data showed 29% overnight against 26% morning being called
+    /// "mostly overnight", which invents a pattern out of noise.
+    @Test func aThinLeadIsNotCalledBusiest() throws {
+        let context = try makeContext()
+        // 4 overnight vs 3 morning: a 14-point gap on 7 feeds, so it counts.
+        var entries = (0..<4).map { _ in feed(atHour: 2, in: context) }
+        entries += (0..<3).map { _ in feed(atHour: 9, in: context) }
+        #expect(DayPartBreakdown(entries, calendar: utc).busiest == .overnight)
+
+        // 33 overnight vs 29 morning out of 100: only a 4-point gap.
+        var wide = (0..<33).map { _ in feed(atHour: 2, in: context) }
+        wide += (0..<29).map { _ in feed(atHour: 9, in: context) }
+        wide += (0..<27).map { _ in feed(atHour: 14, in: context) }
+        wide += (0..<11).map { _ in feed(atHour: 20, in: context) }
+        let breakdown = DayPartBreakdown(wide, calendar: utc)
+        #expect(breakdown.count(.overnight) == 33)
+        #expect(breakdown.busiest == nil, "a 4-point lead isn't 'mostly overnight'")
+    }
+
+    @Test func aGenuineClusterIsStillNamed() throws {
+        let context = try makeContext()
+        // Plainly night-clustered: most feeds overnight.
+        var entries = (0..<10).map { _ in feed(atHour: 3, in: context) }
+        entries += (0..<2).map { _ in feed(atHour: 10, in: context) }
+        #expect(DayPartBreakdown(entries, calendar: utc).busiest == .overnight)
+    }
 }

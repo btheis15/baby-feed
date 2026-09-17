@@ -14,6 +14,8 @@ struct LogFeedSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @AppStorage(FeedDefaults.volumeUnit) private var unitRaw = VolumeUnit.ounces.rawValue
+    @AppStorage(FeedDefaults.recommendedPerFeedKey) private var recommendedPerFeedML: Double = 0
+    @AppStorage(BabyProfile.nameKey) private var babyName = ""
 
     @State private var kind: FeedKind
     /// Bottle amount in the display unit (oz or ml).
@@ -26,6 +28,7 @@ struct LogFeedSheet: View {
 
     private let isEditing: Bool
     private var unit: VolumeUnit { VolumeUnit(rawValue: unitRaw) ?? .ounces }
+    private var babyDisplayName: String { babyName.isEmpty ? "your baby" : babyName }
 
     private static let timeChips = [0, 15, 30, 60]
     private static let nursingChips = [5, 10, 15, 20, 30, 45]
@@ -143,7 +146,33 @@ struct LogFeedSheet: View {
             chips(unit.presets,
                   isSelected: { abs($0 - amount) < 0.001 },
                   label: { unit.formatValue($0) }) { amount = $0 }
+
+            // The recommendation invites reading a small feed as a failure, so
+            // say plainly that it isn't one, right where the doubt happens.
+            if let comparison = IntakeGuidance.compare(
+                loggedML: unit.toMilliliters(amount),
+                recommendedML: recommendedPerFeedML > 0 ? recommendedPerFeedML : nil
+            ), let note = IntakeGuidance.note(for: comparison, babyName: babyDisplayName) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(
+                        comparison == .smaller ? "Smaller than usual – that's fine" : "More than usual – also fine",
+                        systemImage: "info.circle"
+                    )
+                    .font(.subheadline.weight(.medium))
+                    Text(note)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Text("Recommended for \(babyDisplayName) right now: about \(unit.format(milliliters: recommendedPerFeedML)) a feed.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .transition(.opacity)
+            }
         }
+        .animation(.snappy, value: amount)
     }
 
     private var nursingSection: some View {
