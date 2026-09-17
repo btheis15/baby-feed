@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.babyfeed.BabyFeed</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>babyfeed</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>Baby Feed can ring an alarm when the next feed is due, even in silent mode or during a Focus.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+	<false/>
+</dict>
+</plist>
