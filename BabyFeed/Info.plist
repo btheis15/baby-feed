@@ -17,9 +17,5 @@
 	</array>
 	<key>NSAlarmKitUsageDescription</key>
 	<string>Baby Feed can ring an alarm when the next feed is due, even in silent mode or during a Focus.</string>
-	<key>NSSupportsLiveActivities</key>
-	<true/>
-	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
-	<false/>
 </dict>
 </plist>
