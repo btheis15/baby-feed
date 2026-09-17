@@ -19,6 +19,9 @@ struct HistoryView: View {
     @AppStorage(AppSettings.feedingStyleKey) private var feedingStyleRaw = FeedingStyle.formula.rawValue
     @AppStorage(AppSettings.feedsPerDayKey) private var feedsPerDay = 0
     @AppStorage(BabyProfile.birthDateKey) private var birthInterval: Double = 0
+    @AppStorage(BabyProfile.nameKey) private var babyName = ""
+    @AppStorage(BabyProfile.sexKey) private var sexRaw = BabySex.unspecified.rawValue
+    @AppStorage(BabyProfile.dueDateKey) private var dueInterval: Double = 0
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
     @State private var mode: Mode = .days
@@ -30,14 +33,25 @@ struct HistoryView: View {
     private var activeEntries: [FeedEntry] { entries.active(for: currentBabyID) }
     private var groups: [DayGroup] { FeedStats.groupByDay(activeEntries, calendar: calendar) }
 
+    private var profile: BabyProfile {
+        BabyProfile(
+            name: babyName,
+            birthDate: birthInterval > 0 ? Date(timeIntervalSince1970: birthInterval) : nil,
+            sex: BabySex(rawValue: sexRaw) ?? .unspecified,
+            dueDate: dueInterval > 0 ? Date(timeIntervalSince1970: dueInterval) : nil
+        )
+    }
+
+    /// The same target the Today tab shows, via the shared helper, so the
+    /// "% of target" in Trends can't contradict the Daily target card.
     private var targetML: Double? {
-        let profile = BabyProfile(name: "", birthDate: birthInterval > 0 ? Date(timeIntervalSince1970: birthInterval) : nil)
-        return FeedingGuidance.dailyTarget(
-            weightGrams: weights.active(for: currentBabyID).first?.grams,
-            ageDays: profile.ageInDays(),
+        FeedingGuidance.currentTarget(
+            weights: weights.active(for: currentBabyID),
+            profile: profile,
             style: FeedingStyle(rawValue: feedingStyleRaw) ?? .formula,
-            feedsPerDay: feedsPerDay
-        )?.targetML
+            feedsPerDay: feedsPerDay,
+            calendar: calendar
+        ).target?.targetML
     }
 
     var body: some View {

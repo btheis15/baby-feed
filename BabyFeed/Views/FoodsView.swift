@@ -103,14 +103,16 @@ struct FoodsView: View {
 
             // A neutral bullet, not a green tick: these lines describe the
             // stage, and some of them are prohibitions ("No plain water"),
-            // where a tick would read as approval.
+            // where a tick would read as approval. Text rather than an Image so
+            // it scales with Dynamic Type, and hidden from VoiceOver so it
+            // isn't announced before every line.
             ForEach(stage.canEat, id: \.self) { item in
                 Label {
                     Text(item)
                 } icon: {
-                    Image(systemName: "circle.fill")
-                        .font(.system(size: 5))
+                    Text("•")
                         .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                 }
                 .font(.subheadline)
             }
@@ -127,6 +129,7 @@ struct FoodsView: View {
                 } icon: {
                     Image(systemName: "circle.dashed")
                         .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                 }
                 .font(.subheadline)
             }
@@ -165,6 +168,10 @@ struct FoodsView: View {
                                 .foregroundStyle(tint(for: rule.reason))
                         }
                     }
+                    // The reason is carried by icon and colour, which VoiceOver
+                    // can't see, so say it.
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(rule.food), \(rule.reason.rawValue), \(rule.ageText)")
                 }
             }
         } header: {

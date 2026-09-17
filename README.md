@@ -13,9 +13,15 @@ lack of sleep and washing bottles.
 - **How much to feed**: a daily target from the baby's weight using the American Academy
   of Pediatrics rule (2½ oz per pound per day, up to 32 oz), with age-typical ranges,
   updating as you log new weights
-- History by day with a 24-hour strip of feed times, trend charts, and a plain-text
-  summary for the pediatrician (optionally rewritten on-device by Apple Intelligence)
-- Weight log with chart and weekly gain
+- History by day with a 24-hour strip of feed times, trends as plain numbers with the
+  direction they moved, and a summary for the pediatrician (optionally rewritten
+  on-device by Apple Intelligence)
+- Weight log with the last change, the steadier whole-log rate, and gain since birth
+- **Growth percentiles** from the WHO Child Growth Standards, so the daily target keeps
+  up as the baby grows instead of sitting frozen at the last weigh-in — with corrected
+  age for babies born early
+- **Foods by age**: when solids, allergens and cow's milk can start, and what to keep
+  away until when, sourced to the AAP, CDC and WHO
 - **Share with other caregivers**: sign in with Apple, share the baby, and hand your
   partner (or grandparents, or the nanny) a 6-character code. Everyone sees the same log
   within seconds, sees who logged what, and it all keeps working offline. Any number of

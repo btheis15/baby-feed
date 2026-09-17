@@ -28,7 +28,7 @@ Nara, Baby Connect, Feedr and others. Recurring themes:
 | "How long since the last feed" without opening the app  | Lock Screen + Home Screen widgets, Live Activity, tab bar strip |
 | A reminder for the next feed that actually wakes you    | Notification or a real AlarmKit alarm that rings through silent mode |
 | Knowing whether the baby is getting enough              | Weight- and age-based daily target vs. last 24 h            |
-| Seeing patterns ("is she clustering at night?")         | Per-day 24-hour strips and trend charts                     |
+| Seeing patterns ("is she clustering at night?")         | Per-day 24-hour strips; trends as numbers with a day-part breakdown |
 | Something to show the pediatrician                      | Plain-text summary (optionally rewritten on-device) + CSV   |
 | Partner / caregiver sync (the #1 complaint when broken)  | Shared baby with invite codes; any number of caregivers; offline-first |
 | No subscription, no ads, privacy                        | Free, local-only, no accounts                               |
@@ -68,13 +68,33 @@ Implemented in `FeedingGuidance.swift`, tested in `FeedingGuidanceTests.swift`.
 
 How the app applies them:
 
-1. **Latest weight known** → daily target = weight × 2½ oz/lb, capped at 32 oz. In the
-   first two weeks the age-typical range is shown alongside because intake is ramping up.
-2. **"Mostly breast milk" and ≥ 4 weeks old** → 25 oz/day with the 19–30 oz range.
-3. **Only the birthday known** → midpoint of the age band's typical range.
-4. Per-feed amount = daily target ÷ feeds per day (caregiver setting, or age-typical).
-5. Every number is labelled with its basis and a "your pediatrician wins" footnote.
-   The target updates the moment a new weight is logged.
+1. **Weight and sex known** → the weigh-in is converted to a WHO weight-for-age
+   percentile, carried forward to today along that percentile, and the 2½ oz/lb rule is
+   applied to the estimate. The target therefore grows daily rather than sitting frozen
+   at the last weigh-in, and it carries a range from the band either side of the
+   percentile instead of one falsely precise number.
+2. **Latest weight known, sex not set** → daily target = weight × 2½ oz/lb, capped at
+   32 oz. In the first two weeks the age-typical range is shown alongside because intake
+   is ramping up.
+3. **"Mostly breast milk" and ≥ 4 weeks old** → 25 oz/day with the 19–30 oz range.
+4. **Only the birthday known** → midpoint of the age band's typical range.
+5. Per-feed amount = daily target ÷ feeds per day (caregiver setting, or age-typical).
+6. Every number is labelled with its basis and a "your pediatrician wins" footnote.
+   A projected weight is always labelled as an estimate, never as a measurement, and the
+   projection stops after three weeks and asks for a fresh weight rather than
+   extrapolating indefinitely. Every screen reads the target from one shared call
+   (`FeedingGuidance.currentTarget`) so they cannot disagree.
+
+### Growth percentiles
+
+`GrowthStandard.swift` carries the WHO Child Growth Standards weight-for-age LMS tables,
+generated from WHO's published PDFs — weekly to 13 weeks, then monthly to 24 months. The
+tests recompute all 11 printed centiles at all 35 tabulated ages for both sexes, 770
+values, from the LMS parameters and require them to match WHO's own printed numbers, so a
+transcription slip fails the build. A baby with a due date is plotted at corrected age.
+A drop of a full centile channel (0.67 SD) is stated plainly, because poor weight gain is
+the main newborn red flag and a reassuring estimate must not mask it.
+[WHO – Weight-for-age](https://www.who.int/tools/child-growth-standards/standards/weight-for-age)
 
 ## Reminders and alarms
 
@@ -129,7 +149,8 @@ in, and see one log. Implemented in `Services/Sync/` with the schema in
 | "Log a feed" / "When did the baby last eat"  | App Intents + App Shortcuts      | `Intents/FeedIntents.swift`            |
 | Pediatrician summary rewritten on-device     | Foundation Models (iOS 26)       | `DaySummaryGenerator.swift`            |
 | Persistent strip above the tab bar, glass buttons, minimizing tab bar | SwiftUI iOS 26 (`tabViewBottomAccessory`, `.glassProminent`, `tabBarMinimizeBehavior`) | `RootView.swift`, `LogFeedSheet.swift` |
-| Charts for trends and weight                 | Swift Charts                     | `TrendsView.swift`, `BabyView.swift`   |
+| Growth percentiles and weight projection     | WHO Child Growth Standards (bundled LMS tables) | `GrowthStandard.swift`, `GrowthProjection.swift` |
+| Age-based food guidance with sources          | Bundled AAP/CDC/WHO guidance     | `FoodGuidance.swift`, `FoodsView.swift` |
 | Deep links from widgets & notifications      | `babyfeed://log/<kind>` URL scheme | `AppRouter.swift`                    |
 | Sign in with Apple                           | AuthenticationServices + Supabase Auth | `SignInSheet.swift`, `SyncEngine.swift` |
 | Multi-caregiver sync, realtime               | Supabase (Postgres, RLS, Realtime) | `Services/Sync/`, `supabase/`        |
@@ -168,19 +189,41 @@ recent feeds. Title is the baby's name.
 
 ### History
 - **Days**: every day with a 24-hour strip of feed times, totals, and the entries.
-- **Trends**: bottle volume per day against the target, feeds per day, and a
-  "when feeds happen" dot plot (hour of day × day) for spotting clusters.
+- **Trends**: numbers rather than charts. Today so far against the target; the last
+  seven *complete* days' volume and feeds per day with the direction they moved against
+  the previous seven; average gap and longest stretch; a day-part breakdown
+  (overnight / morning / afternoon / evening) that answers "is she clustering at night?";
+  and the exact per-day totals.
 - Toolbar: **For the pediatrician** – 3/7/14-day plain-text summary, optional on-device
   rewrite, share sheet.
 
 ### Baby
-Name and birthday (drives age text and the age-based guide), weight log with chart and
-weekly gain, feeding style and feeds-per-day, and the age band's typical amounts.
+Name, birthday, sex and an optional due date (sex and due date only feed the WHO
+percentiles). Weight log with the last change, the whole-log rate against the typical
+5–7 oz/week, and gain since the first weigh-in. **Growth**: current percentile with its
+drift since the last weigh-in, today's estimated weight with a range, a countdown to the
+next weigh-in, and a plain warning if the baby has dropped a full centile band.
+**Foods by age**, feeding style and feeds-per-day, and the age band's typical amounts.
+
+### Foods by age
+Reached from the Baby tab, and it tracks the baby's age: what to offer now, what's still
+off the menu with the age each limit lifts, what they've just outgrown, and what's coming.
+Age limits are the AAP/CDC ones (honey, cow's milk as a drink and juice until 12 months;
+plain water until 6; added sugars and caffeine until 24; choking hazards, unpasteurized
+food, high-mercury fish and non-soy plant milks at any age) and are pinned by tests. Every
+rule cites a source, and a test fails the build if one cites anything but the AAP, CDC or
+WHO. A separate **"Where the evidence is still moving"** section carries live professional
+disagreement — the 4-vs-6-month ESPGHAN/AAP split, what LEAP and EAT actually showed about
+early allergen introduction, the BLISS baby-led-weaning trial — each naming real papers,
+under a disclaimer that they are not the current consensus. It carries peer-reviewed work
+only: settled dangers stay in the hard avoid list, and a test stops them appearing there
+as open questions.
 
 ### Settings
 Caregivers & sync (sign in, share, invite codes, members, join, switch babies), reminders
-(interval, alarm vs. notification, Live Activity), units (oz/ml, lb·oz/kg), default
-amounts, Siri phrases, CSV export.
+(interval, alarm vs. notification, Live Activity), units (oz/ml, lb·oz/kg), time zone
+(automatic, following the device, or pinned to keep the log on home time while
+travelling), default amounts, Siri phrases, CSV export.
 
 ## Data model
 
@@ -205,11 +248,14 @@ BabyFeed/                 App target (iOS 26+)
   RootView.swift          Tabs, bottom accessory
   Info.plist              URL scheme, AlarmKit usage string, Live Activities
   BabyFeed.entitlements   App Group, time-sensitive notifications
-  Models/                 Baby, FeedEntry, WeightEntry, FeedStats, FeedingGuidance, BabyProfile, units, settings
+  Models/                 Baby, FeedEntry, WeightEntry, FeedStats, WeightStats, FeedingGuidance,
+                          GrowthStandard + WHOWeightForAge + GrowthProjection, FoodGuidance,
+                          BabyProfile, units, settings
   Services/               FeedCoordinator, BabyStore, ReminderScheduler, FeedAlarmScheduler, LiveActivityManager, DaySummaryGenerator
   Services/Sync/          SupabaseConfig, SyncEngine, SyncMerge (pure rules), SyncDTOs
   Intents/                LogFeedIntent, LastFeedIntent, App Shortcuts
-  Views/                  Home, LogFeedSheet, History, Trends, Baby, Settings, Family (caregivers), SignIn, Join, cards
+  Views/                  Home, LogFeedSheet, History, Trends, Baby, Foods, Settings, TimeZonePicker,
+                          Family (caregivers), SignIn, Join, cards
 supabase/                 Schema migration + setup guide for the sync backend
 Shared/                   Compiled into app AND widget: FeedKind, FeedSnapshot, activity attributes, ElapsedText
 BabyFeedWidget/           Widget extension: Last Feed widget + Live Activity
@@ -220,7 +266,7 @@ BabyFeedTests/            Unit tests (Swift Testing)
 
 - **Live nursing timer** with a Live Activity, and pumping.
 - **Apple Watch** quick-log and complication.
-- Diapers, sleep, medication; growth percentiles (WHO charts).
+- Diapers, sleep, medication; length and head-circumference percentiles.
 - iOS 27 App Intents schemas and View Annotations for the new Siri.
 
 ## How to run

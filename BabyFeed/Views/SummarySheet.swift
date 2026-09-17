@@ -5,6 +5,9 @@ import SwiftUI
 /// Optionally rewritten on-device by Apple Intelligence.
 struct SummarySheet: View {
     @Environment(\.dismiss) private var dismiss
+    /// So the summary groups days the same way History does, including a
+    /// pinned time zone.
+    @Environment(\.calendar) private var calendar
     @Query(sort: \FeedEntry.startTime, order: .reverse) private var entries: [FeedEntry]
     @Query(sort: \WeightEntry.date, order: .reverse) private var weights: [WeightEntry]
 
@@ -26,7 +29,8 @@ struct SummarySheet: View {
             days: days,
             unit: unit,
             weightUnit: weightUnit,
-            profile: BabyProfile.load()
+            profile: BabyProfile.load(),
+            calendar: calendar
         )
     }
 

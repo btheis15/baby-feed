@@ -321,20 +321,14 @@ struct BabyView: View {
     private var guidanceSection: some View {
         let ageDays = profile.ageInDays(calendar: calendar)
         let band = ageDays.map(FeedingGuidance.ageBand(forAgeDays:))
-        // Same projection the Today tab uses, so the two tabs can't disagree.
-        let target = projection.flatMap {
-            FeedingGuidance.dailyTarget(
-                projection: $0,
-                ageDays: ageDays,
-                style: feedingStyle,
-                feedsPerDay: feedsPerDay
-            )
-        } ?? FeedingGuidance.dailyTarget(
-            weightGrams: weights.first?.grams,
-            ageDays: ageDays,
+        // The one shared call, so no screen can drift from the others.
+        let target = FeedingGuidance.currentTarget(
+            weights: weights,
+            profile: profile,
             style: feedingStyle,
-            feedsPerDay: feedsPerDay
-        )
+            feedsPerDay: feedsPerDay,
+            calendar: calendar
+        ).target
 
         return Section {
             Picker("Fed mostly with", selection: $feedingStyleRaw) {

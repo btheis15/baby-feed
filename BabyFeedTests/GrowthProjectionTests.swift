@@ -193,3 +193,112 @@ struct GrowthProjectionTests {
         #expect(GrowthProjector.ordinal(percentile: 99.9) == "99th")
     }
 }
+
+/// `FeedingGuidance.currentTarget` is the single call every screen uses. It
+/// exists because Today, Baby and History each computed the target separately
+/// and History drifted, showing a "% of target" that contradicted the Daily
+/// target card.
+struct CurrentTargetTests {
+    private let kg = GrowthStandard.gramsPerKilogram
+    private let birth = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private var utc: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }
+
+    private func makeContext() throws -> ModelContext {
+        let container = try ModelContainer(
+            for: WeightEntry.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        return ModelContext(container)
+    }
+
+    private func weight(dayOfLife: Double, grams: Double, in context: ModelContext) -> WeightEntry {
+        let entry = WeightEntry(date: birth.addingTimeInterval(dayOfLife * 24 * 3600), grams: grams)
+        context.insert(entry)
+        return entry
+    }
+
+    @Test func usesTheProjectionOnceTheSexIsKnown() throws {
+        let context = try makeContext()
+        let log = [weight(dayOfLife: 14, grams: 4.2 * kg, in: context)]
+        let now = birth.addingTimeInterval(28 * 24 * 3600)
+
+        let known = FeedingGuidance.currentTarget(
+            weights: log,
+            profile: BabyProfile(name: "Sam", birthDate: birth, sex: .male),
+            style: .formula,
+            feedsPerDay: 0,
+            now: now,
+            calendar: utc
+        )
+        #expect(known.projection != nil)
+        let projectedTarget = try #require(known.target)
+
+        // The projected weight is heavier than the fortnight-old weigh-in, so
+        // the target must be larger than the frozen-weight one.
+        let unknownSex = FeedingGuidance.currentTarget(
+            weights: log,
+            profile: BabyProfile(name: "Sam", birthDate: birth, sex: .unspecified),
+            style: .formula,
+            feedsPerDay: 0,
+            now: now,
+            calendar: utc
+        )
+        #expect(unknownSex.projection == nil)
+        let measuredTarget = try #require(unknownSex.target)
+        #expect(projectedTarget.targetML > measuredTarget.targetML)
+    }
+
+    @Test func fallsBackToMeasuredWeightWithoutSex() throws {
+        let context = try makeContext()
+        let log = [weight(dayOfLife: 30, grams: 4.5 * kg, in: context)]
+        let now = birth.addingTimeInterval(30 * 24 * 3600)
+
+        let result = FeedingGuidance.currentTarget(
+            weights: log,
+            profile: BabyProfile(name: "Sam", birthDate: birth, sex: .unspecified),
+            style: .formula,
+            feedsPerDay: 0,
+            now: now,
+            calendar: utc
+        )
+        let direct = try #require(FeedingGuidance.dailyTarget(
+            weightGrams: 4.5 * kg,
+            ageDays: 30,
+            style: .formula
+        ))
+        #expect(try #require(result.target).targetML == direct.targetML)
+    }
+
+    @Test func noWeightAndNoBirthdayMeansNoTarget() throws {
+        let result = FeedingGuidance.currentTarget(
+            weights: [],
+            profile: BabyProfile(name: "", birthDate: nil),
+            style: .formula,
+            feedsPerDay: 0,
+            calendar: utc
+        )
+        #expect(result.target == nil)
+        #expect(result.projection == nil)
+    }
+
+    @Test func ageOnlyStillGivesAnAgeTypicalTarget() throws {
+        let now = birth.addingTimeInterval(20 * 24 * 3600)
+        let result = FeedingGuidance.currentTarget(
+            weights: [],
+            profile: BabyProfile(name: "Sam", birthDate: birth, sex: .male),
+            style: .formula,
+            feedsPerDay: 0,
+            now: now,
+            calendar: utc
+        )
+        // No weigh-in, so nothing to anchor a projection to - but the age band
+        // still yields a target.
+        #expect(result.projection == nil)
+        #expect(result.target != nil)
+    }
+}

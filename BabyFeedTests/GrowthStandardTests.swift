@@ -11,17 +11,16 @@ struct GrowthStandardTests {
     /// numbers. WHO rounds them to one decimal place in kg, so agreement within
     /// 0.05 kg is exact agreement. A single mistyped digit anywhere in the
     /// table breaks this.
-    @Test func reproducesEveryPrintedCentileInTheWHOTables() {
+    @Test func reproducesEveryPrintedCentileInTheWHOTables() throws {
         var checked = 0
         for (sex, rows) in [(BabySex.male, WHOFixture.boys), (BabySex.female, WHOFixture.girls)] {
             for row in rows {
                 for (centile, printed) in zip(WHOFixture.centiles, row.printed) {
-                    let computed = GrowthStandard.grams(
+                    let grams = try #require(GrowthStandard.grams(
                         percentile: centile,
                         ageDays: row.ageDays,
                         sex: sex
-                    )
-                    let grams = try! #require(computed)
+                    ))
                     let difference = abs(grams / kg - printed)
                     #expect(
                         difference <= 0.05,

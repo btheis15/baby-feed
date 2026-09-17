@@ -100,6 +100,51 @@ enum FeedingGuidance {
         var perFeedML: Double { targetML / Double(max(1, feedsPerDay)) }
     }
 
+    /// The daily target the whole app shows, and the projection it came from.
+    ///
+    /// Percentile-projected when the sex and a weigh-in make that possible,
+    /// falling back to the last measured weight otherwise. Extracted because
+    /// three screens need the same answer and had already drifted apart once:
+    /// History was still using the frozen weight while Today and Baby had moved
+    /// to the projection.
+    ///
+    /// - Returns: the target, plus the projection when one was used, which the
+    ///   guidance card needs in order to say where the number came from.
+    static func currentTarget(
+        weights: [WeightEntry],
+        profile: BabyProfile,
+        style: FeedingStyle,
+        feedsPerDay: Int,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> (target: DailyTarget?, projection: GrowthProjection?) {
+        let ageDays = profile.ageInDays(on: now, calendar: calendar)
+        let projection = GrowthProjector.project(
+            weights: weights,
+            profile: profile,
+            now: now,
+            calendar: calendar
+        )
+
+        if let projection,
+           let projected = dailyTarget(
+               projection: projection,
+               ageDays: ageDays,
+               style: style,
+               feedsPerDay: feedsPerDay
+           ) {
+            return (projected, projection)
+        }
+
+        let measured = dailyTarget(
+            weightGrams: weights.first?.grams,
+            ageDays: ageDays,
+            style: style,
+            feedsPerDay: feedsPerDay
+        )
+        return (measured, nil)
+    }
+
     /// Daily target from a projected weight rather than a measured one.
     ///
     /// Feeding off an estimate is only honest with a range attached, so the

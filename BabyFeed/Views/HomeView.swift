@@ -50,20 +50,16 @@ struct HomeView: View {
                 let summary = FeedSummary(recent)
                 // Once the sex is known the target follows the baby's percentile
                 // forward instead of sitting frozen at the last weigh-in.
-                let projection = GrowthProjector.project(weights: babyWeights, profile: profile, now: now, calendar: calendar)
-                let target = projection.flatMap {
-                    FeedingGuidance.dailyTarget(
-                        projection: $0,
-                        ageDays: profile.ageInDays(on: now, calendar: calendar),
-                        style: feedingStyle,
-                        feedsPerDay: feedsPerDay
-                    )
-                } ?? FeedingGuidance.dailyTarget(
-                    weightGrams: latestWeight?.grams,
-                    ageDays: profile.ageInDays(on: now, calendar: calendar),
+                let guidance = FeedingGuidance.currentTarget(
+                    weights: babyWeights,
+                    profile: profile,
                     style: feedingStyle,
-                    feedsPerDay: feedsPerDay
+                    feedsPerDay: feedsPerDay,
+                    now: now,
+                    calendar: calendar
                 )
+                let target = guidance.target
+                let projection = guidance.projection
                 let dueDate = visible.first.map { $0.startTime.addingTimeInterval(Double(intervalMinutes) * 60) }
 
                 List {
