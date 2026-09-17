@@ -49,20 +49,18 @@ struct DayGroup: Identifiable {
 enum FeedStats {
     /// Compact elapsed time: "Just now", "45m", "1h 23m", "2h", "1d 3h".
     static func elapsedText(since start: Date, now: Date = .now) -> String {
-        let totalMinutes = Int(max(0, now.timeIntervalSince(start)) / 60)
-        if totalMinutes < 1 { return "Just now" }
+        ElapsedText.compact(since: start, now: now)
+    }
 
-        let days = totalMinutes / (24 * 60)
-        let hours = (totalMinutes % (24 * 60)) / 60
-        let minutes = totalMinutes % 60
-
-        if days > 0 {
-            return hours > 0 ? "\(days)d \(hours)h" : "\(days)d"
+    /// Mean hours between consecutive feeds, or nil with fewer than two feeds.
+    static func averageGapHours(_ entries: [FeedEntry]) -> Double? {
+        let times = entries.map(\.startTime).sorted()
+        guard times.count >= 2 else { return nil }
+        var total: TimeInterval = 0
+        for index in 1..<times.count {
+            total += times[index].timeIntervalSince(times[index - 1])
         }
-        if hours > 0 {
-            return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h"
-        }
-        return "\(minutes)m"
+        return total / Double(times.count - 1) / 3600
     }
 
     /// Entries whose start time is within the trailing window.

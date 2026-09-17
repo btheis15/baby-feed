@@ -222,7 +222,7 @@ struct LogFeedSheet: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(.glassProminent)
         .controlSize(.large)
         .tint(kind.color)
     }
@@ -323,14 +323,14 @@ struct LogFeedSheet: View {
             FeedDefaults.setDefaultNursingMinutes(minutes)
         }
 
-        try? modelContext.save()
+        FeedCoordinator.feedsDidChange(in: modelContext)
         dismiss()
     }
 
     private func deleteEntry() {
         if case .edit(let entry) = mode {
             modelContext.delete(entry)
-            try? modelContext.save()
+            FeedCoordinator.feedsDidChange(in: modelContext)
         }
         dismiss()
     }
@@ -338,10 +338,10 @@ struct LogFeedSheet: View {
 
 #Preview("New formula") {
     LogFeedSheet(mode: .new(.formula))
-        .modelContainer(for: FeedEntry.self, inMemory: true)
+        .modelContainer(for: [FeedEntry.self, WeightEntry.self], inMemory: true)
 }
 
 #Preview("New nursing") {
     LogFeedSheet(mode: .new(.nursing))
-        .modelContainer(for: FeedEntry.self, inMemory: true)
+        .modelContainer(for: [FeedEntry.self, WeightEntry.self], inMemory: true)
 }

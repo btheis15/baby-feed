@@ -37,6 +37,19 @@ struct FeedStatsTests {
         #expect(FeedStats.elapsedText(since: now.addingTimeInterval(600), now: now) == "Just now")
     }
 
+    @Test func averageGapBetweenFeeds() throws {
+        let context = try makeContext()
+        let entries = [
+            FeedEntry(startTime: now, kind: .formula, amountML: 60),
+            FeedEntry(startTime: now.addingTimeInterval(-3 * 3600), kind: .formula, amountML: 60),
+            FeedEntry(startTime: now.addingTimeInterval(-5 * 3600), kind: .nursing, durationMinutes: 10),
+        ]
+        entries.forEach { context.insert($0) }
+        let gap = try #require(FeedStats.averageGapHours(entries))
+        #expect(abs(gap - 2.5) < 0.001)
+        #expect(FeedStats.averageGapHours([entries[0]]) == nil)
+    }
+
     @Test func summaryKeepsBottlesAndNursingSeparate() throws {
         let context = try makeContext()
         let entries = [

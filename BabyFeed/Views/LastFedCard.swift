@@ -5,9 +5,10 @@ struct LastFedCard: View {
     let lastFeed: FeedEntry?
     let unit: VolumeUnit
     let now: Date
-
-    /// Newborns usually eat every 2–3 hours; nudge gently after that.
-    private static let nudgeAfter: TimeInterval = 3 * 60 * 60
+    /// Turn orange once this much time has passed.
+    let nudgeAfter: TimeInterval
+    /// When reminders are on, the time the next feed is due.
+    let dueDate: Date?
 
     var body: some View {
         VStack(spacing: 8) {
@@ -24,7 +25,7 @@ struct LastFedCard: View {
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
-                    .foregroundStyle(elapsed >= Self.nudgeAfter ? Color.orange : Color.primary)
+                    .foregroundStyle(elapsed >= nudgeAfter ? Color.orange : Color.primary)
                     .contentTransition(.numericText())
 
                 HStack(spacing: 6) {
@@ -33,6 +34,18 @@ struct LastFedCard: View {
                     Text("\(lastFeed.kind.title) · \(lastFeed.detailText(unit: unit)) · \(lastFeed.startTime.formatted(date: .omitted, time: .shortened))")
                 }
                 .font(.headline)
+
+                if let dueDate {
+                    Label(
+                        dueDate > now
+                            ? "Next feed around \(dueDate.formatted(date: .omitted, time: .shortened))"
+                            : "Next feed is due",
+                        systemImage: "bell.fill"
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(dueDate > now ? Color.secondary : Color.orange)
+                    .padding(.top, 2)
+                }
             } else {
                 Image(systemName: "moon.zzz.fill")
                     .font(.system(size: 44))
