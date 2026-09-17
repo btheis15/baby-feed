@@ -61,6 +61,7 @@ struct BabyView: View {
                 weightSection
                 growthSection
                 guidanceSection
+                foodsSection
                 caregiversSection
             }
             .navigationTitle(profile.displayName)
@@ -379,6 +380,39 @@ struct BabyView: View {
         } footer: {
             Text("Guidance from the American Academy of Pediatrics and CDC (2½ oz per pound per day, up to about 32 oz; breastfed babies average 25 oz a day after the first month). It's a starting point, not a prescription. Feed on demand and follow your pediatrician.")
         }
+    }
+
+    /// Solids, allergens, cow's milk and the things to keep away – the part of
+    /// the app that stays useful once bottle timing stops mattering so much.
+    private var foodsSection: some View {
+        Section {
+            NavigationLink {
+                FoodsView(
+                    ageMonths: profile.ageInDays(calendar: calendar).map(FoodGuidance.months(fromDays:)),
+                    babyName: profile.displayName
+                )
+            } label: {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Foods by age")
+                        Text(foodsSubtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "carrot.fill")
+                }
+            }
+        } footer: {
+            Text("When solids, allergens and cow's milk can start, and what to keep away from \(profile.displayName) until when – from the AAP, CDC and WHO.")
+        }
+    }
+
+    private var foodsSubtitle: String {
+        guard let days = profile.ageInDays(calendar: calendar) else {
+            return "Set a birthday to see what's next"
+        }
+        return FoodGuidance.stage(forMonths: FoodGuidance.months(fromDays: days)).title
     }
 
     private var caregiversSection: some View {
