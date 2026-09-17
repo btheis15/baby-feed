@@ -48,7 +48,7 @@ struct GuidanceCard: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text(target.basis + (weightText.map { " Using \($0)." } ?? ""))
+                Text(basisText(for: target))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -65,5 +65,14 @@ struct GuidanceCard: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 6)
+    }
+
+    /// The basis sentence with the weight it was derived from appended.
+    /// `basis` only sometimes ends in a period – the weight-based one reads
+    /// "…at 7.5 lb" – so close it off before starting the next sentence.
+    private func basisText(for target: FeedingGuidance.DailyTarget) -> String {
+        guard let weightText else { return target.basis }
+        let sentence = target.basis.hasSuffix(".") ? target.basis : target.basis + "."
+        return "\(sentence) Using \(weightText)."
     }
 }
