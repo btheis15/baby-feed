@@ -37,6 +37,94 @@ struct FeedSummary: Equatable {
     }
 }
 
+/// Totals and per-day averages across a window of calendar days.
+/// `dayCount` is the length of the window, not the number of days that had
+/// feeds, so a day with nothing logged pulls the averages down instead of
+/// disappearing from them.
+struct PeriodAverages: Equatable {
+    var dayCount = 0
+    var feedCount = 0
+    var totalML: Double = 0
+    var nursingMinutes = 0
+
+    var mlPerDay: Double { dayCount > 0 ? totalML / Double(dayCount) : 0 }
+    var feedsPerDay: Double { dayCount > 0 ? Double(feedCount) / Double(dayCount) : 0 }
+    var isEmpty: Bool { feedCount == 0 }
+}
+
+/// Which quarter of the clock a feed falls in.
+enum DayPart: String, CaseIterable, Identifiable {
+    case overnight
+    case morning
+    case afternoon
+    case evening
+
+    var id: String { rawValue }
+
+    /// The part containing a given hour of day (0–23).
+    static func containing(hour: Int) -> DayPart {
+        switch hour {
+        case 0..<6: .overnight
+        case 6..<12: .morning
+        case 12..<18: .afternoon
+        default: .evening
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .overnight: "Overnight"
+        case .morning: "Morning"
+        case .afternoon: "Afternoon"
+        case .evening: "Evening"
+        }
+    }
+
+    var hoursText: String {
+        switch self {
+        case .overnight: "12–6 AM"
+        case .morning: "6 AM–noon"
+        case .afternoon: "Noon–6 PM"
+        case .evening: "6 PM–midnight"
+        }
+    }
+}
+
+/// How a set of feeds spreads across the four parts of the day – the numbers
+/// behind "is she clustering at night?".
+struct DayPartBreakdown: Equatable {
+    private var counts: [DayPart: Int] = [:]
+
+    init() {}
+
+    init(_ entries: [FeedEntry], calendar: Calendar = .current) {
+        for entry in entries {
+            let hour = calendar.component(.hour, from: entry.startTime)
+            counts[DayPart.containing(hour: hour), default: 0] += 1
+        }
+    }
+
+    func count(_ part: DayPart) -> Int { counts[part] ?? 0 }
+
+    var total: Int { counts.values.reduce(0, +) }
+
+    /// Share of all feeds in this part, 0–1.
+    func share(_ part: DayPart) -> Double {
+        total > 0 ? Double(count(part)) / Double(total) : 0
+    }
+
+    /// The part with the most feeds. Nil when there are no feeds, or when the
+    /// top two are tied – there's no honest single answer then.
+    var busiest: DayPart? {
+        let ranked = DayPart.allCases
+            .map { (part: $0, count: count($0)) }
+            .sorted { $0.count > $1.count }
+        guard let top = ranked.first, top.count > 0 else { return nil }
+        if ranked.count > 1, ranked[1].count == top.count { return nil }
+        return top.part
+    }
+}
+
 /// Feeds that happened on one calendar day.
 struct DayGroup: Identifiable {
     let day: Date
@@ -61,6 +149,49 @@ enum FeedStats {
             total += times[index].timeIntervalSince(times[index - 1])
         }
         return total / Double(times.count - 1) / 3600
+    }
+
+    /// Longest gap in hours between consecutive feeds, or nil with fewer than two.
+    static func longestGapHours(_ entries: [FeedEntry]) -> Double? {
+        let times = entries.map(\.startTime).sorted()
+        guard times.count >= 2 else { return nil }
+        var longest: TimeInterval = 0
+        for index in 1..<times.count {
+            longest = max(longest, times[index].timeIntervalSince(times[index - 1]))
+        }
+        return longest / 3600
+    }
+
+    /// "3h 15m" / "45m" from an hour count.
+    static func durationText(hours: Double) -> String {
+        ElapsedText.compact(minutes: Int((hours * 60).rounded()))
+    }
+
+    /// Averages over a window of whole calendar days. `skip` days back from
+    /// today are excluded first, then `days` days are measured – so
+    /// `days: 7, skip: 1` is the last seven complete days, ending yesterday,
+    /// which keeps a partial today from dragging the average down.
+    static func averages(
+        _ groups: [DayGroup],
+        days: Int,
+        skip: Int = 0,
+        calendar: Calendar = .current,
+        now: Date = .now
+    ) -> PeriodAverages {
+        guard days > 0 else { return PeriodAverages() }
+        let today = calendar.startOfDay(for: now)
+        guard let windowEnd = calendar.date(byAdding: .day, value: -skip, to: today),
+              let windowStart = calendar.date(byAdding: .day, value: -(days - 1), to: windowEnd)
+        else { return PeriodAverages() }
+
+        var result = PeriodAverages(dayCount: days)
+        for group in groups where group.day >= windowStart && group.day <= windowEnd {
+            let summary = group.summary
+            result.feedCount += summary.feedCount
+            result.totalML += summary.totalML
+            result.nursingMinutes += summary.nursingMinutes
+        }
+        return result
     }
 
     /// Entries whose start time is within the trailing window.

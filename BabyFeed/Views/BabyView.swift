@@ -1,8 +1,7 @@
-import Charts
 import SwiftData
 import SwiftUI
 
-/// Baby profile, weight log with chart, and the age-based feeding guide.
+/// Baby profile, weight log with its numbers, and the age-based feeding guide.
 struct BabyView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \WeightEntry.date, order: .reverse) private var allWeights: [WeightEntry]
@@ -130,9 +129,7 @@ struct BabyView: View {
                 .padding(.vertical, 4)
 
                 if weights.count >= 2 {
-                    weightChart
-                        .frame(height: 180)
-                        .padding(.vertical, 6)
+                    weightTrend
                 }
 
                 ForEach(weights) { entry in
@@ -164,21 +161,46 @@ struct BabyView: View {
         }
     }
 
-    private var weightChart: some View {
-        let points = weights.reversed()
-        return Chart(points) { entry in
-            LineMark(
-                x: .value("Date", entry.date, unit: .day),
-                y: .value("Weight", displayValue(grams: entry.grams))
-            )
-            .interpolationMethod(.catmullRom)
-            PointMark(
-                x: .value("Date", entry.date, unit: .day),
-                y: .value("Weight", displayValue(grams: entry.grams))
-            )
+    /// The numbers the weight chart used to gesture at: the last step, the
+    /// steadier whole-log rate, and the total since the first weigh-in.
+    @ViewBuilder
+    private var weightTrend: some View {
+        if let change = WeightStats.lastChange(weights) {
+            LabeledContent("Since last weigh-in") {
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(weightUnit.formatChange(grams: change.grams))
+                        .monospacedDigit()
+                        .foregroundStyle(change.grams >= 0 ? Color.green : Color.orange)
+                    Text(change.days == 1 ? "over 1 day" : "over \(change.days) days")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
-        .chartYAxisLabel(weightUnit == .kilograms ? "kg" : "lb")
-        .chartYScale(domain: .automatic(includesZero: false))
+
+        if let rate = WeightStats.overallGramsPerWeek(weights) {
+            LabeledContent("Average gain") {
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(weightUnit.formatGain(gramsPerWeek: rate))
+                        .monospacedDigit()
+                    Text("typical 5–7 oz/week")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+
+        if let total = WeightStats.changeSinceFirst(weights), let first = weights.last {
+            LabeledContent("Since first weigh-in") {
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(weightUnit.formatChange(grams: total))
+                        .monospacedDigit()
+                    Text(first.date.formatted(date: .abbreviated, time: .omitted))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 
     private var guidanceSection: some View {
@@ -251,20 +273,7 @@ struct BabyView: View {
 
     // MARK: Helpers
 
-    private var weeklyGain: Double? {
-        guard weights.count >= 2 else { return nil }
-        let latest = weights[0], previous = weights[1]
-        let weeks = latest.date.timeIntervalSince(previous.date) / (7 * 24 * 3600)
-        guard weeks > 0.2 else { return nil }
-        return (latest.grams - previous.grams) / weeks
-    }
-
-    private func displayValue(grams: Double) -> Double {
-        switch weightUnit {
-        case .poundsOunces: grams / WeightUnit.gramsPerPound
-        case .kilograms: grams / 1000
-        }
-    }
+    private var weeklyGain: Double? { WeightStats.lastChange(weights)?.gramsPerWeek }
 
     private func deleteWeights(at offsets: IndexSet) {
         let visible = weights

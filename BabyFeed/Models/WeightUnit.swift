@@ -30,6 +30,18 @@ enum WeightUnit: String, CaseIterable, Identifiable {
         }
     }
 
+    /// A signed change, e.g. "+4 oz" or "−110 g".
+    func formatChange(grams: Double) -> String {
+        let sign = grams >= 0 ? "+" : "−"
+        switch self {
+        case .poundsOunces:
+            let ounces = abs(grams) / Self.gramsPerOunce
+            return "\(sign)\(ounces.formatted(.number.precision(.fractionLength(0...1)))) oz"
+        case .kilograms:
+            return "\(sign)\(Int(abs(grams).rounded())) g"
+        }
+    }
+
     /// Weekly gain, e.g. "+6 oz/week" or "+170 g/week".
     func formatGain(gramsPerWeek: Double) -> String {
         let sign = gramsPerWeek >= 0 ? "+" : "−"
