@@ -411,6 +411,7 @@ struct BabyView: View {
 
     /// Solids, allergens, cow's milk and the things to keep away – the part of
     /// the app that stays useful once bottle timing stops mattering so much.
+    @ViewBuilder
     private var foodsSection: some View {
         Section {
             NavigationLink {
@@ -440,10 +441,16 @@ struct BabyView: View {
                 }
             }
 
+        } footer: {
+            Text("What the day's total, weight and diapers say about whether \(profile.displayName) is taking enough – and when a small feed is worth a call.")
+        }
+
+        Section {
             NavigationLink {
                 FoodsView(
                     ageMonths: profile.ageInDays(calendar: calendar).map(FoodGuidance.months(fromDays:)),
-                    babyName: profile.displayName
+                    babyName: profile.displayName,
+                    isPreterm: profile.isPreterm
                 )
             } label: {
                 Label {

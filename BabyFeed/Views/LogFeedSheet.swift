@@ -141,7 +141,6 @@ struct LogFeedSheet: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .animation(.snappy, value: amount)
 
             chips(unit.presets,
                   isSelected: { abs($0 - amount) < 0.001 },

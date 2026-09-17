@@ -6,8 +6,15 @@ import SwiftUI
 /// question stops being "how much" and starts being "can she have this?".
 struct FoodsView: View {
     /// Age in whole months, or nil when the birthday isn't set.
+    ///
+    /// Chronological, not corrected. Growth percentiles use corrected age for a
+    /// baby born early, but the bodies that publish complementary-feeding ages
+    /// don't agree on whether to correct them, so the screen says which age it
+    /// used rather than picking a side silently.
     let ageMonths: Int?
     let babyName: String
+    /// True when a due date says the baby arrived early.
+    var isPreterm: Bool = false
 
     private var stage: FoodGuidance.Stage? { ageMonths.map(FoodGuidance.stage(forMonths:)) }
 
@@ -118,6 +125,10 @@ struct FoodsView: View {
             }
         } header: {
             Text("At \(monthsText(months)) · \(stage.ageText)")
+        } footer: {
+            if isPreterm {
+                Text("These ages count from \(babyName)'s birthday, not the due date. Growth percentiles here use corrected age, but guidance on when to start solids doesn't agree on whether to correct it – so check with your pediatrician rather than going by these dates alone.")
+            }
         }
     }
 

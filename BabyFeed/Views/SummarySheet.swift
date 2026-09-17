@@ -39,15 +39,17 @@ struct SummarySheet: View {
         )
     }
 
-    private var facts: String { DaySummaryGenerator.plainText(from: report) }
-    private var shareText: String { friendly ?? facts }
-
     var body: some View {
         NavigationStack {
-            List {
-                windowSection
+            // Built once here and passed down: it filters and regroups the
+            // whole log, and reading it as a computed property meant doing that
+            // five times per render.
+            let report = report
+            let facts = DaySummaryGenerator.plainText(from: report)
 
-                let report = report
+            List {
+                windowSection(report)
+
                 if !report.weightItems.isEmpty {
                     itemSection("Weight", items: report.weightItems)
                 }
@@ -68,7 +70,7 @@ struct SummarySheet: View {
                             .textSelection(.enabled)
                     }
                 }
-                rewriteSection
+                rewriteSection(facts: facts)
             }
             .listStyle(.insetGrouped)
             .navigationTitle("For the pediatrician")
@@ -78,7 +80,7 @@ struct SummarySheet: View {
                     Button("Done") { dismiss() }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    ShareLink(item: shareText, subject: Text("Feeding summary")) {
+                    ShareLink(item: friendly ?? facts, subject: Text("Feeding summary")) {
                         Label("Share", systemImage: "square.and.arrow.up")
                     }
                 }
@@ -89,7 +91,7 @@ struct SummarySheet: View {
 
     // MARK: Sections
 
-    private var windowSection: some View {
+    private func windowSection(_ report: DaySummaryGenerator.Report) -> some View {
         Section {
             Picker("Days", selection: $days) {
                 Text("3 days").tag(3)
@@ -175,6 +177,9 @@ struct SummarySheet: View {
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
 
+            Divider()
+                .gridCellColumns(4)
+
             ForEach(days) { day in
                 GridRow {
                     Text(day.shortTitle)
@@ -196,11 +201,11 @@ struct SummarySheet: View {
     }
 
     @ViewBuilder
-    private var rewriteSection: some View {
+    private func rewriteSection(facts: String) -> some View {
         if DaySummaryGenerator.canRewrite {
             Section {
                 Button {
-                    rewrite()
+                    rewrite(facts: facts)
                 } label: {
                     if isGenerating {
                         ProgressView()
@@ -220,11 +225,10 @@ struct SummarySheet: View {
         }
     }
 
-    private func rewrite() {
-        let input = facts
+    private func rewrite(facts: String) {
         isGenerating = true
         Task {
-            friendly = await DaySummaryGenerator.friendlySummary(from: input)
+            friendly = await DaySummaryGenerator.friendlySummary(from: facts)
             isGenerating = false
         }
     }
