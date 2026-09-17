@@ -15,7 +15,7 @@ final class Baby {
     var dueDate: Date?
     /// True once the baby exists on the server and other caregivers can join.
     var isShared: Bool = false
-    /// Supabase user id of the owner, when shared.
+    /// Identifier of whoever owns the shared copy, once sharing exists.
     var ownerUserID: String?
     var updatedAt: Date = Date()
     var deletedAt: Date?

@@ -36,9 +36,6 @@ struct RootView: View {
         .sheet(isPresented: $router.showLogSheet) {
             LogFeedSheet(mode: .new(router.pendingLogKind ?? .formula))
         }
-        .sheet(isPresented: $router.showJoinSheet) {
-            JoinBabySheet(initialCode: router.pendingJoinCode ?? "")
-        }
     }
 }
 

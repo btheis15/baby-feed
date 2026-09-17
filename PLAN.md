@@ -110,33 +110,47 @@ the main newborn red flag and a reassuring estimate must not mask it.
 
 ## Sharing between caregivers
 
-Husband and wife (and grandparents, a nanny, a night nurse) each install the app, sign
-in, and see one log. Implemented in `Services/Sync/` with the schema in
-`supabase/migrations/`; setup steps in `supabase/README.md`.
+**Status: not built.** The app is local-only and says so under Caregivers. There is no
+account, no third-party backend, and nothing leaves the phone.
 
-- **Accounts**: Sign in with Apple, or a 6-digit code by email. Signing in is only
-  needed to share; the app is fully usable without it.
-- **Share**: the owner taps *Share* under Caregivers. The baby and its history are
-  uploaded and a 6-character invite code is created (valid 7 days, 20 uses). The code
-  can be sent as a message with a `babyfeed://join/CODE` link that opens the Join sheet.
-- **Join**: anyone with the code becomes a caregiver. There is no limit on caregivers.
-  A phone can follow more than one baby (twins, or two families); the Baby tab has a
-  switcher.
-- **Who logged it**: each feed carries the caregiver's display name, shown in the list.
-- **Offline-first**: the local SwiftData store stays the source of truth; every screen
-  reads it. Rows carry a client UUID, `updated_at`, and a soft `deleted_at`; changes are
-  flagged `needs_upload` and pushed in batches. Pulls fetch rows whose
-  `server_updated_at` is newer than a per-baby watermark and merge last-writer-wins,
-  keeping an un-pushed local edit on ties.
-- **Live**: Supabase realtime subscriptions on `feeds`, `weights`, `babies` and
-  `baby_members` trigger a pull, so the other phone updates within seconds. Sync also
-  runs on foreground and after every local change.
-- **Privacy**: row-level security means a signed-in user can only read or write babies
-  they are a member of. Owners can remove members; members can leave.
-- **Why Supabase and not iCloud**: the user asked for accounts so any caregiver can join,
-  regardless of Apple Family Sharing. CloudKit sharing would also require moving from
-  SwiftData to Core Data. Supabase's free tier covers a family easily, and the schema is
-  plain Postgres. CloudKit remains an option later for the single-user, no-sign-in case.
+What exists today:
+
+- **Who logged it**: every feed, weight and care note carries the caregiver's display
+  name, shown in the list as "Logged by <name>" and carried into the pediatrician
+  summary. Deliberately *logged by*, not *fed by* — the person with a free hand to tap
+  Save often isn't the person holding the bottle.
+- **Local-first storage**: the on-device SwiftData store is the source of truth and every
+  screen reads it. Rows already carry a client `uuid`, `updatedAt`, a soft `deletedAt`
+  and `needsUpload`, so changes can be queued and conflicts resolved.
+- **Merge rules**: `SyncMerge` holds them — last writer wins, keeping an un-pushed local
+  edit on ties. Transport-agnostic and unit-tested.
+- **Row shapes**: `SyncDTOs`, still snake_case so a Postgres table maps straight across.
+- **Watermarks**: `SyncEngine.watermark(for:)` records how far a pull got per baby, and
+  never moves backwards.
+
+What's missing is only the client: push rows where `needsUpload` is true, pull rows the
+server has touched since the watermark, hand each to `SyncMerge`. No caller above
+`SyncEngine` changes when that lands, because `requestSync()` is already called after
+every local change and is currently a guarded no-op.
+
+The plan is a **small server hosted on a Mac Mini on the home network** — Postgres
+holding only what two phones need to agree on. Not an account with a company. Credentials
+stay on-device; pairing a second caregiver should be a QR code scanned from the first
+phone rather than a sign-up.
+
+- **Why not Supabase**: it was implemented and then removed at the user's request — they
+  are self-hosting. The abstractions above survived the removal intact, which is the
+  point of keeping the merge rules away from the transport.
+- **Why not CloudKit**: sharing would require moving from SwiftData to Core Data, and it
+  ties caregivers to Apple Family Sharing. Still an option later for the single-user case.
+
+### Cross-caregiver notifications
+
+Requested, and blocked on the same server. A notification telling the *other* caregiver
+that a feed was logged needs a transport to reach the other phone — either a push from
+the server or a poll from the receiving device. A local notification would only fire on
+the phone that just logged the feed, which is useless. So this waits for the Mac Mini
+rather than shipping something that looks like it works.
 
 ## iOS integration
 
@@ -152,8 +166,7 @@ in, and see one log. Implemented in `Services/Sync/` with the schema in
 | Growth percentiles and weight projection     | WHO Child Growth Standards (bundled LMS tables) | `GrowthStandard.swift`, `GrowthProjection.swift` |
 | Age-based food guidance with sources          | Bundled AAP/CDC/WHO guidance     | `FoodGuidance.swift`, `FoodsView.swift` |
 | Deep links from widgets & notifications      | `babyfeed://log/<kind>` URL scheme | `AppRouter.swift`                    |
-| Sign in with Apple                           | AuthenticationServices + Supabase Auth | `SignInSheet.swift`, `SyncEngine.swift` |
-| Multi-caregiver sync, realtime               | Supabase (Postgres, RLS, Realtime) | `Services/Sync/`, `supabase/`        |
+| Multi-caregiver sync (not built)             | Self-hosted server, planned      | `Services/Sync/` (merge rules, DTOs, watermarks) |
 
 Widgets never open the database: the app writes a small JSON `FeedSnapshot` into the
 App Group after every change and calls `WidgetCenter.reloadAllTimelines()`.
@@ -252,11 +265,10 @@ BabyFeed/                 App target (iOS 26+)
                           GrowthStandard + WHOWeightForAge + GrowthProjection, FoodGuidance,
                           BabyProfile, units, settings
   Services/               FeedCoordinator, BabyStore, ReminderScheduler, FeedAlarmScheduler, LiveActivityManager, DaySummaryGenerator
-  Services/Sync/          SupabaseConfig, SyncEngine, SyncMerge (pure rules), SyncDTOs
+  Services/Sync/          SyncEngine (local-only), SyncMerge (pure rules), SyncDTOs
   Intents/                LogFeedIntent, LastFeedIntent, App Shortcuts
   Views/                  Home, LogFeedSheet, History, Trends, Baby, Foods, Settings, TimeZonePicker,
                           Family (caregivers), SignIn, Join, cards
-supabase/                 Schema migration + setup guide for the sync backend
 Shared/                   Compiled into app AND widget: FeedKind, FeedSnapshot, activity attributes, ElapsedText
 BabyFeedWidget/           Widget extension: Last Feed widget + Live Activity
 BabyFeedTests/            Unit tests (Swift Testing)
@@ -276,8 +288,8 @@ BabyFeedTests/            Unit tests (Swift Testing)
 2. Select the `BabyFeed` target → Signing & Capabilities → pick your team. Do the same
    for `BabyFeedWidget`.
 3. Run on an iPhone or simulator running iOS 26+. `Cmd+U` runs the tests.
-4. To share between phones, follow `supabase/README.md` (about five minutes) and fill in
-   `SupabaseConfig.swift`. Without it the app is local-only and says so under Caregivers.
+4. The app is local-only. There is nothing to configure and nothing to sign into; the
+   Caregivers screen says so.
 
 Widgets and the Live Activity share data through an **App Group**
 (`group.com.babyfeed.shared`), and reminders use the **Time Sensitive Notifications**

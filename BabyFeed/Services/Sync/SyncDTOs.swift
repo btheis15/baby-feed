@@ -1,7 +1,11 @@
 import Foundation
 
-/// Row shapes for the Supabase tables. Snake_case keys match the schema in
-/// `supabase/migrations`.
+/// Row shapes for syncing, kept snake_case because the server that will
+/// eventually consume them is a Postgres database hosted on the Mac Mini.
+///
+/// Nothing sends these yet – `SyncEngine` has no transport. They're here
+/// because the shapes and the merge rules are the settled part of syncing; only
+/// the client is missing.
 struct BabyDTO: Codable, Equatable {
     var id: UUID
     var name: String

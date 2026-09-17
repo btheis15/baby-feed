@@ -22,12 +22,12 @@ lack of sleep and washing bottles.
   age for babies born early
 - **Foods by age**: when solids, allergens and cow's milk can start, and what to keep
   away until when, sourced to the AAP, CDC and WHO
-- **Share with other caregivers**: sign in with Apple, share the baby, and hand your
-  partner (or grandparents, or the nanny) a 6-character code. Everyone sees the same log
-  within seconds, sees who logged what, and it all keeps working offline. Any number of
-  caregivers, and more than one baby per phone
-- Ounces or milliliters, CSV export, no subscription, no ads. Signing in is only needed
-  for sharing
+- **Who logged what**: every feed, weight and note records the caregiver who entered it
+  ("Logged by Brian"), and that reaches the pediatrician summary too — so a shared log
+  reads clearly even when whoever fed the baby wasn't whoever had a free hand to log it
+- **Everything is on the phone.** No account, no company holding your data, works with no
+  signal. More than one baby per phone
+- Ounces or milliliters, CSV export, no subscription, no ads, no sign-in
 
 See [PLAN.md](PLAN.md) for the research behind the features, the guidance sources, the
 iOS integration list, and what's planned next.
@@ -42,10 +42,14 @@ Requires **Xcode 26 or newer** and **iOS 26 or newer**.
 3. Pick a simulator or your iPhone and press Run (`Cmd+R`).
 4. `Cmd+U` runs the unit tests.
 
-**Sharing between phones** needs a small backend: follow [supabase/README.md](supabase/README.md)
-(free tier, about five minutes) and paste the project URL and key into
-`BabyFeed/Services/Sync/SupabaseConfig.swift`. The Xcode project pulls in the
-`supabase-swift` package on first open.
+**Sharing between phones** isn't built. The app is local-first: the on-device SwiftData
+store is the source of truth, and nothing is uploaded. The plan is a small server you host
+yourself (a Mac Mini on the home network), holding only what two phones need to agree on —
+not an account with a company. `Services/Sync/` keeps the parts that are transport-agnostic
+and tested: per-row `uuid`/`updatedAt`/`deletedAt`/`needsUpload`, the `SyncMerge` rules,
+the row shapes, and the per-baby pull watermarks. What's missing is the client.
+
+Until then, the pediatrician summary under History shares as plain text to anyone.
 
 **Free personal team?** Widgets/Live Activity use an App Group and reminders use the Time
 Sensitive entitlement; both need a paid developer membership. Remove those capabilities
@@ -59,7 +63,6 @@ BabyFeed/            SwiftUI app: Models, Services (reminders, alarm, live activ
 Shared/              Types compiled into both the app and the widget
 BabyFeedWidget/      Lock Screen / Home Screen widget and the Live Activity
 BabyFeedTests/       Unit tests for guidance rules, units, stats, CSV, snapshot, sync merge rules
-supabase/            Database schema and setup guide for caregiver sync
 ```
 
 ## Medical note
