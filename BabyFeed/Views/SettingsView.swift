@@ -10,11 +10,15 @@ struct SettingsView: View {
     @AppStorage(AppSettings.timeZoneKey) private var timeZoneIdentifier = ""
     @AppStorage(FeedDefaults.amountKey(for: .formula)) private var formulaML: Double = 0
     @AppStorage(FeedDefaults.amountKey(for: .breastMilk)) private var breastMilkML: Double = 0
+    /// Read so these rows update as the guidance follows the baby.
+    @AppStorage(FeedDefaults.recommendedPerFeedKey) private var recommendedML: Double = 0
 
     @AppStorage(AppSettings.remindersEnabledKey) private var remindersEnabled = false
-    @AppStorage(AppSettings.intervalMinutesKey) private var intervalMinutes = AppSettings.defaultIntervalMinutes
+    /// 0 means "typical for age".
+    @AppStorage(AppSettings.intervalMinutesKey) private var intervalMinutesRaw = 0
     @AppStorage(AppSettings.useAlarmKey) private var useAlarm = false
     @AppStorage(AppSettings.liveActivityKey) private var liveActivity = true
+    @AppStorage(BabyProfile.nameKey) private var babyName = ""
     @AppStorage(BabyProfile.birthDateKey) private var birthInterval: Double = 0
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
@@ -47,7 +51,7 @@ struct SettingsView: View {
                     FeedCoordinator.settingsDidChange(in: modelContext)
                 }
             }
-            .onChange(of: intervalMinutes) { _, _ in FeedCoordinator.settingsDidChange(in: modelContext) }
+            .onChange(of: intervalMinutesRaw) { _, _ in FeedCoordinator.settingsDidChange(in: modelContext) }
             .onChange(of: useAlarm) { _, on in
                 if on {
                     Task {
@@ -106,15 +110,13 @@ struct SettingsView: View {
             Toggle("Remind me for the next feed", isOn: $remindersEnabled)
 
             if remindersEnabled {
-                Picker("Every", selection: $intervalMinutes) {
+                // 0 is "typical for age", so the gap widens on its own as the
+                // baby grows rather than staying where it was set in week one.
+                Picker("Every", selection: $intervalMinutesRaw) {
+                    Text("Typical for age · \(intervalLabel(AppSettings.suggestedIntervalMinutes))")
+                        .tag(0)
                     ForEach(AppSettings.intervalChoices, id: \.self) { minutes in
                         Text(intervalLabel(minutes)).tag(minutes)
-                    }
-                }
-
-                if let suggested = suggestedInterval, suggested != intervalMinutes {
-                    Button("Use typical for age (\(intervalLabel(suggested)))") {
-                        intervalMinutes = suggested
                     }
                 }
 
@@ -187,12 +189,14 @@ struct SettingsView: View {
 
     private var defaultsSection: some View {
         Section {
-            amountStepper("Formula", ml: $formulaML)
-            amountStepper("Breast milk", ml: $breastMilkML)
+            amountRow("Formula", kind: .formula, ml: $formulaML)
+            amountRow("Breast milk", kind: .breastMilk, ml: $breastMilkML)
         } header: {
             Text("Default amounts")
         } footer: {
-            Text("Each feed you save becomes the next default, so you rarely need to change these by hand.")
+            Text(recommendedML > 0
+                 ? "Bottles start at the recommended amount for \(babyName.isEmpty ? "Baby" : babyName)'s weight and age, and follow it as they grow \u{2013} nothing to keep up with by hand. Pin an amount if your baby reliably takes something else."
+                 : "Bottles will start at the recommended amount once there's a weight and a birthday to work from. Until then they start at \(unit.format(milliliters: unit.toMilliliters(unit.defaultAmount))).")
         }
     }
 
@@ -234,13 +238,6 @@ struct SettingsView: View {
 
     // MARK: Helpers
 
-    private var suggestedInterval: Int? {
-        guard birthInterval > 0 else { return nil }
-        let profile = BabyProfile(name: "", birthDate: Date(timeIntervalSince1970: birthInterval))
-        let hours = FeedingGuidance.suggestedIntervalHours(ageDays: profile.ageInDays())
-        let minutes = Int((hours * 60 / 30).rounded()) * 30
-        return AppSettings.intervalChoices.min { abs($0 - minutes) < abs($1 - minutes) }
-    }
 
     private func intervalLabel(_ minutes: Int) -> String {
         let hours = Double(minutes) / 60
@@ -249,6 +246,32 @@ struct SettingsView: View {
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    }
+
+    /// Either "Recommended (2.3 oz)" with a way to pin, or a pinned amount with
+    /// a way to go back to following the guidance.
+    @ViewBuilder
+    private func amountRow(_ title: String, kind: FeedKind, ml: Binding<Double>) -> some View {
+        if ml.wrappedValue > 0 {
+            amountStepper(title, ml: ml)
+            Button("Use the recommendation for \(title.lowercased())") {
+                ml.wrappedValue = 0
+            }
+            .font(.footnote)
+        } else {
+            LabeledContent(title) {
+                Text(recommendedML > 0
+                     ? "Recommended · \(unit.format(milliliters: FeedDefaults.defaultAmountML(for: kind, unit: unit)))"
+                     : "Recommended")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Button("Pin an amount for \(title.lowercased()) instead") {
+                // Seed from whatever is showing, so pinning never jumps.
+                ml.wrappedValue = FeedDefaults.defaultAmountML(for: kind, unit: unit)
+            }
+            .font(.footnote)
+        }
     }
 
     private func amountStepper(_ title: String, ml: Binding<Double>) -> some View {

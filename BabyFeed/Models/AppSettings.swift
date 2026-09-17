@@ -22,12 +22,39 @@ enum AppSettings {
 
     static var remindersEnabled: Bool { defaults.bool(forKey: remindersEnabledKey) }
 
+    /// The interval typical for the baby's age, snapped to the choices offered.
+    ///
+    /// Falls back to three hours when there's no birthday to work from.
+    static var suggestedIntervalMinutes: Int {
+        let profile = BabyProfile.load(from: defaults)
+        guard profile.birthDate != nil else { return defaultIntervalMinutes }
+        let hours = FeedingGuidance.suggestedIntervalHours(ageDays: profile.ageInDays(calendar: calendar))
+        let rounded = Int((hours * 60 / 30).rounded()) * 30
+        return intervalChoices.min { abs($0 - rounded) < abs($1 - rounded) } ?? defaultIntervalMinutes
+    }
+
+    /// True when the interval is following the baby's age rather than a pin.
+    static var followsSuggestedInterval: Bool {
+        defaults.integer(forKey: intervalMinutesKey) <= 0
+    }
+
+    /// Minutes between feeds.
+    ///
+    /// 0 – the default – means "follow what's typical for this age", so the gap
+    /// widens on its own as the baby grows instead of sitting at whatever was
+    /// chosen in the first week. A non-zero value is a deliberate pin.
     static var intervalMinutes: Int {
         let stored = defaults.integer(forKey: intervalMinutesKey)
-        return stored > 0 ? stored : defaultIntervalMinutes
+        return stored > 0 ? stored : suggestedIntervalMinutes
     }
 
     static var interval: TimeInterval { Double(intervalMinutes) * 60 }
+
+    /// Resolves a raw stored value the same way, for views that read the key
+    /// through `@AppStorage` so they re-render when it changes.
+    static func resolvedIntervalMinutes(raw: Int) -> Int {
+        raw > 0 ? raw : suggestedIntervalMinutes
+    }
 
     /// Ring a real alarm (AlarmKit) instead of a notification.
     static var useAlarm: Bool { defaults.bool(forKey: useAlarmKey) }

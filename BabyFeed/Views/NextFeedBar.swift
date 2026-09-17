@@ -6,7 +6,10 @@ struct NextFeedBar: View {
     @Environment(AppRouter.self) private var router
     @Query(sort: \FeedEntry.startTime, order: .reverse) private var entries: [FeedEntry]
     @AppStorage(AppSettings.remindersEnabledKey) private var remindersEnabled = false
-    @AppStorage(AppSettings.intervalMinutesKey) private var intervalMinutes = AppSettings.defaultIntervalMinutes
+    /// 0 means "follow what's typical for this age"; resolved below.
+    @AppStorage(AppSettings.intervalMinutesKey) private var intervalMinutesRaw = 0
+    /// Read so the bar re-renders as the baby's age moves the interval.
+    @AppStorage(BabyProfile.birthDateKey) private var birthInterval: Double = 0
     @AppStorage(FeedDefaults.volumeUnit) private var unitRaw = VolumeUnit.ounces.rawValue
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
@@ -31,7 +34,7 @@ struct NextFeedBar: View {
                         .font(.subheadline)
                         .lineLimit(1)
                         if remindersEnabled {
-                            let due = last.startTime.addingTimeInterval(Double(intervalMinutes) * 60)
+                            let due = last.startTime.addingTimeInterval(Double(AppSettings.resolvedIntervalMinutes(raw: intervalMinutesRaw)) * 60)
                             Text(due > .now ? "Next around \(due, format: .dateTime.hour().minute())" : "Feed is due")
                                 .font(.caption)
                                 .foregroundStyle(due > .now ? Color.secondary : Color.orange)

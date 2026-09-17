@@ -23,12 +23,19 @@ enum FeedCoordinator {
 
         let recent = FeedStats.entries(entries, within: 24 * 60 * 60)
         let summary = FeedSummary(recent)
-        let target = FeedingGuidance.dailyTarget(
-            weightGrams: weights.first?.grams,
-            ageDays: profile.ageInDays(),
+        // The same shared call the screens use, so the widget can't show a
+        // target the app disagrees with.
+        let target = FeedingGuidance.currentTarget(
+            weights: weights,
+            profile: profile,
             style: AppSettings.feedingStyle,
-            feedsPerDay: AppSettings.feedsPerDay
-        )
+            feedsPerDay: AppSettings.feedsPerDay,
+            calendar: AppSettings.calendar
+        ).target
+
+        // Mirrored out so the log sheet, quick-log buttons and Siri can all
+        // start a bottle at the recommended amount without touching SwiftData.
+        FeedDefaults.recommendedPerFeedML = target?.perFeedML ?? 0
 
         let snapshot = FeedSnapshot(
             lastFeed: lastFeed.map {

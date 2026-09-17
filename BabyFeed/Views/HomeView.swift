@@ -13,7 +13,8 @@ struct HomeView: View {
     @AppStorage(FeedDefaults.volumeUnit) private var unitRaw = VolumeUnit.ounces.rawValue
     @AppStorage(AppSettings.weightUnitKey) private var weightUnitRaw = WeightUnit.poundsOunces.rawValue
     @AppStorage(AppSettings.remindersEnabledKey) private var remindersEnabled = false
-    @AppStorage(AppSettings.intervalMinutesKey) private var intervalMinutes = AppSettings.defaultIntervalMinutes
+    /// 0 means "follow what's typical for this age"; resolved below.
+    @AppStorage(AppSettings.intervalMinutesKey) private var intervalMinutesRaw = 0
     @AppStorage(AppSettings.feedingStyleKey) private var feedingStyleRaw = FeedingStyle.formula.rawValue
     @AppStorage(AppSettings.feedsPerDayKey) private var feedsPerDay = 0
     @AppStorage(BabyProfile.nameKey) private var babyName = ""
@@ -29,6 +30,7 @@ struct HomeView: View {
     private var weightUnit: WeightUnit { WeightUnit(rawValue: weightUnitRaw) ?? .poundsOunces }
     private var feedingStyle: FeedingStyle { FeedingStyle(rawValue: feedingStyleRaw) ?? .formula }
     private var currentBabyID: UUID? { UUID(uuidString: currentBabyIDRaw) }
+    private var intervalMinutes: Int { AppSettings.resolvedIntervalMinutes(raw: intervalMinutesRaw) }
     private var profile: BabyProfile {
         BabyProfile(
             name: babyName,

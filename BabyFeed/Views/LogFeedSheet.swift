@@ -319,10 +319,10 @@ struct LogFeedSheet: View {
             entry.markChanged()
         }
 
-        // What you just saved becomes the next default.
-        if let amountML {
-            FeedDefaults.setDefaultAmountML(amountML, for: kind)
-        } else {
+        // Bottle amounts follow the guidance (or a pin set in Settings), so
+        // saving one doesn't change the next default. Nursing has no
+        // weight-based rule to follow, so it still remembers what you did.
+        if amountML == nil {
             FeedDefaults.setDefaultNursingMinutes(minutes)
         }
 

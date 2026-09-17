@@ -48,9 +48,10 @@ struct LogFeedIntent: AppIntent {
 
         let entry: FeedEntry
         if feedKind.usesVolume {
+            // Bottle amounts follow the recommendation, so a one-off "log 5 oz"
+            // through Siri doesn't quietly become the new default.
             let ml = amount.map { unit.toMilliliters($0) } ?? FeedDefaults.defaultAmountML(for: feedKind, unit: unit)
             entry = FeedEntry(babyID: AppSettings.currentBabyID, kind: feedKind, amountML: ml, loggedByName: AppSettings.displayName)
-            FeedDefaults.setDefaultAmountML(ml, for: feedKind)
         } else {
             let duration = minutes ?? FeedDefaults.defaultNursingMinutes()
             entry = FeedEntry(babyID: AppSettings.currentBabyID, kind: feedKind, durationMinutes: duration, loggedByName: AppSettings.displayName)

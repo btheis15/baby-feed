@@ -5,23 +5,25 @@ struct QuickLogButtons: View {
     let unit: VolumeUnit
     let onTap: (FeedKind) -> Void
 
+    /// Pinned amounts, 0 when following the recommendation.
     @AppStorage(FeedDefaults.amountKey(for: .formula)) private var formulaML: Double = 0
     @AppStorage(FeedDefaults.amountKey(for: .breastMilk)) private var breastMilkML: Double = 0
+    /// Read so the buttons re-render when the guidance moves.
+    @AppStorage(FeedDefaults.recommendedPerFeedKey) private var recommendedML: Double = 0
     @AppStorage(FeedDefaults.lastNursingMinutes) private var nursingMinutes: Int = 0
 
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
-                bigButton(.formula, subtitle: amountText(formulaML))
-                bigButton(.breastMilk, subtitle: amountText(breastMilkML))
+                bigButton(.formula, subtitle: amountText(for: .formula))
+                bigButton(.breastMilk, subtitle: amountText(for: .breastMilk))
             }
             wideButton(.nursing, subtitle: "\(nursingMinutes > 0 ? nursingMinutes : 15) min")
         }
     }
 
-    private func amountText(_ ml: Double) -> String {
-        let value = ml > 0 ? ml : unit.toMilliliters(unit.defaultAmount)
-        return unit.format(milliliters: value)
+    private func amountText(for kind: FeedKind) -> String {
+        unit.format(milliliters: FeedDefaults.defaultAmountML(for: kind, unit: unit))
     }
 
     private func bigButton(_ kind: FeedKind, subtitle: String) -> some View {

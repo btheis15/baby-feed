@@ -21,8 +21,15 @@ struct BabyFeedApp: App {
     @State private var router = AppRouter()
 
     init() {
+        // Before anything reads a default amount: drop the amounts the old
+        // save-becomes-the-default behaviour left behind, so bottles follow the
+        // recommendation rather than a number nobody chose.
+        FeedDefaults.clearLegacyPinsIfNeeded()
         BabyStore.bootstrap(in: AppModelContainer.shared.mainContext)
         SyncEngine.shared.start(container: AppModelContainer.shared)
+        // Re-derive everything that depends on the baby's age before the first
+        // frame, so a day's growth is reflected even if nothing was logged.
+        FeedCoordinator.settingsDidChange(in: AppModelContainer.shared.mainContext)
     }
 
     var body: some Scene {
@@ -40,6 +47,11 @@ struct BabyFeedApp: App {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 SyncEngine.shared.requestSync()
+                // The recommendation, the reminder interval and the projection
+                // all move with the baby's age, and FeedCoordinator otherwise
+                // only runs when something is logged. Without this, coming back
+                // after a few days would show last week's numbers.
+                FeedCoordinator.settingsDidChange(in: AppModelContainer.shared.mainContext)
             }
         }
     }
