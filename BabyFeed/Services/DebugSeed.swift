@@ -34,18 +34,22 @@ enum DebugSeed {
 
         for feed in (try? context.fetch(FetchDescriptor<FeedEntry>())) ?? [] { context.delete(feed) }
         for weight in (try? context.fetch(FetchDescriptor<WeightEntry>())) ?? [] { context.delete(weight) }
+        for note in (try? context.fetch(FetchDescriptor<CareNote>())) ?? [] { context.delete(note) }
 
         let calendar = AppSettings.calendar
         let today = calendar.startOfDay(for: .now)
         guard let birth = calendar.date(byAdding: .day, value: -14, to: today) else { return }
 
-        // Name and birthday are owned by the Baby model and mirrored down into
+        // The profile is owned by the Baby model and mirrored down into
         // UserDefaults on every launch, so writing only the mirror gets
-        // overwritten the next time the app starts. Sex and the due date live
-        // in UserDefaults alone, which is why they survive on their own.
+        // overwritten the next time the app starts. Sex belongs here too now
+        // that it drives the growth percentiles – seeding only the mirror made
+        // the percentile feature quietly disappear on the second launch.
         if let baby = BabyStore.currentBaby(in: context) {
             baby.name = "Nora"
             baby.birthDate = birth
+            baby.sex = .female
+            baby.dueDate = nil
             baby.markChanged()
         }
 
@@ -124,8 +128,32 @@ enum DebugSeed {
             ))
         }
 
+        // The point of the notes log: things you'd never remember two weeks
+        // later at the appointment. Logged by whoever was free at the time.
+        let notes: [(day: Int, hour: Int, kind: CareNoteKind, text: String, severity: CareNoteSeverity?, author: String)] = [
+            (3, 22, .breathing, "Snuffly, noisy breathing while asleep. Settled once we raised the mattress.", .mild, "Brian"),
+            (6, 19, .crying, "Inconsolable for about 90 minutes in the evening. Nothing helped.", .moderate, "Sam"),
+            (9, 14, .spitUp, "Brought up most of a bottle. Fine straight afterwards.", nil, "Brian"),
+            (11, 9, .rash, "Small red patch on the left cheek, not spreading.", .mild, "Sam"),
+            (13, 3, .sleep, "Slept a five-hour stretch for the first time.", nil, "Brian"),
+        ]
+        for note in notes {
+            guard let day = calendar.date(byAdding: .day, value: note.day - 14, to: today),
+                  let date = calendar.date(byAdding: .hour, value: note.hour, to: day),
+                  date <= .now
+            else { continue }
+            context.insert(CareNote(
+                babyID: babyID,
+                date: date,
+                kind: note.kind,
+                note: note.text,
+                severity: note.severity,
+                loggedByName: note.author
+            ))
+        }
+
         try? context.save()
-        print("[DebugSeed] \(feedCount) feeds over 15 days, \(weighIns.count) weigh-ins, born \(birth)")
+        print("[DebugSeed] \(feedCount) feeds over 15 days, \(weighIns.count) weigh-ins, \(notes.count) notes, born \(birth)")
     }
 }
 #endif

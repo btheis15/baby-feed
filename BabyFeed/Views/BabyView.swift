@@ -517,10 +517,12 @@ struct BabyView: View {
             NavigationLink {
                 FamilyView()
             } label: {
-                Label("Caregivers & sync", systemImage: "person.2.fill")
+                Label("Caregivers", systemImage: "person.2.fill")
             }
         } footer: {
-            Text("Share \(profile.displayName)'s log with your partner or other caregivers so everyone sees the same feeds.")
+            // Don't promise sharing here: it isn't built. What this screen
+            // does do is set the name that every entry is logged under.
+            Text("Your name, so each feed and note shows who logged it. \(profile.displayName)'s log stays on this iPhone.")
         }
     }
 
