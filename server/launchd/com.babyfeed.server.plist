@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Keeps the Baby Feed sync server running and restarts it if it stops.
+     Labelled com.babyfeed.* so it stands entirely on its own: this project
+     shares no process, port, hostname or config file with anything else on
+     this machine. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.babyfeed.server</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__NODE__</string>
+        <string>__HOME__/baby-feed/server/bin/babyfeed-server.js</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__HOME__/baby-feed/server</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- A crash loop shouldn't spin the CPU; ten seconds is long enough to be
+         harmless and short enough that a 3 a.m. feed still syncs. -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/baby-feed-data/logs/server.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/baby-feed-data/logs/server.error.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>BABYFEED_DATA_DIR</key>
+        <string>__HOME__/baby-feed-data</string>
+    </dict>
+</dict>
+</plist>
