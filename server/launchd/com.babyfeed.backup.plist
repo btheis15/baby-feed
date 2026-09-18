@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Nightly database backup at 03:30. Late enough that the mini is idle,
+     early enough that a night feed at 4 a.m. is already in the next day's. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.babyfeed.backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__HOME__/baby-feed/server/scripts/backup.sh</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>3</integer>
+        <key>Minute</key><integer>30</integer>
+    </dict>
+
+    <!-- The mini sleeps. Without this a backup skipped overnight never runs. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/baby-feed-data/logs/backup.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/baby-feed-data/logs/backup.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>BABYFEED_DATA_DIR</key>
+        <string>__HOME__/baby-feed-data</string>
+    </dict>
+</dict>
+</plist>

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Baby Feed's own Caddy. Separate process, separate config, separate ports
+     from any other Caddy on this machine. Not installed by
+     install-launchd.sh — run scripts/install-caddy.sh once the hostname in
+     caddy/Caddyfile is real. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.babyfeed.caddy</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__CADDY__</string>
+        <string>run</string>
+        <string>--config</string>
+        <string>__HOME__/baby-feed/server/caddy/Caddyfile</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__HOME__/baby-feed/server/caddy</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/baby-feed-data/logs/caddy.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/baby-feed-data/logs/caddy.error.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- Its own storage, so this Caddy's certificates and account are not
+             mixed in with any other Caddy's on this machine. -->
+        <key>XDG_DATA_HOME</key>
+        <string>__HOME__/baby-feed-data/caddy</string>
+        <key>XDG_CONFIG_HOME</key>
+        <string>__HOME__/baby-feed-data/caddy</string>
+    </dict>
+</dict>
+</plist>

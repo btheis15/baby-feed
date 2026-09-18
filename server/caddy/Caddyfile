@@ -1,0 +1,60 @@
+# TLS in front of the Baby Feed sync server.
+#
+# THIS IS BABY FEED'S OWN CADDY. It is a second, independent Caddy process with
+# its own config file, its own ports, its own certificate and its own launchd
+# job (com.babyfeed.caddy). It does not read, share or modify any other Caddy
+# config on this machine. Stopping or breaking one has no effect on the other.
+#
+# PORTS — why these numbers:
+#   8791  the sync server itself (loopback only)
+#   9444  this Caddy's HTTPS port, unprivileged so it needs no root
+#   9081  this Caddy's HTTP port
+# Your router forwards an external port to 9444. Port 443 is not available:
+# something else on this machine is already behind it, and two services cannot
+# share one external port without one of them fronting the other — which is
+# exactly the coupling this project is avoiding.
+#
+# BEFORE THIS WORKS, two things outside this file:
+#   1. A hostname that points at the house. Fill it in below.
+#   2. A port-forward on the eero: external 4443 -> this mini, port 9444.
+#
+# CERTIFICATES: Comcast blocks inbound port 80, so Let's Encrypt cannot do the
+# HTTP challenge here. With HTTPS on a non-standard external port the TLS-ALPN
+# challenge can't reach it either. So this uses the DNS challenge, which needs
+# an API token from whoever runs the hostname — or, for a hostname with no DNS
+# API, `tls internal` and trusting the local CA on both iPhones once.
+
+{
+	http_port 9081
+	https_port 9444
+	email brian@innjoybnb.com
+}
+
+# Replace with your hostname, then reload:
+#   launchctl kickstart -k gui/$(id -u)/com.babyfeed.caddy
+babyfeed.example.org:9444 {
+	reverse_proxy 127.0.0.1:8791 {
+		# Pushes and pulls are small JSON; a phone on a bad connection just
+		# needs longer than the default to finish one.
+		transport http {
+			read_timeout 60s
+			write_timeout 60s
+			dial_timeout 10s
+		}
+		# The rate limiter in front of pairing keys on the real client address.
+		# Without this every request looks like it came from 127.0.0.1 and one
+		# person guessing invite codes would lock out both phones.
+		header_up X-Forwarded-For {remote_host}
+	}
+
+	encode gzip
+
+	log {
+		output file /Users/brian/baby-feed-data/logs/caddy-access.log {
+			roll_size 10MiB
+			roll_keep 3
+		}
+		format console
+		level ERROR
+	}
+}

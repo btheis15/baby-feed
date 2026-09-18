@@ -36,6 +36,11 @@ struct RootView: View {
         .sheet(isPresented: $router.showLogSheet) {
             LogFeedSheet(mode: .new(router.pendingLogKind ?? .formula))
         }
+        // Presented here rather than inside Settings so an invite opened from
+        // Messages or the Camera works from whatever tab happened to be showing.
+        .sheet(isPresented: $router.showPairingSheet) {
+            PairServerView(invitation: router.pendingInvitation)
+        }
     }
 }
 
