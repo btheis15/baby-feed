@@ -1,28 +1,29 @@
 # TLS in front of the Baby Feed sync server.
 #
-# THIS IS BABY FEED'S OWN CADDY. It is a second, independent Caddy process with
-# its own config file, its own ports, its own certificate and its own launchd
-# job (com.babyfeed.caddy). It does not read, share or modify any other Caddy
-# config on this machine. Stopping or breaking one has no effect on the other.
+# THIS IS BABY FEED'S OWN CADDY — its own binary (server/bin/caddy), its own
+# config, its own ports, its own certificate storage and its own launchd job
+# (com.babyfeed.caddy). It does not read, share or modify any other Caddy setup
+# on this machine, and stopping or breaking one has no effect on the other.
 #
 # PORTS — why these numbers:
-#   8791  the sync server itself (loopback only)
+#   8791  the sync server itself
 #   9444  this Caddy's HTTPS port, unprivileged so it needs no root
 #   9081  this Caddy's HTTP port
-# Your router forwards an external port to 9444. Port 443 is not available:
-# something else on this machine is already behind it, and two services cannot
-# share one external port without one of them fronting the other — which is
-# exactly the coupling this project is avoiding.
+# The router forwards an external port to 9444. External 443 is not available:
+# something else on this machine is already behind it, and two services can't
+# share one external port without one fronting the other — exactly the coupling
+# this project is avoiding. So the address carries a port, which is fine: it's
+# typed into the app once and then lives in a QR code.
 #
-# BEFORE THIS WORKS, two things outside this file:
-#   1. A hostname that points at the house. Fill it in below.
-#   2. A port-forward on the eero: external 4443 -> this mini, port 9444.
+# CERTIFICATES — why the DNS challenge, and why a custom Caddy binary:
+#   - HTTP-01 needs inbound port 80. Comcast blocks it on residential lines.
+#   - TLS-ALPN-01 needs inbound port 443 pointed at THIS Caddy. It isn't.
+#   - DNS-01 is left, and it needs a DuckDNS provider module that the stock
+#     Homebrew Caddy does not include. server/bin/caddy is a build that has it,
+#     downloaded from caddyserver.com. `brew upgrade caddy` will not touch it.
 #
-# CERTIFICATES: Comcast blocks inbound port 80, so Let's Encrypt cannot do the
-# HTTP challenge here. With HTTPS on a non-standard external port the TLS-ALPN
-# challenge can't reach it either. So this uses the DNS challenge, which needs
-# an API token from whoever runs the hostname — or, for a hostname with no DNS
-# API, `tls internal` and trusting the local CA on both iPhones once.
+# Both values come from ~/baby-feed-data/.env via the launchd job, so the
+# hostname and the DuckDNS token are never in this repo.
 
 {
 	http_port 9081
@@ -30,9 +31,14 @@
 	email brian@innjoybnb.com
 }
 
-# Replace with your hostname, then reload:
-#   launchctl kickstart -k gui/$(id -u)/com.babyfeed.caddy
-babyfeed.example.org:9444 {
+{$BABYFEED_HOSTNAME}:9444 {
+	tls {
+		dns duckdns {$BABYFEED_DUCKDNS_TOKEN}
+		# DuckDNS serves its own TXT records; asking the authoritative server
+		# directly avoids waiting on a public resolver's cache during issuance.
+		resolvers 8.8.8.8 1.1.1.1
+	}
+
 	reverse_proxy 127.0.0.1:8791 {
 		# Pushes and pulls are small JSON; a phone on a bad connection just
 		# needs longer than the default to finish one.
@@ -42,7 +48,7 @@ babyfeed.example.org:9444 {
 			dial_timeout 10s
 		}
 		# The rate limiter in front of pairing keys on the real client address.
-		# Without this every request looks like it came from 127.0.0.1 and one
+		# Without this every request looks like it came from 127.0.0.1, and one
 		# person guessing invite codes would lock out both phones.
 		header_up X-Forwarded-For {remote_host}
 	}

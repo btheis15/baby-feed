@@ -24,6 +24,9 @@ Package.resolved
 # deliberately outside this repo — but ignore them here too in case anyone ever
 # points BABYFEED_DATA_DIR at the checkout.
 server/node_modules/
+# Baby Feed's own Caddy build (46 MB, has the DuckDNS module the Homebrew one
+# lacks). Fetched by scripts/fetch-caddy.sh rather than committed.
+server/bin/caddy
 baby-feed-data/
 *.db
 *.db-wal

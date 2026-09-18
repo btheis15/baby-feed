@@ -13,6 +13,9 @@ nothing belonging to anything else on the machine it runs on.
   keep patched.
 - **One file of data.** `~/baby-feed-data/babyfeed.db`. Backing it up is
   copying a file.
+- **Its own everything.** Own directory, own `com.babyfeed.*` launchd jobs, own
+  ports, own database, own Caddy binary and config. Nothing it does can affect
+  anything else on the machine, and nothing else can affect it.
 
 ## Setting it up on the Mac mini
 
@@ -40,26 +43,45 @@ Nothing else pairs. There is no open sign-up endpoint to defend.
 
 ## Reaching it from outside the house
 
-By default the server listens on **127.0.0.1:8791** — the Mac mini only. That
-is enough to set everything up and test it, and it is where you should start.
+**Home Wi-Fi only** (this is how it's set up now). `BABYFEED_BIND=0.0.0.0` in
+`~/baby-feed-data/.env`, and the server address in the app is
+`http://<the mini's LAN address>:8791`. The app allows plain `http` for private
+addresses only, so a token can never go unencrypted across the internet. Feeds
+logged away from home sync when you get back. Nothing else to set up.
 
-To reach it from a phone, pick one:
+**Anywhere**, with HTTPS and a hostname of its own:
 
-**Home Wi-Fi only.** Set `BABYFEED_BIND=0.0.0.0` in `~/baby-feed-data/.env`,
-restart, and use `http://<mini's LAN address>:8791` as the server address. The
-app allows plain `http` for private addresses only. Feeds logged away from home
-sync when you get back. Nothing else to set up.
+1. Create a DuckDNS hostname at [duckdns.org](https://www.duckdns.org) — any
+   name — and copy your token.
+2. Put both in `~/baby-feed-data/.env`:
 
-**Anywhere.** Put TLS in front of it with Baby Feed's own Caddy:
+   ```
+   BABYFEED_HOSTNAME=yourname.duckdns.org
+   BABYFEED_DUCKDNS_TOKEN=…
+   ```
 
-1. Get a hostname that points at the house (any dynamic-DNS provider).
-2. Forward an external port on the router to this mini's port **9444**.
-3. Put the hostname in `caddy/Caddyfile`, then `./scripts/install-caddy.sh`.
+3. Forward a port on the router: **external 4443 → this Mac, port 9444**.
+4. `./scripts/install-caddy.sh`
 
-Read the comment at the top of `caddy/Caddyfile` first — it explains the port
-choices and the certificate problem (inbound port 80 is blocked on a Comcast
-residential line, so Let's Encrypt needs the DNS challenge or a locally trusted
-certificate).
+That starts two more jobs — `com.babyfeed.caddy` and `com.babyfeed.duckdns`,
+which keeps the hostname pointed at the house as the residential IP rotates —
+gets a certificate, and prints the address to type into the app
+(`https://yourname.duckdns.org:4443`).
+
+### Why a port number in the address, and why a custom Caddy
+
+Two things about a house make this less obvious than it looks:
+
+- **The external port isn't 443.** If anything else on the machine is already
+  behind 443, two services can't share it without one fronting the other, which
+  is the coupling this project avoids. So Baby Feed takes its own external port.
+  It's typed into the app once and then lives in a QR code.
+- **Getting a certificate needs the DNS challenge.** The HTTP challenge needs
+  inbound port 80, which Comcast blocks on residential lines. The TLS-ALPN
+  challenge needs inbound 443 pointed at *this* Caddy, which it isn't. That
+  leaves DNS-01, and it needs a DuckDNS provider module the Homebrew Caddy does
+  not ship. `scripts/fetch-caddy.sh` downloads a build that has it into this
+  project's own `bin/`, where `brew upgrade caddy` can't touch it.
 
 ## Day to day
 
