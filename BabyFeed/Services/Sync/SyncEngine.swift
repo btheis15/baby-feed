@@ -275,11 +275,17 @@ final class SyncEngine {
     func join(serverURL: URL, code: String, displayName: String, context: ModelContext) async throws {
         let client = SyncClient(baseURL: serverURL, token: nil)
         _ = try await client.health()
+        // A phone that joined by scanning a QR never typed a name, and the
+        // server keeps whatever it's given — including nothing, which would
+        // leave this caregiver's feeds with no "Logged by" at all. The device
+        // name is the one thing it can offer unprompted that the other phone
+        // will recognise, and it's editable under Caregivers afterwards.
+        let claimedName = displayName.isEmpty ? Self.deviceName : displayName
         let pairing = try await client.join(code: SyncMerge.normalizedInviteCode(code),
-                                            displayName: displayName,
+                                            displayName: claimedName,
                                             deviceName: Self.deviceName)
         SyncCredentials.save(serverURL: serverURL, token: pairing.token, userID: pairing.userID)
-        AppSettings.displayName = displayName.isEmpty ? pairing.displayName : displayName
+        AppSettings.displayName = pairing.displayName.isEmpty ? claimedName : pairing.displayName
 
         // Switch to the baby just joined, so the app lands on the shared log
         // rather than the empty placeholder this phone started with.

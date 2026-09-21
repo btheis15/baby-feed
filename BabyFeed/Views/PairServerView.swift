@@ -32,14 +32,25 @@ struct PairServerView: View {
     @State private var name = ""
     @State private var isWorking = false
     @State private var errorMessage: String?
+    /// So a redraw can't fire a second join for the same invitation.
+    @State private var hasJoinedAutomatically = false
 
     private var serverURL: URL? { SyncLink.normalizedServerURL(serverText) }
 
     private var canSubmit: Bool {
-        guard !isWorking, serverURL != nil, !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        guard !isWorking, serverURL != nil else { return false }
+        let hasName = !name.trimmingCharacters(in: .whitespaces).isEmpty
         switch mode {
-        case .join: return SyncMerge.isPlausibleInviteCode(code)
-        case .first: return code.trimmingCharacters(in: .whitespaces).count >= 6
+        case .join:
+            // Arriving from a QR code or a link, the name is optional. The scan
+            // already carried the address and the code, the server names this
+            // caregiver if we don't, and the name is editable under Caregivers
+            // afterwards — so there's nothing here worth stopping for.
+            guard hasName || invitation != nil else { return false }
+            return SyncMerge.isPlausibleInviteCode(code)
+        case .first:
+            guard hasName else { return false }
+            return code.trimmingCharacters(in: .whitespaces).count >= 6
         }
     }
 
@@ -130,13 +141,21 @@ struct PairServerView: View {
             mode = .join
             code = invitation.code
             serverText = invitation.server.absoluteString
+            // Scanning the other phone's QR, or opening its link, is itself the
+            // handoff: it's phone-to-phone, it carries the address and a
+            // one-shot code, and it can't happen by accident. So this screen
+            // doesn't stop to be filled in — it just connects.
+            if !hasJoinedAutomatically {
+                hasJoinedAutomatically = true
+                submit()
+            }
         } else if let existing = SyncCredentials.serverURL {
             serverText = existing.absoluteString
         }
     }
 
     private func submit() {
-        guard let serverURL else { return }
+        guard canSubmit, let serverURL else { return }
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         isWorking = true
         errorMessage = nil
@@ -156,7 +175,9 @@ struct PairServerView: View {
                         displayName: trimmedName,
                         context: modelContext)
                 }
-                displayName = trimmedName
+                // Left alone when blank, so joining without typing a name keeps
+                // the one the server just handed out rather than clearing it.
+                if !trimmedName.isEmpty { displayName = trimmedName }
                 dismiss()
             } catch {
                 errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
