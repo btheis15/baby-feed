@@ -319,6 +319,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BabyFeed/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Baby Feed";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Baby Feed connects to the sync server on your own Mac at home, so both caregivers' phones see the same log. It doesn't scan your network or talk to anything else on it.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = NO;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -351,6 +353,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BabyFeed/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Baby Feed";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Baby Feed connects to the sync server on your own Mac at home, so both caregivers' phones see the same log. It doesn't scan your network or talk to anything else on it.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = NO;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
