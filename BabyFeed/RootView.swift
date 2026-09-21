@@ -33,13 +33,17 @@ struct RootView: View {
         // means. Empty identifier = follow the device, which is the default.
         .environment(\.calendar, AppSettings.calendar)
         .environment(\.timeZone, AppSettings.timeZone)
-        .sheet(isPresented: $router.showLogSheet) {
-            LogFeedSheet(mode: .new(router.pendingLogKind ?? .formula))
-        }
-        // Presented here rather than inside Settings so an invite opened from
-        // Messages or the Camera works from whatever tab happened to be showing.
-        .sheet(isPresented: $router.showPairingSheet) {
-            PairServerView(invitation: router.pendingInvitation)
+        // One sheet modifier, so an invite that arrives while the log sheet is
+        // open replaces it instead of being dropped. Presented here rather than
+        // inside Settings so an invite opened from Messages or the Camera works
+        // from whatever tab happened to be showing.
+        .sheet(item: $router.sheet) { sheet in
+            switch sheet {
+            case .log(let kind):
+                LogFeedSheet(mode: .new(kind))
+            case .pairing(let invitation):
+                PairServerView(invitation: invitation)
+            }
         }
     }
 }

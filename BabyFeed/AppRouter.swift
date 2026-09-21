@@ -11,20 +11,31 @@ final class AppRouter {
     }
 
     var tab: Tab = .today
-    var pendingLogKind: FeedKind?
-    var showLogSheet = false
 
-    /// An invite this phone was handed, from a QR code or a sent link. Setting
-    /// it opens the pairing sheet over whatever is on screen, because the tap
-    /// that got here came from outside the app and shouldn't land the person on
-    /// a tab to go hunting from.
-    var pendingInvitation: SyncLink.Invitation?
-    var showPairingSheet = false
+    /// Which sheet is up — one value rather than a flag each, because only one
+    /// sheet can be presented at a time. An invite arriving while the log sheet
+    /// was open used to be swallowed silently, and the tap that carried it came
+    /// from outside the app, so it should win.
+    enum Sheet: Identifiable {
+        case log(FeedKind)
+        /// From a QR code or a sent link. Opens over whatever is on screen,
+        /// because the person didn't come here through the app and shouldn't be
+        /// left on a tab to go hunting from.
+        case pairing(SyncLink.Invitation?)
+
+        var id: String {
+            switch self {
+            case .log: "log"
+            case .pairing: "pairing"
+            }
+        }
+    }
+
+    var sheet: Sheet?
 
     func openLog(kind: FeedKind?) {
         tab = .today
-        pendingLogKind = kind ?? .formula
-        showLogSheet = true
+        sheet = .log(kind ?? .formula)
     }
 
     /// babyfeed://log, babyfeed://log/formula, babyfeed://home,
@@ -43,17 +54,18 @@ final class AppRouter {
     }
 
     private func openJoin(url: URL) {
-        if let invitation = SyncLink.invitation(from: url) {
-            pendingInvitation = invitation
+        let invitation: SyncLink.Invitation?
+        if let complete = SyncLink.invitation(from: url) {
+            invitation = complete
         } else if let code = SyncLink.code(from: url), let server = SyncCredentials.serverURL {
             // A link with no server in it: only usable because this phone is
             // already paired with one.
-            pendingInvitation = SyncLink.Invitation(code: code, server: server)
+            invitation = SyncLink.Invitation(code: code, server: server)
         } else {
             // Nothing usable in the link — send them to the setup screen rather
             // than doing nothing visible.
-            pendingInvitation = nil
+            invitation = nil
         }
-        showPairingSheet = true
+        sheet = .pairing(invitation)
     }
 }
