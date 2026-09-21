@@ -238,6 +238,18 @@ test('the change feed says who did what', async () => {
   assert.ok(byAnnette.some((c) => c.actor_name === 'Annette'))
 })
 
+test('a rename reaches the member list the other caregiver reads', async () => {
+  // GET and POST /v1/me share a path. The router used to stop at the first
+  // route whose path matched and answer 405, so a rename never landed and the
+  // other phone kept showing the old name.
+  const renamed = await call('POST', '/v1/me', { token: annette, body: { display_name: 'Annette B' } })
+  assert.equal(renamed.status, 200)
+  assert.equal(renamed.body.display_name, 'Annette B')
+
+  const members = await call('GET', `/v1/babies/${babyID}/members`, { token: brian })
+  assert.ok(members.body.members.some((m) => m.display_name === 'Annette B'))
+})
+
 test('a caregiver can leave, and then sees nothing', async () => {
   const me = await call('GET', '/v1/me', { token: annette })
   const res = await call('DELETE', `/v1/babies/${babyID}/members/${me.body.user_id}`, { token: annette })
@@ -254,4 +266,17 @@ test('a revoked device stops working', async () => {
   // Brian's own device is untouched.
   assert.equal((await call('GET', '/v1/me', { token: brian })).status, 200)
   assert.ok(devices.body.devices.some((d) => d.is_this_device))
+})
+
+test('both methods on a shared path are reachable, and only they are', async () => {
+  const listed = await call('GET', `/v1/babies/${babyID}/invites`, { token: brian })
+  assert.equal(listed.status, 200)
+  assert.ok(Array.isArray(listed.body.invites))
+
+  const created = await call('POST', `/v1/babies/${babyID}/invites`, { token: brian, body: {} })
+  assert.equal(created.status, 200)
+
+  // A path with no handler for the method is still 405, and an unknown path 404.
+  assert.equal((await call('DELETE', '/v1/me', { token: brian })).status, 405)
+  assert.equal((await call('GET', '/v1/nope', { token: brian })).status, 404)
 })

@@ -250,8 +250,9 @@ export function createApp({ dbPath, setupSecret, log = console.log }) {
 
   route('GET', '/v1/babies/:babyID/members', (req, res, params) => {
     const { user } = requireUser(req)
-    requireMember(params.babyID.toUpperCase(), user.id)
-    return { members: membersOf(params.babyID.toUpperCase()) }
+    const babyID = params.babyID.toUpperCase()
+    requireMember(babyID, user.id)
+    return { members: membersOf(babyID) }
   })
 
   route('POST', '/v1/babies/:babyID/invites', async (req, res, params) => {
@@ -444,15 +445,20 @@ export function createApp({ dbPath, setupSecret, log = console.log }) {
         || req.socket.remoteAddress || 'unknown',
     }
 
+    // Keep looking after a path matches with the wrong method: one path can
+    // carry several. Stopping at the first match made the second route on a
+    // path unreachable — GET and POST /v1/me are the same path, so renaming
+    // yourself answered 405 and the other caregiver never saw the new name.
+    let pathMatched = false
     for (const r of routes) {
       const match = r.regex.exec(url.pathname)
       if (!match) continue
-      if (r.method !== req.method) {
-        throw new HttpError(405, `${req.method} isn't allowed here.`)
-      }
+      pathMatched = true
+      if (r.method !== req.method) continue
       const params = Object.fromEntries(r.names.map((name, i) => [name, decodeURIComponent(match[i + 1])]))
       return await r.handler(req, res, params, ctx)
     }
+    if (pathMatched) throw new HttpError(405, `${req.method} isn't allowed here.`)
     throw new HttpError(404, 'No such endpoint.')
   }
 
