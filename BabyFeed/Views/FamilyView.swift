@@ -15,6 +15,9 @@ struct FamilyView: View {
     @State private var inviteError: String?
     @State private var isCreatingInvite = false
     @State private var showUnpairConfirm = false
+    @State private var isSignedIn = SyncCredentials.isSignedInWithApple
+    @State private var isSigningIn = false
+    @State private var signInError: String?
 
     private var activeBabies: [Baby] { babies.filter { $0.deletedAt == nil } }
     private var currentBaby: Baby? { activeBabies.first { $0.uuid.uuidString == currentBabyIDRaw } }
@@ -22,12 +25,13 @@ struct FamilyView: View {
     var body: some View {
         List {
             whereTheDataIsSection
+            if sync.isConfigured { accountSection }
             whoIsLoggingSection
             if activeBabies.count > 1 { babySwitcherSection }
             sharingSection
         }
         .navigationTitle("Caregivers")
-        .sheet(isPresented: $showPairing) {
+        .sheet(isPresented: $showPairing, onDismiss: { isSignedIn = SyncCredentials.isSignedInWithApple }) {
             PairServerView()
         }
         .sheet(item: $invite) { invite in
@@ -65,6 +69,64 @@ struct FamilyView: View {
             }
         } header: {
             Text("Where your data is")
+        }
+    }
+
+    /// Whether this phone's pairing survives the phone.
+    ///
+    /// Worth saying out loud rather than leaving implied: the device token is
+    /// tied to this iPhone, so without an account a replacement phone can only
+    /// get back in on an invite from an owner — and if the owner is you, there
+    /// is nobody to ask.
+    @ViewBuilder
+    private var accountSection: some View {
+        Section {
+            if isSignedIn {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Signed in with Apple").font(.subheadline.weight(.medium))
+                        Text("Your log comes back on a new iPhone by signing in again. Nothing to remember.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+                }
+            } else {
+                Text("Right now this pairing lives only on this iPhone. Sign in and you can get the log back on a new one.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                AppleSignInButton(label: .signIn) { result in
+                    signIn(with: result)
+                } onFailure: { error in
+                    signInError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                }
+                .disabled(isSigningIn)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+
+                if let signInError {
+                    Text(signInError).font(.footnote).foregroundStyle(.red)
+                }
+            }
+        } header: {
+            Text("Getting back in")
+        }
+    }
+
+    private func signIn(with result: AppleSignIn.Result) {
+        guard let serverURL = SyncCredentials.serverURL, !isSigningIn else { return }
+        isSigningIn = true
+        signInError = nil
+        Task {
+            do {
+                try await sync.signInWithApple(serverURL: serverURL, result: result, context: modelContext)
+            } catch {
+                signInError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+            isSigningIn = false
+            isSignedIn = SyncCredentials.isSignedInWithApple
         }
     }
 
@@ -141,7 +203,10 @@ struct FamilyView: View {
                 Text("The log stays on this iPhone. It just stops going to the server, and stops receiving what the other caregiver logs.")
             }
             .confirmationDialog("Stop syncing this phone?", isPresented: $showUnpairConfirm, titleVisibility: .visible) {
-                Button("Stop syncing", role: .destructive) { sync.unpair(context: modelContext) }
+                Button("Stop syncing", role: .destructive) {
+                    sync.unpair(context: modelContext)
+                    isSignedIn = false
+                }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Nothing on this phone is deleted.")

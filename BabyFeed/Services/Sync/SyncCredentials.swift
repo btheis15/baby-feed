@@ -64,6 +64,15 @@ enum SyncCredentials {
 
     static var isPaired: Bool { serverURL != nil && token != nil }
 
+    /// Set once this phone has signed in with Apple, so Caregivers can say
+    /// whether the log is recoverable on a new phone or only lives here.
+    private static let signedInKey = "sync.signedInWithApple"
+
+    static var isSignedInWithApple: Bool {
+        get { UserDefaults.standard.bool(forKey: signedInKey) }
+        set { UserDefaults.standard.set(newValue, forKey: signedInKey) }
+    }
+
     static func save(serverURL: URL, token: String, userID: UUID?) {
         self.serverURL = serverURL
         self.token = token
@@ -77,6 +86,7 @@ enum SyncCredentials {
         serverURL = nil
         userID = nil
         token = nil
+        isSignedInWithApple = false
         UserDefaults.standard.removeObject(forKey: "sync.watermarks")
     }
 }

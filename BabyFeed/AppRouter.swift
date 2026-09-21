@@ -22,11 +22,14 @@ final class AppRouter {
         /// because the person didn't come here through the app and shouldn't be
         /// left on a tab to go hunting from.
         case pairing(SyncLink.Invitation?)
+        /// The one-time first-run card explaining sharing.
+        case sharingIntro
 
         var id: String {
             switch self {
             case .log: "log"
             case .pairing: "pairing"
+            case .sharingIntro: "sharingIntro"
             }
         }
     }

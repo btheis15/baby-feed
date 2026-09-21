@@ -104,6 +104,28 @@ struct PairServerView: View {
                     }
                 }
 
+                // Signing in reaches the same place as an invite code, and on
+                // a replacement phone it's the only thing that does: an invite
+                // has to come from an owner, and the owner might be you.
+                if mode == .join, serverURL != nil {
+                    Section {
+                        AppleSignInButton(label: .signIn) { result in
+                            signIn(with: result)
+                        } onFailure: { error in
+                            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                        }
+                        .disabled(isWorking)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                    } header: {
+                        Text("Or sign in")
+                    } footer: {
+                        Text(SyncMerge.isPlausibleInviteCode(code)
+                             ? "Signs in and joins with the code above, in one step. Your log comes back on a new iPhone this way too."
+                             : "Gets your log back on a new iPhone, and saves typing a code if someone already shared with your Apple Account.")
+                    }
+                }
+
                 Section {
                     Button {
                         submit()
@@ -151,6 +173,27 @@ struct PairServerView: View {
             }
         } else if let existing = SyncCredentials.serverURL {
             serverText = existing.absoluteString
+        }
+    }
+
+    private func signIn(with result: AppleSignIn.Result) {
+        guard let serverURL, !isWorking else { return }
+        isWorking = true
+        errorMessage = nil
+        Task {
+            do {
+                try await SyncEngine.shared.signInWithApple(
+                    serverURL: serverURL,
+                    result: result,
+                    inviteCode: SyncMerge.isPlausibleInviteCode(code) ? code : nil,
+                    context: modelContext)
+                let trimmedName = name.trimmingCharacters(in: .whitespaces)
+                if !trimmedName.isEmpty { displayName = trimmedName }
+                dismiss()
+            } catch {
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+            isWorking = false
         }
     }
 

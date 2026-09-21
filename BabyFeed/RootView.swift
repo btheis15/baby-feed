@@ -5,6 +5,8 @@ struct RootView: View {
     @AppStorage(BabyProfile.nameKey) private var babyName = ""
     /// Read so the whole tree re-renders when the time zone setting changes.
     @AppStorage(AppSettings.timeZoneKey) private var timeZoneIdentifier = ""
+    @AppStorage(AppSettings.hasSeenSharingIntroKey) private var hasSeenSharingIntro = false
+    @State private var wantsSharingSetup = false
 
     var body: some View {
         @Bindable var router = router
@@ -43,7 +45,23 @@ struct RootView: View {
                 LogFeedSheet(mode: .new(kind))
             case .pairing(let invitation):
                 PairServerView(invitation: invitation)
+            case .sharingIntro:
+                SharingIntroView(wantsToSetUpSharing: $wantsSharingSetup)
             }
+        }
+        // Once, on the very first launch. Skipped entirely if something more
+        // urgent already claimed the sheet — an invite tapped from Messages
+        // right after installing shouldn't queue behind an explainer.
+        .task {
+            guard !hasSeenSharingIntro else { return }
+            hasSeenSharingIntro = true
+            guard router.sheet == nil, !SyncCredentials.isPaired else { return }
+            router.sheet = .sharingIntro
+        }
+        .onChange(of: wantsSharingSetup) { _, wants in
+            guard wants else { return }
+            wantsSharingSetup = false
+            router.sheet = .pairing(nil)
         }
     }
 }

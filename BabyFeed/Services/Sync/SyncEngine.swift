@@ -303,6 +303,55 @@ final class SyncEngine {
         await sync()
     }
 
+    /// Signs in with Apple against `serverURL`.
+    ///
+    /// One call covers all of it, because which case it is depends on state
+    /// the server holds, not on anything this phone can know: attaching an
+    /// account to a phone that's already paired, recovering an account on a
+    /// phone that isn't, or joining a baby when an invite code came along.
+    ///
+    /// A phone already paired keeps its token — the server returns none — so
+    /// signing in is additive and can't cost you the pairing you had.
+    func signInWithApple(serverURL: URL, result: AppleSignIn.Result,
+                         inviteCode: String? = nil, context: ModelContext) async throws {
+        let existingToken = SyncCredentials.serverURL == serverURL ? SyncCredentials.token : nil
+        let client = SyncClient(baseURL: serverURL, token: existingToken)
+        _ = try await client.health()
+
+        let response = try await client.signInWithApple(
+            identityToken: result.identityToken,
+            rawNonce: result.rawNonce,
+            displayName: result.displayName.isEmpty ? AppSettings.displayName : result.displayName,
+            deviceName: Self.deviceName,
+            inviteCode: inviteCode)
+
+        SyncCredentials.save(serverURL: serverURL,
+                             token: response.token ?? existingToken ?? "",
+                             userID: response.userID)
+        SyncCredentials.isSignedInWithApple = true
+        if !response.displayName.isEmpty { AppSettings.displayName = response.displayName }
+
+        // Adopt every baby the account is already a member of, so a replacement
+        // phone lands on the real log rather than the empty placeholder it
+        // started with. Marking them shared is what gets them pulled.
+        var landedOn: Baby?
+        for membership in response.babies {
+            let dto = membership.baby
+            let baby = BabyStore.baby(withID: dto.id, in: context) ?? {
+                let fresh = Baby(uuid: dto.id, name: dto.name, birthDate: dto.birthDate)
+                context.insert(fresh)
+                return fresh
+            }()
+            dto.apply(to: baby)
+            if landedOn == nil || dto.id == response.baby?.id { landedOn = baby }
+        }
+        try? context.save()
+        if let landedOn { BabyStore.setCurrent(landedOn, in: context) }
+
+        status = .idle(lastSync: nil)
+        await sync()
+    }
+
     /// Marks babies as shared and queues them, which is what makes the server
     /// create them and this caregiver their owner.
     func share(_ babies: [Baby], in context: ModelContext) {
