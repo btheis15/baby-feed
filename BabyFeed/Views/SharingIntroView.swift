@@ -40,8 +40,8 @@ struct SharingIntroView: View {
             VStack(alignment: .leading, spacing: 18) {
                 point("person.2.fill", "Both phones, one log",
                       "Feeds, weights and notes show up on the other caregiver's phone, with who logged what.")
-                point("lock.iphone", "No account with a company",
-                      "It syncs through a server you run yourself. Signing in with Apple is only so you can get back in on a new iPhone.")
+                point("lock.iphone", "No account to make",
+                      "No email, no password, nothing to manage. It syncs through a server you run yourself, and signing in with Apple only attaches the baby's log to your Apple Account so it can come back on a new iPhone.")
             }
             .padding(.horizontal, 32)
 

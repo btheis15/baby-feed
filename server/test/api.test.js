@@ -87,10 +87,17 @@ test('the first phone claims the server and becomes owner by pushing the baby', 
 })
 
 test('a stranger with a token sees nothing of that baby', async () => {
-  // Pairing a second owner the legitimate way is the only way to get a token
-  // without an invite, so that's the stranger here.
-  const other = (await call('POST', '/v1/pair/claim', {
-    body: { secret: SECRET, display_name: 'Stranger' },
+  // Every token now belongs to somebody invited to something, so the stranger
+  // is a caregiver on a *different* baby — which is the case that actually
+  // matters: holding a valid token must not be the same as being a member.
+  const otherBabyID = uuid()
+  await call('POST', '/v1/sync/push', {
+    token: brian,
+    body: { babies: [{ id: otherBabyID, name: 'Someone Else', updated_at: iso() }] },
+  })
+  const strangerInvite = await call('POST', `/v1/babies/${otherBabyID}/invites`, { token: brian, body: {} })
+  const other = (await call('POST', '/v1/pair/invite', {
+    body: { code: strangerInvite.body.code, display_name: 'Stranger' },
   })).body.token
   const pull = await call('GET', `/v1/sync/pull?baby_id=${babyID}`, { token: other })
   assert.equal(pull.status, 404)
@@ -247,7 +254,11 @@ test('a caregiver can leave, and then sees nothing', async () => {
 
 test('a revoked device stops working', async () => {
   const devices = await call('GET', '/v1/devices', { token: brian })
-  const other = (await call('POST', '/v1/pair/claim', { body: { secret: SECRET, display_name: 'Old phone' } })).body.token
+  // A spare phone, arriving the only way a phone can: on an invite.
+  const spareInvite = await call('POST', `/v1/babies/${babyID}/invites`, { token: brian, body: {} })
+  const other = (await call('POST', '/v1/pair/invite', {
+    body: { code: spareInvite.body.code, display_name: 'Old phone' },
+  })).body.token
   const theirs = await call('GET', '/v1/devices', { token: other })
   await call('DELETE', `/v1/devices/${theirs.body.devices[0].id}`, { token: other })
   assert.equal((await call('GET', '/v1/me', { token: other })).status, 401)

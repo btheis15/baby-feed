@@ -181,14 +181,30 @@ export function createApp({
 
   // ---------------------------------------------------------------- pairing
 
-  // The first phone. The setup secret is printed once by scripts/setup.sh and
-  // is meant to be typed in (or scanned) on that phone and then forgotten.
+  // The first phone, and only ever the first. The setup secret is printed once
+  // by setup.sh and is meant to be typed in on that phone and then forgotten.
+  //
+  // It is spent the moment somebody claims it. It used to be replayable, which
+  // meant the code — a short string that gets read aloud, sits in a terminal
+  // buffer and lives in a .env — could be used again by anyone who still had
+  // it, over and over, on a hostname that answers to the whole internet. Those
+  // extra accounts couldn't read anything (membership is per baby and a fresh
+  // claim has none), but a server that hands out accounts to a replayed
+  // password is not a server worth arguing about.
+  //
+  // Nothing is lost by spending it: a second caregiver arrives on an invite,
+  // and an owner who replaces their phone comes back with Sign in with Apple.
   route('POST', '/v1/pair/claim', async (req, res, params, ctx) => {
     if (!pairLimiter(ctx.clientKey)) throw new HttpError(429, 'Too many attempts. Wait a minute.')
     const body = await readJSON(req)
     if (!setupSecret) throw new HttpError(503, 'No setup secret is configured on the server.')
     if (!secretsMatch(body.secret, setupSecret)) {
       throw new HttpError(401, "That setup code doesn't match.", 'bad_secret')
+    }
+    if (db.prepare('SELECT 1 FROM users LIMIT 1').get()) {
+      throw new HttpError(409,
+        'This server has already been set up. Sign in with Apple to get back in, or ask for an invite.',
+        'already_claimed')
     }
     const displayName = String(body.display_name ?? '').slice(0, 200)
     const userID = randomUUID().toUpperCase()
@@ -253,12 +269,18 @@ export function createApp({
   //   new Apple ID, holds token  -> a phone that paired the old way, now
   //                                 attaching an account so it's recoverable.
   //                                 Keeps its token; nothing else changes.
-  //   new Apple ID, no token     -> a fresh caregiver. With an invite code
-  //                                 they join that baby; without one they get
-  //                                 an empty account and can start their own.
+  //   new Apple ID + invite      -> the invited caregiver. Joins that baby.
+  //   new Apple ID, nothing else -> refused. See below.
   //   known Apple ID, different
   //   account holds the token    -> refused. Merging two caregivers' histories
   //                                 is not something to guess at.
+  //
+  // That last-but-one rule is the important one. Signing in cannot conjure an
+  // account out of nothing, because an account with no baby on it is worth
+  // nothing to its owner and the endpoint is worth quite a lot to everybody
+  // else: this hostname answers to the internet, and an open sign-up is a
+  // thing to defend. An account here only ever comes from the one setup code
+  // or an invite the owner issued.
   route('POST', '/v1/auth/apple', async (req, res, params, ctx) => {
     if (!verifyAppleToken) {
       throw new HttpError(503, 'Signing in with Apple is not configured on this server.', 'no_apple')
@@ -286,6 +308,12 @@ export function createApp({
       throw new HttpError(409,
         'That Apple Account is already attached to a different caregiver on this server.',
         'apple_in_use')
+    }
+
+    if (!existing && !caller && !invite) {
+      throw new HttpError(403,
+        "Nothing on this server is shared with your Apple Account yet. Ask whoever set it up to send you an invite.",
+        'needs_invite')
     }
 
     const requestedName = String(body.display_name ?? '').trim().slice(0, 200)

@@ -41,6 +41,25 @@ The setup code is also in `~/baby-feed-data/.env`. You need it once.
 
 Nothing else pairs. There is no open sign-up endpoint to defend.
 
+**There are no user accounts.** The thing that exists on the server is a
+baby's log, and the only question it ever asks is who may see it. A caregiver
+is an id, a name the phone chose, and a list of babies they were invited to —
+no email, no password, nothing to manage or recover on its own. The name next
+to a feed is stored on the feed, written by the phone that logged it.
+
+Which means an identity can only come into being two ways, both of them
+attached to a baby:
+
+- **the setup code**, once, for the phone that sets the server up. It is spent
+  on first use and refused after that.
+- **an invite**, issued by that baby's owner, good for an hour and for one
+  phone.
+
+Signing in with Apple creates nothing by itself. It attaches a log you already
+have to your Apple Account so a replacement phone can be handed it back — and
+if your Apple Account isn't on any log yet, the answer is "ask for an invite",
+not "here's an empty account".
+
 ## Reaching it from outside the house
 
 **Home Wi-Fi only** (this is how it's set up now). `BABYFEED_BIND=0.0.0.0` in
@@ -147,8 +166,9 @@ except `/v1/health` and the two pairing routes.
 | Route | What it does |
 |---|---|
 | `GET /v1/health` | Liveness, and row counts. No token. |
-| `POST /v1/pair/claim` | First phone, with the setup secret. Returns a token. |
+| `POST /v1/pair/claim` | First phone, with the setup secret. Single use. |
 | `POST /v1/pair/invite` | Any later phone, with an invite code. |
+| `POST /v1/auth/apple` | Sign in with Apple. Recovers a log, or attaches one to your Apple Account. Needs an invite if neither applies. |
 | `GET /v1/me` | This caregiver and the babies they're on. |
 | `POST /v1/me` | Change the display name (reaches the other phone). |
 | `GET /v1/devices`, `DELETE /v1/devices/:id` | List and revoke paired phones. |

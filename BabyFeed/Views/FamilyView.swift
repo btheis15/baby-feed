@@ -72,20 +72,26 @@ struct FamilyView: View {
         }
     }
 
-    /// Whether this phone's pairing survives the phone.
+    /// Whether the baby's log survives this phone.
+    ///
+    /// Framed around the log rather than around an account, because the log is
+    /// the thing worth keeping: there is no profile here, no email, nothing to
+    /// manage. Signing in attaches this baby's log to an Apple Account so it
+    /// can be handed back — that's the whole of what it does.
     ///
     /// Worth saying out loud rather than leaving implied: the device token is
-    /// tied to this iPhone, so without an account a replacement phone can only
-    /// get back in on an invite from an owner — and if the owner is you, there
-    /// is nobody to ask.
+    /// tied to this iPhone, so without that a replacement phone can only get
+    /// back in on an invite from an owner — and if the owner is you, there is
+    /// nobody to ask.
     @ViewBuilder
     private var accountSection: some View {
+        let logName = currentBaby.map { "\($0.displayName)'s log" } ?? "This log"
         Section {
             if isSignedIn {
                 Label {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Signed in with Apple").font(.subheadline.weight(.medium))
-                        Text("Your log comes back on a new iPhone by signing in again. Nothing to remember.")
+                        Text("\(logName) is safe").font(.subheadline.weight(.medium))
+                        Text("It's attached to your Apple Account, so it comes back on a new iPhone by signing in. Nothing to remember, no password.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -93,7 +99,7 @@ struct FamilyView: View {
                     Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
                 }
             } else {
-                Text("Right now this pairing lives only on this iPhone. Sign in and you can get the log back on a new one.")
+                Text("\(logName) is only on this iPhone and the Mac mini. Attach it to your Apple Account and you can get it back on a new phone.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
@@ -111,7 +117,7 @@ struct FamilyView: View {
                 }
             }
         } header: {
-            Text("Getting back in")
+            Text("If you lose this phone")
         }
     }
 

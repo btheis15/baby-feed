@@ -121,8 +121,8 @@ struct PairServerView: View {
                         Text("Or sign in")
                     } footer: {
                         Text(SyncMerge.isPlausibleInviteCode(code)
-                             ? "Signs in and joins with the code above, in one step. Your log comes back on a new iPhone this way too."
-                             : "Gets your log back on a new iPhone, and saves typing a code if someone already shared with your Apple Account.")
+                             ? "Joins with the code above and attaches the log to your Apple Account, in one step, so it comes back if you replace this phone."
+                             : "Brings back a log already attached to your Apple Account. There's no account to create here — a log reaches you by invite or not at all.")
                     }
                 }
 
