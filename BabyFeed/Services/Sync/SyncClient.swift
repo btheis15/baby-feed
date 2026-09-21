@@ -155,6 +155,41 @@ struct SyncClient: Sendable {
         return try await send(try request("POST", "/v1/pair/invite", body: body), as: Pairing.self)
     }
 
+    struct RecoveryStatus: Decodable {
+        let exists: Bool
+        let createdAt: Date?
+
+        enum CodingKeys: String, CodingKey {
+            case exists
+            case createdAt = "created_at"
+        }
+    }
+
+    /// Registers the hash of a key this phone made. The key itself never
+    /// leaves the phone, which is the whole point of the arrangement.
+    func setRecoveryKeyHash(_ hash: String, babyID: UUID) async throws {
+        struct Response: Decodable { let babyID: UUID; enum CodingKeys: String, CodingKey { case babyID = "baby_id" } }
+        let body = try Self.encoder.encode(["key_hash": hash])
+        _ = try await send(try request("POST", "/v1/babies/\(babyID.uuidString)/recovery", body: body),
+                           as: Response.self)
+    }
+
+    func recoveryStatus(babyID: UUID) async throws -> RecoveryStatus {
+        try await send(try request("GET", "/v1/babies/\(babyID.uuidString)/recovery"), as: RecoveryStatus.self)
+    }
+
+    /// Redeems a key. Sent without a token on a phone that has nothing, and
+    /// with one when adding a recovered log to the caregiver this phone
+    /// already is — the server decides which from the header.
+    func recover(key: String, displayName: String, deviceName: String) async throws -> Pairing {
+        let body = try Self.encoder.encode([
+            "key": RecoveryKey.normalized(key),
+            "display_name": displayName,
+            "device_name": deviceName,
+        ])
+        return try await send(try request("POST", "/v1/recover", body: body), as: Pairing.self)
+    }
+
     struct Account: Decodable {
         let userID: UUID
         let displayName: String

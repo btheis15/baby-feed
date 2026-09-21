@@ -320,6 +320,7 @@
 				INFOPLIST_FILE = BabyFeed/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Baby Feed";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Face ID keeps the baby's recovery key hidden until you ask to see it, so it can't be read over your shoulder or caught in a screenshot.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Baby Feed connects to the sync server on your own Mac at home, so both caregivers' phones see the same log. It doesn't scan your network or talk to anything else on it.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = NO;
@@ -354,6 +355,7 @@
 				INFOPLIST_FILE = BabyFeed/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Baby Feed";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Face ID keeps the baby's recovery key hidden until you ask to see it, so it can't be read over your shoulder or caught in a screenshot.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Baby Feed connects to the sync server on your own Mac at home, so both caregivers' phones see the same log. It doesn't scan your network or talk to anything else on it.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = NO;

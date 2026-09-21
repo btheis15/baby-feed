@@ -303,6 +303,76 @@ final class SyncEngine {
         await sync()
     }
 
+    // MARK: Recovery
+
+    /// Makes sure this baby has a recovery key, and hands back the key itself.
+    ///
+    /// Idempotent: if this phone already holds one it's returned as-is, so
+    /// opening the screen twice doesn't quietly retire the key somebody has
+    /// already written down.
+    func recoveryKey(for babyID: UUID) async throws -> String {
+        guard let client else { throw SyncError.notConfigured }
+        if let existing = RecoveryKey.stored(for: babyID) { return existing }
+
+        let key = RecoveryKey.generate()
+        try await client.setRecoveryKeyHash(RecoveryKey.hash(key), babyID: babyID)
+        RecoveryKey.store(key, for: babyID)
+        return key
+    }
+
+    /// Retires whatever key existed and issues a new one. The old one stops
+    /// working the moment the server takes the new hash.
+    func replaceRecoveryKey(for babyID: UUID) async throws -> String {
+        guard let client else { throw SyncError.notConfigured }
+        let key = RecoveryKey.generate()
+        try await client.setRecoveryKeyHash(RecoveryKey.hash(key), babyID: babyID)
+        RecoveryKey.store(key, for: babyID)
+        return key
+    }
+
+    /// Whether the server has a key for this baby, which is not the same as
+    /// this phone holding one — a caregiver who joined by QR has neither.
+    func serverHasRecoveryKey(for babyID: UUID) async -> Bool {
+        guard let client else { return false }
+        return (try? await client.recoveryStatus(babyID: babyID))?.exists ?? false
+    }
+
+    /// Takes a written-down key and gets the log back.
+    ///
+    /// Works on a phone with nothing on it, and on one that's already paired —
+    /// in which case the recovered baby joins the caregiver this phone already
+    /// is, so recovering a second log doesn't cost you the first.
+    func recover(serverURL: URL, key: String, context: ModelContext) async throws {
+        guard RecoveryKey.isPlausible(key) else { throw SyncError.badRecoveryKey }
+        let existingToken = SyncCredentials.serverURL == serverURL ? SyncCredentials.token : nil
+        let client = SyncClient(baseURL: serverURL, token: existingToken)
+        _ = try await client.health()
+
+        let pairing = try await client.recover(key: key,
+                                               displayName: AppSettings.displayName,
+                                               deviceName: Self.deviceName)
+        SyncCredentials.save(serverURL: serverURL,
+                             token: pairing.token.isEmpty ? (existingToken ?? "") : pairing.token,
+                             userID: pairing.userID)
+        if !pairing.displayName.isEmpty { AppSettings.displayName = pairing.displayName }
+
+        if let dto = pairing.baby {
+            let baby = BabyStore.baby(withID: dto.id, in: context) ?? {
+                let fresh = Baby(uuid: dto.id, name: dto.name, birthDate: dto.birthDate)
+                context.insert(fresh)
+                return fresh
+            }()
+            dto.apply(to: baby)
+            // The phone that recovered it now holds the key too, so it can be
+            // shown again here without another trip to the server.
+            RecoveryKey.store(RecoveryKey.normalized(key), for: dto.id)
+            try? context.save()
+            BabyStore.setCurrent(baby, in: context)
+        }
+        status = .idle(lastSync: nil)
+        await sync()
+    }
+
     /// Marks babies as shared and queues them, which is what makes the server
     /// create them and this caregiver their owner.
     func share(_ babies: [Baby], in context: ModelContext) {
@@ -417,6 +487,7 @@ enum SyncError: LocalizedError {
     case server(status: Int, message: String, code: String?)
     case badResponse(String)
     case rejected(count: Int, reason: String)
+    case badRecoveryKey
 
     var errorDescription: String? {
         switch self {
@@ -434,6 +505,8 @@ enum SyncError: LocalizedError {
             "The server sent something this version of the app didn't understand."
         case .rejected(let count, let reason):
             "The server wouldn't accept \(count == 1 ? "a row" : "\(count) rows"): \(reason)"
+        case .badRecoveryKey:
+            "A recovery key is \(RecoveryKey.length) letters and numbers. Check for a missed character."
         }
     }
 }

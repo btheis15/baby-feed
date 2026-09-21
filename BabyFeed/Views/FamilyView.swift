@@ -15,6 +15,7 @@ struct FamilyView: View {
     @State private var inviteError: String?
     @State private var isCreatingInvite = false
     @State private var showUnpairConfirm = false
+    @State private var showRecoveryKey = false
 
     private var activeBabies: [Baby] { babies.filter { $0.deletedAt == nil } }
     private var currentBaby: Baby? { activeBabies.first { $0.uuid.uuidString == currentBabyIDRaw } }
@@ -22,6 +23,7 @@ struct FamilyView: View {
     var body: some View {
         List {
             whereTheDataIsSection
+            if sync.isConfigured, currentBaby?.isShared == true { recoverySection }
             whoIsLoggingSection
             if activeBabies.count > 1 { babySwitcherSection }
             sharingSection
@@ -32,6 +34,11 @@ struct FamilyView: View {
         }
         .sheet(item: $invite) { invite in
             InviteView(invite: invite, babyName: currentBaby?.displayName ?? "the baby")
+        }
+        .sheet(isPresented: $showRecoveryKey) {
+            if let baby = currentBaby {
+                RecoveryKeyView(babyID: baby.uuid, babyName: baby.displayName)
+            }
         }
         .task {
             if let baby = currentBaby, baby.isShared {
@@ -65,6 +72,32 @@ struct FamilyView: View {
             }
         } header: {
             Text("Where your data is")
+        }
+    }
+
+    /// The way back in when every phone that had this log is gone.
+    @ViewBuilder
+    private var recoverySection: some View {
+        Section {
+            Button {
+                showRecoveryKey = true
+            } label: {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Recovery key")
+                        Text("Hidden until you ask. Write it down once.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "key.fill")
+                }
+            }
+            .tint(.primary)
+        } header: {
+            Text("If every phone is lost")
+        } footer: {
+            Text("Sharing with another caregiver is the everyday way onto a second phone. The key is the backstop for when there's no phone left to scan from.")
         }
     }
 

@@ -16,12 +16,13 @@ struct PairServerView: View {
     @AppStorage(AppSettings.displayNameKey) private var displayName = ""
 
     private enum Mode: String, CaseIterable {
-        case join, first
+        case join, first, recover
 
         var title: String {
             switch self {
-            case .join: "I was invited"
-            case .first: "This is the first phone"
+            case .join: "Invited"
+            case .first: "First phone"
+            case .recover: "Recovery key"
             }
         }
     }
@@ -51,6 +52,10 @@ struct PairServerView: View {
         case .first:
             guard hasName else { return false }
             return code.trimmingCharacters(in: .whitespaces).count >= 6
+        case .recover:
+            // No name needed: the key says which log, and the name on this
+            // phone is whatever it already was.
+            return RecoveryKey.isPlausible(code)
         }
     }
 
@@ -77,25 +82,25 @@ struct PairServerView: View {
                 }
 
                 Section {
-                    TextField(mode == .join ? "Invite code" : "Setup code", text: $code)
+                    TextField(codeTitle, text: $code, axis: mode == .recover ? .vertical : .horizontal)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
                         .font(.system(.body, design: .monospaced))
                 } header: {
-                    Text(mode == .join ? "Invite code" : "Setup code")
+                    Text(codeTitle)
                 } footer: {
-                    Text(mode == .join
-                         ? "Six letters and numbers, from the phone that's already set up."
-                         : "Printed by the setup script on the Mac mini. You only need it once.")
+                    Text(codeFooter)
                 }
 
-                Section {
-                    TextField("Your name", text: $name)
-                        .textInputAutocapitalization(.words)
-                } header: {
-                    Text("Your name")
-                } footer: {
-                    Text("Shown next to everything you log, so the other caregiver can tell your entries from theirs.")
+                if mode != .recover {
+                    Section {
+                        TextField("Your name", text: $name)
+                            .textInputAutocapitalization(.words)
+                    } header: {
+                        Text("Your name")
+                    } footer: {
+                        Text("Shown next to everything you log, so the other caregiver can tell your entries from theirs.")
+                    }
                 }
 
                 if let errorMessage {
@@ -104,6 +109,18 @@ struct PairServerView: View {
                     }
                 }
 
+                Section {
+                    Button {
+                        submit()
+                    } label: {
+                        HStack {
+                            Spacer()
+                            if isWorking { ProgressView() } else { Text(submitTitle) }
+                            Spacer()
+                        }
+                    }
+                    .disabled(!canSubmit)
+                }
             }
             .navigationTitle("Set up sharing")
             .navigationBarTitleDisplayMode(.inline)
@@ -113,6 +130,30 @@ struct PairServerView: View {
                 }
             }
             .onAppear(perform: prefill)
+        }
+    }
+
+    private var submitTitle: String {
+        switch mode {
+        case .join: "Join"
+        case .first: "Connect"
+        case .recover: "Get the log back"
+        }
+    }
+
+    private var codeTitle: String {
+        switch mode {
+        case .join: "Invite code"
+        case .first: "Setup code"
+        case .recover: "Recovery key"
+        }
+    }
+
+    private var codeFooter: String {
+        switch mode {
+        case .join: "Six letters and numbers, from the phone that's already set up."
+        case .first: "Printed by the setup script on the Mac mini. You only need it once."
+        case .recover: "The \(RecoveryKey.length) characters you wrote down. Dashes and spaces don't matter."
         }
     }
 
@@ -161,6 +202,11 @@ struct PairServerView: View {
                         serverURL: serverURL,
                         code: code,
                         displayName: trimmedName,
+                        context: modelContext)
+                case .recover:
+                    try await SyncEngine.shared.recover(
+                        serverURL: serverURL,
+                        key: code,
                         context: modelContext)
                 }
                 // Left alone when blank, so joining without typing a name keeps
