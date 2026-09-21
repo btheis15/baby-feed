@@ -29,6 +29,23 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    TEXT NOT NULL
 );
 
+-- How a caregiver proves they're the same person on a phone that isn't the
+-- one they paired. Without this a wiped phone is a lost log: the device token
+-- is gone and only an owner can issue invites, so an owner had no way back in.
+--
+-- Typed rather than an apple_sub column on users, because the point of the
+-- type is that there will be a second one: a passkey is the same shape — some
+-- subject Apple vouches for — and slots in as another row.
+CREATE TABLE IF NOT EXISTS credentials (
+  type          TEXT NOT NULL,           -- 'apple' today, 'passkey' later
+  subject       TEXT NOT NULL,           -- Apple's stable subject for this app
+  user_id       TEXT NOT NULL REFERENCES users(id),
+  created_at    TEXT NOT NULL,
+  last_used_at  TEXT,
+  PRIMARY KEY (type, subject)
+);
+CREATE INDEX IF NOT EXISTS credentials_user ON credentials(user_id);
+
 -- One row per phone. Tokens are stored hashed, so a stolen database file
 -- can't be replayed against a running server.
 CREATE TABLE IF NOT EXISTS devices (

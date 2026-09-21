@@ -45,6 +45,10 @@ const port = Number(env.BABYFEED_PORT || 8791)
 const host = env.BABYFEED_BIND || '127.0.0.1'
 const dbPath = env.BABYFEED_DB || join(DATA_DIR, 'babyfeed.db')
 const setupSecret = env.BABYFEED_SETUP_SECRET || ''
+// The bundle identifier Apple issues identity tokens for. Sign in with Apple
+// stays switched off until this is set, so a misconfigured server refuses
+// sign-ins rather than accepting tokens minted for some other app.
+const appleAudience = env.BABYFEED_APPLE_BUNDLE_ID || 'com.babyfeed.BabyFeed'
 
 function log(...args) {
   console.log(new Date().toISOString(), ...args)
@@ -54,7 +58,7 @@ if (!setupSecret) {
   log('[warn] BABYFEED_SETUP_SECRET is not set — no new phone can pair as owner.')
 }
 
-const { server } = createApp({ dbPath, setupSecret, log })
+const { server } = createApp({ dbPath, setupSecret, log, appleAudience })
 
 server.listen(port, host, () => {
   log(`[babyfeed] listening on http://${host}:${port} — database ${dbPath}`)

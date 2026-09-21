@@ -14,6 +14,7 @@ import {
   normalizeCode, secretsMatch, CODE_LENGTH,
 } from './auth.js'
 import { normalizeRow, upsertRow, rowsSince, RowError } from './sync.js'
+import { createAppleVerifier } from './apple.js'
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024 // a very long catch-up push is ~100 KB
 const MAX_PULL_LIMIT = 1000
@@ -53,12 +54,26 @@ async function readJSON(req) {
   }
 }
 
-export function createApp({ dbPath, setupSecret, log = console.log }) {
+/**
+ * @param appleAudience  The app's bundle identifier. Sign in with Apple is off
+ *                       unless this is set, so a server that hasn't been told
+ *                       which app it serves says so rather than trusting any
+ *                       token that turns up.
+ * @param verifyAppleToken  Injected by the tests; production builds its own.
+ */
+export function createApp({
+  dbPath, setupSecret, log = console.log,
+  appleAudience = null,
+  verifyAppleToken = appleAudience ? createAppleVerifier({ audience: appleAudience }) : null,
+  // Only raised by the tests, which come from one address and would otherwise
+  // rate-limit themselves rather than the thing they mean to check.
+  pairRateLimit = { limit: 10, windowMs: 60_000 },
+}) {
   const db = openDatabase(dbPath)
   primeStamp(db)
 
   // Only the unauthenticated routes are limited; see auth.js for why.
-  const pairLimiter = createRateLimiter({ limit: 10, windowMs: 60_000 })
+  const pairLimiter = createRateLimiter(pairRateLimit)
 
   function requireUser(req) {
     const auth = authenticate(db, req.headers.authorization)
@@ -98,6 +113,40 @@ export function createApp({ dbPath, setupSecret, log = console.log }) {
     return db.prepare(
       `SELECT baby_id, user_id, role, display_name, joined_at FROM members
        WHERE baby_id = ? ORDER BY joined_at ASC`).all(babyID)
+  }
+
+  /**
+   * Checks an invite is real, unexpired and unspent. Separate from redeeming
+   * it so a sign-in can fail on a bad code before it creates an account.
+   */
+  function requireUsableInvite(rawCode) {
+    const code = normalizeCode(rawCode)
+    if (code.length !== CODE_LENGTH) {
+      throw new HttpError(400, `An invite code is ${CODE_LENGTH} letters and numbers.`, 'bad_code')
+    }
+    const invite = db.prepare('SELECT * FROM invites WHERE code = ?').get(code)
+    if (!invite || invite.revoked_at) throw new HttpError(404, "That invite code isn't valid.", 'bad_code')
+    if (new Date(invite.expires_at).getTime() < Date.now()) {
+      throw new HttpError(410, 'That invite code has expired. Ask for a new one.', 'expired_code')
+    }
+    if (invite.uses >= invite.max_uses) {
+      throw new HttpError(410, 'That invite code has already been used.', 'used_code')
+    }
+    return invite
+  }
+
+  /**
+   * Adds a caregiver to the invite's baby and spends the code. Caller owns the
+   * transaction, because sign-in also creates the user in the same one.
+   */
+  function redeemInvite(invite, userID, displayName, now, at) {
+    const already = membership(invite.baby_id, userID)
+    if (!already) {
+      db.prepare(`INSERT INTO members (baby_id, user_id, role, display_name, joined_at, server_ms)
+                  VALUES (?, ?, 'caregiver', ?, ?, ?)`)
+        .run(invite.baby_id, userID, displayName, now, at.ms)
+    }
+    db.prepare('UPDATE invites SET uses = uses + 1 WHERE code = ?').run(invite.code)
   }
 
   function issueDevice(userID, deviceName) {
@@ -159,15 +208,7 @@ export function createApp({ dbPath, setupSecret, log = console.log }) {
     if (code.length !== CODE_LENGTH) {
       throw new HttpError(400, `An invite code is ${CODE_LENGTH} letters and numbers.`, 'bad_code')
     }
-    const invite = db.prepare('SELECT * FROM invites WHERE code = ?').get(code)
-    const nowMs = Date.now()
-    if (!invite || invite.revoked_at) throw new HttpError(404, "That invite code isn't valid.", 'bad_code')
-    if (new Date(invite.expires_at).getTime() < nowMs) {
-      throw new HttpError(410, 'That invite code has expired. Ask for a new one.', 'expired_code')
-    }
-    if (invite.uses >= invite.max_uses) {
-      throw new HttpError(410, 'That invite code has already been used.', 'used_code')
-    }
+    const invite = requireUsableInvite(code)
 
     const displayName = String(body.display_name ?? '').slice(0, 200)
     const now = new Date().toISOString()
@@ -178,10 +219,7 @@ export function createApp({ dbPath, setupSecret, log = console.log }) {
     try {
       db.prepare('INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)')
         .run(userID, displayName, now)
-      db.prepare(`INSERT INTO members (baby_id, user_id, role, display_name, joined_at, server_ms)
-                  VALUES (?, ?, 'caregiver', ?, ?, ?)`)
-        .run(invite.baby_id, userID, displayName, now, at.ms)
-      db.prepare('UPDATE invites SET uses = uses + 1 WHERE code = ?').run(code)
+      redeemInvite(invite, userID, displayName, now, at)
       db.exec('COMMIT')
     } catch (error) {
       db.exec('ROLLBACK')
@@ -196,6 +234,115 @@ export function createApp({ dbPath, setupSecret, log = console.log }) {
       display_name: displayName,
       baby: babyPayload(invite.baby_id),
       members: membersOf(invite.baby_id),
+    }
+  })
+
+  // ------------------------------------------------------------- sign-in
+
+  // Sign in with Apple. This is the only way back into your own log on a phone
+  // that isn't the one you paired — the device token is device-bound, and only
+  // an owner can issue invites, so before this an owner who wiped their phone
+  // was locked out of their own baby's log for good.
+  //
+  // Four things can be happening here, and which one it is falls out of
+  // whether we've seen this Apple ID before and whether the phone already
+  // holds a token:
+  //
+  //   known Apple ID, no token   -> signing in on a new phone. Hand back a
+  //                                 token for the account they already have.
+  //   new Apple ID, holds token  -> a phone that paired the old way, now
+  //                                 attaching an account so it's recoverable.
+  //                                 Keeps its token; nothing else changes.
+  //   new Apple ID, no token     -> a fresh caregiver. With an invite code
+  //                                 they join that baby; without one they get
+  //                                 an empty account and can start their own.
+  //   known Apple ID, different
+  //   account holds the token    -> refused. Merging two caregivers' histories
+  //                                 is not something to guess at.
+  route('POST', '/v1/auth/apple', async (req, res, params, ctx) => {
+    if (!verifyAppleToken) {
+      throw new HttpError(503, 'Signing in with Apple is not configured on this server.', 'no_apple')
+    }
+    if (!pairLimiter(ctx.clientKey)) throw new HttpError(429, 'Too many attempts. Wait a minute.')
+    const body = await readJSON(req)
+
+    let identity
+    try {
+      identity = await verifyAppleToken(body.identity_token, { rawNonce: body.raw_nonce })
+    } catch (error) {
+      throw new HttpError(401, error.message || "That Apple sign-in couldn't be verified.", 'bad_apple_token')
+    }
+
+    // Validate the invite before creating anything, so a mistyped code doesn't
+    // leave a stray account behind.
+    const invite = body.invite_code ? requireUsableInvite(body.invite_code) : null
+
+    // An already-paired phone attaching an account, rather than signing in.
+    const caller = authenticate(db, req.headers.authorization)
+    const existing = db.prepare('SELECT * FROM credentials WHERE type = ? AND subject = ?')
+      .get('apple', identity.subject)
+
+    if (existing && caller && existing.user_id !== caller.user.id) {
+      throw new HttpError(409,
+        'That Apple Account is already attached to a different caregiver on this server.',
+        'apple_in_use')
+    }
+
+    const requestedName = String(body.display_name ?? '').trim().slice(0, 200)
+    const now = new Date().toISOString()
+    const at = stamp()
+    const isNewAccount = !existing && !caller
+    const userID = existing?.user_id ?? caller?.user.id ?? randomUUID().toUpperCase()
+
+    db.exec('BEGIN')
+    try {
+      if (isNewAccount) {
+        db.prepare('INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)')
+          .run(userID, requestedName, now)
+      } else if (requestedName) {
+        // Apple only hands over the name the very first time someone authorises
+        // the app, so a later sign-in sends nothing. Never let that blank out a
+        // name that's already on the caregiver's feeds.
+        db.prepare('UPDATE users SET display_name = ? WHERE id = ? AND display_name = \'\'')
+          .run(requestedName, userID)
+      }
+      if (!existing) {
+        db.prepare(`INSERT INTO credentials (type, subject, user_id, created_at, last_used_at)
+                    VALUES (?, ?, ?, ?, ?)`)
+          .run('apple', identity.subject, userID, now, now)
+      } else {
+        db.prepare('UPDATE credentials SET last_used_at = ? WHERE type = ? AND subject = ?')
+          .run(now, 'apple', identity.subject)
+      }
+      if (invite) {
+        const user = db.prepare('SELECT display_name FROM users WHERE id = ?').get(userID)
+        redeemInvite(invite, userID, user?.display_name ?? requestedName, now, at)
+      }
+      db.exec('COMMIT')
+    } catch (error) {
+      db.exec('ROLLBACK')
+      throw error
+    }
+
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userID)
+    const babies = db.prepare(
+      `SELECT m.role, b.id, b.name, b.birth_date, b.sex, b.due_date, b.created_by,
+              b.updated_at, b.deleted_at, b.server_updated_at
+       FROM members m JOIN babies b ON b.id = m.baby_id
+       WHERE m.user_id = ? ORDER BY b.name`).all(userID)
+
+    // A phone that already holds a token keeps it: it's the same phone, and a
+    // second device row for it would show up as a stranger under Caregivers.
+    const token = caller ? null : issueDevice(userID, body.device_name)
+    log(`[auth] apple ${existing ? 'sign-in' : caller ? 'link' : 'new account'} for ${userID}`)
+
+    return {
+      token,
+      user_id: userID,
+      display_name: user.display_name,
+      is_new_account: isNewAccount,
+      baby: invite ? babyPayload(invite.baby_id) : null,
+      babies,
     }
   })
 
