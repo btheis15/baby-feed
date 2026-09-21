@@ -1,7 +1,7 @@
 import Foundation
 
 /// Baby's name and birthday, kept in UserDefaults (there's only ever one baby per install for now).
-struct BabyProfile {
+struct BabyProfile: Equatable {
     static let nameKey = "baby.name"
     static let birthDateKey = "baby.birthDate"   // timeIntervalSince1970, 0 = unset
     static let sexKey = "baby.sex"
@@ -64,5 +64,26 @@ struct BabyProfile {
         }
         let months = calendar.dateComponents([.month], from: birthDate!, to: date).month ?? 0
         return months == 1 ? "1 month old" : "\(months) months old"
+    }
+}
+
+extension BabyProfile {
+    /// Built from the raw values a screen holds in `@AppStorage`.
+    ///
+    /// `load(from:)` reads the same four keys, but a view has to bind to each
+    /// one individually to re-render when it changes — so it holds the raw
+    /// `Double`/`String` and needs this to get back to a profile. Today,
+    /// History and Baby each carried their own copy of the conversion, which
+    /// meant a fifth profile field had to be remembered in three places.
+    ///
+    /// In an extension so the memberwise initialiser survives: `Baby.profile`
+    /// builds one from real `Date`s.
+    init(name: String, birthInterval: Double, sexRaw: String, dueInterval: Double) {
+        self.init(
+            name: name,
+            birthDate: birthInterval > 0 ? Date(timeIntervalSince1970: birthInterval) : nil,
+            sex: BabySex(rawValue: sexRaw) ?? .unspecified,
+            dueDate: dueInterval > 0 ? Date(timeIntervalSince1970: dueInterval) : nil
+        )
     }
 }

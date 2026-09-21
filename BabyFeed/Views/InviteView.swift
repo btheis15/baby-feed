@@ -81,6 +81,10 @@ struct InviteView: View {
         }
     }
 
+    /// Building one of these allocates render resources, so it is made once
+    /// rather than on every pass through `body`.
+    private static let ciContext = CIContext()
+
     /// Rendered at the QR's native size and scaled up without smoothing — a
     /// blurred QR is one a camera won't read.
     private var qrImage: UIImage? {
@@ -92,8 +96,7 @@ struct InviteView: View {
         filter.correctionLevel = "M"
         guard let output = filter.outputImage else { return nil }
         let scaled = output.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
-        let context = CIContext()
-        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
+        guard let cgImage = Self.ciContext.createCGImage(scaled, from: scaled.extent) else { return nil }
         return UIImage(cgImage: cgImage)
     }
 }

@@ -131,16 +131,13 @@ struct LogCareNoteSheet: View {
             careNote.severity = kind.usesSeverity ? severity : nil
             careNote.markChanged()
         }
-        try? modelContext.save()
-        SyncEngine.shared.requestSync()
+        FeedCoordinator.careNotesDidChange(in: modelContext)
         dismiss()
     }
 
     private func deleteCareNote() {
         if case .edit(let careNote) = mode {
-            careNote.softDelete()
-            try? modelContext.save()
-            SyncEngine.shared.requestSync()
+            FeedCoordinator.delete(careNote, in: modelContext)
         }
         dismiss()
     }

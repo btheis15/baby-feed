@@ -34,12 +34,7 @@ struct HistoryView: View {
     private var groups: [DayGroup] { FeedStats.groupByDay(activeEntries, calendar: calendar) }
 
     private var profile: BabyProfile {
-        BabyProfile(
-            name: babyName,
-            birthDate: birthInterval > 0 ? Date(timeIntervalSince1970: birthInterval) : nil,
-            sex: BabySex(rawValue: sexRaw) ?? .unspecified,
-            dueDate: dueInterval > 0 ? Date(timeIntervalSince1970: dueInterval) : nil
-        )
+        BabyProfile(name: babyName, birthInterval: birthInterval, sexRaw: sexRaw, dueInterval: dueInterval)
     }
 
     /// The same target the Today tab shows, via the shared helper, so the

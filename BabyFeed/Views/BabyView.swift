@@ -26,12 +26,7 @@ struct BabyView: View {
     private var unit: VolumeUnit { VolumeUnit(rawValue: unitRaw) ?? .ounces }
     private var feedingStyle: FeedingStyle { FeedingStyle(rawValue: feedingStyleRaw) ?? .formula }
     private var profile: BabyProfile {
-        BabyProfile(
-            name: babyName,
-            birthDate: birthInterval > 0 ? Date(timeIntervalSince1970: birthInterval) : nil,
-            sex: BabySex(rawValue: sexRaw) ?? .unspecified,
-            dueDate: dueInterval > 0 ? Date(timeIntervalSince1970: dueInterval) : nil
-        )
+        BabyProfile(name: babyName, birthInterval: birthInterval, sexRaw: sexRaw, dueInterval: dueInterval)
     }
     private var projection: GrowthProjection? {
         GrowthProjector.project(weights: weights, profile: profile, calendar: calendar)
@@ -103,11 +98,13 @@ struct BabyView: View {
             .sheet(isPresented: $showAddWeight) {
                 AddWeightSheet(weightUnit: weightUnit)
             }
-            .onChange(of: birthInterval) { _, _ in
-                BabyStore.profileDefaultsChanged(in: modelContext)
-                FeedCoordinator.settingsDidChange(in: modelContext)
-            }
-            .onChange(of: babyName) { _, _ in
+            // Every profile field, not just the name and birthday. Sex and
+            // the due date are edited here too, and they live on the Baby
+            // model like the rest — without this they sat in the UserDefaults
+            // mirror only, so the next launch overwrote them from the model
+            // and the percentiles a parent had just switched on disappeared.
+            // They never reached the other caregiver's phone either.
+            .onChange(of: profile) { _, _ in
                 BabyStore.profileDefaultsChanged(in: modelContext)
                 FeedCoordinator.settingsDidChange(in: modelContext)
             }
@@ -458,7 +455,7 @@ struct BabyView: View {
 
         Section {
             NavigationLink {
-                CareNotesView(babyName: profile.displayName)
+                CareNotesView()
             } label: {
                 Label {
                     VStack(alignment: .leading, spacing: 2) {
@@ -520,9 +517,7 @@ struct BabyView: View {
                 Label("Caregivers", systemImage: "person.2.fill")
             }
         } footer: {
-            // Don't promise sharing here: it isn't built. What this screen
-            // does do is set the name that every entry is logged under.
-            Text("Your name, so each feed and note shows who logged it. \(profile.displayName)'s log stays on this iPhone.")
+            Text("Your name, so each feed and note shows who logged it — and whether \(profile.displayName)'s log is shared with another caregiver's phone.")
         }
     }
 

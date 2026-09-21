@@ -145,6 +145,45 @@ struct BabyProfileTests {
         #expect(profile.ageText() == nil)
         #expect(profile.displayName == "Baby")
     }
+
+    /// The conversion Today, History and Baby all go through to turn their raw
+    /// `@AppStorage` values back into a profile. It used to be written out
+    /// three times.
+    @Test func buildsFromTheRawAppStorageValues() {
+        let birth = now.addingTimeInterval(-30 * 24 * 3600)
+        let due = now.addingTimeInterval(-2 * 24 * 3600)
+        let profile = BabyProfile(
+            name: "Nora",
+            birthInterval: birth.timeIntervalSince1970,
+            sexRaw: BabySex.female.rawValue,
+            dueInterval: due.timeIntervalSince1970
+        )
+        #expect(profile.name == "Nora")
+        #expect(profile.birthDate == birth)
+        #expect(profile.sex == .female)
+        #expect(profile.dueDate == due)
+        #expect(profile == BabyProfile(name: "Nora", birthDate: birth, sex: .female, dueDate: due))
+    }
+
+    /// 0 is "unset" for both dates, and an unknown sex falls back rather than
+    /// trapping — these keys are read straight out of UserDefaults.
+    @Test func zeroIntervalsAndAnUnknownSexMeanNotSet() {
+        let profile = BabyProfile(name: "", birthInterval: 0, sexRaw: "nonsense", dueInterval: 0)
+        #expect(profile.birthDate == nil)
+        #expect(profile.dueDate == nil)
+        #expect(profile.sex == .unspecified)
+    }
+
+    /// The Baby tab reacts to `profile` changing, so a profile that ignored sex
+    /// or the due date would leave them in the UserDefaults mirror only — set,
+    /// then silently gone at the next launch when the model overwrote it.
+    @Test func sexAndDueDateAreBothPartOfIdentity() {
+        let birth = now.addingTimeInterval(-40 * 24 * 3600)
+        let base = BabyProfile(name: "Nora", birthDate: birth)
+        #expect(base != BabyProfile(name: "Nora", birthDate: birth, sex: .female))
+        #expect(base != BabyProfile(name: "Nora", birthDate: birth, dueDate: now))
+        #expect(base == BabyProfile(name: "Nora", birthDate: birth))
+    }
 }
 
 struct ElapsedTextTests {

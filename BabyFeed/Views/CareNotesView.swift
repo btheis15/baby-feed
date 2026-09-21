@@ -8,14 +8,11 @@ import SwiftUI
 /// written down.
 struct CareNotesView: View {
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.calendar) private var calendar
     @Query(sort: \CareNote.date, order: .reverse) private var allCareNotes: [CareNote]
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
     @State private var adding = false
     @State private var editing: CareNote?
-
-    let babyName: String
 
     private var careNotes: [CareNote] {
         allCareNotes.active(for: UUID(uuidString: currentBabyIDRaw))
@@ -85,7 +82,11 @@ struct CareNotesView: View {
                         .foregroundStyle(severity == .severe ? .orange : .secondary)
                 }
                 if !careNote.loggedByName.isEmpty {
-                    Text(severity_separator(careNote) + "Logged by \(careNote.loggedByName)")
+                    // Carries its own separator, so "Moderate · Logged by
+                    // Brian" reads right with or without a severity in front.
+                    Text(careNote.severity == nil
+                         ? "Logged by \(careNote.loggedByName)"
+                         : "· Logged by \(careNote.loggedByName)")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -95,11 +96,6 @@ struct CareNotesView: View {
         .contentShape(Rectangle())
     }
 
-    /// Keeps "Moderate · Brian" from reading as "ModerateBrian".
-    private func severity_separator(_ careNote: CareNote) -> String {
-        careNote.severity == nil ? "" : "· "
-    }
-
     private func delete(at offsets: IndexSet) {
         let visible = careNotes
         withAnimation {
@@ -107,14 +103,13 @@ struct CareNotesView: View {
                 visible[index].softDelete()
             }
         }
-        try? modelContext.save()
-        SyncEngine.shared.requestSync()
+        FeedCoordinator.careNotesDidChange(in: modelContext)
     }
 }
 
 #Preview {
     NavigationStack {
-        CareNotesView(babyName: "Nora")
+        CareNotesView()
     }
     .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self, CareNote.self], inMemory: true)
 }

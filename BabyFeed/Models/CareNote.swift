@@ -58,15 +58,6 @@ final class CareNote {
         set { severityRaw = newValue?.rawValue }
     }
 
-    var isActive: Bool { deletedAt == nil }
-
-    /// "Breathing · 2 days ago" style summary, without the note.
-    func summary(calendar: Calendar = .current, now: Date = .now) -> String {
-        var parts = [kind.title]
-        if let severity { parts.append(severity.title.lowercased()) }
-        return parts.joined(separator: " · ")
-    }
-
     func markChanged() {
         updatedAt = .now
         needsUpload = true
@@ -158,8 +149,4 @@ enum CareNoteSeverity: Int, CaseIterable, Identifiable, Codable {
     }
 }
 
-extension Array where Element == CareNote {
-    func active(for babyID: UUID?) -> [CareNote] {
-        filter { $0.deletedAt == nil && (babyID == nil || $0.babyID == babyID) }
-    }
-}
+extension CareNote: BabyScopedRow {}

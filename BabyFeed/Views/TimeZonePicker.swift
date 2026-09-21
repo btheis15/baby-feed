@@ -27,16 +27,22 @@ struct TimeZonePicker: View {
 
     /// Only zones with a region prefix, which excludes the legacy aliases and
     /// bare abbreviations that would otherwise clutter the list.
-    private static let allIdentifiers: [String] = TimeZone.knownTimeZoneIdentifiers
-        .filter { $0.contains("/") }
-        .sorted()
+    ///
+    /// Each identifier is paired with the text searched against, built once:
+    /// there are some 400 of them and rebuilding the searchable form for every
+    /// one on every keystroke is 400 string allocations per letter typed.
+    private static let allZones: [(id: String, searchable: String)] =
+        TimeZone.knownTimeZoneIdentifiers
+            .filter { $0.contains("/") }
+            .sorted()
+            .map { ($0, $0.replacingOccurrences(of: "_", with: " ")) }
 
     private var matches: [String] {
         let query = search.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return Self.allIdentifiers }
-        return Self.allIdentifiers.filter {
-            $0.replacingOccurrences(of: "_", with: " ").localizedCaseInsensitiveContains(query)
-        }
+        guard !query.isEmpty else { return Self.allZones.map(\.id) }
+        return Self.allZones
+            .filter { $0.searchable.localizedCaseInsensitiveContains(query) }
+            .map(\.id)
     }
 
     var body: some View {

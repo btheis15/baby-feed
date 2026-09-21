@@ -57,8 +57,6 @@ final class FeedEntry {
         set { sideRaw = newValue?.rawValue }
     }
 
-    var isActive: Bool { deletedAt == nil }
-
     /// Call after editing so the change is timestamped and queued for sync.
     func markChanged() {
         updatedAt = .now
@@ -91,9 +89,4 @@ final class FeedEntry {
     }
 }
 
-extension Array where Element == FeedEntry {
-    /// Undeleted feeds for one baby (or all babies when `babyID` is nil).
-    func active(for babyID: UUID?) -> [FeedEntry] {
-        filter { $0.deletedAt == nil && (babyID == nil || $0.babyID == babyID) }
-    }
-}
+extension FeedEntry: BabyScopedRow {}

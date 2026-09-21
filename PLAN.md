@@ -32,7 +32,7 @@ Nara, Baby Connect, Feedr and others. Recurring themes:
 | Seeing patterns ("is she clustering at night?")         | Per-day 24-hour strips; trends as numbers with a day-part breakdown |
 | Something to show the pediatrician                      | Plain-text summary (optionally rewritten on-device) + CSV   |
 | Partner / caregiver sync (the #1 complaint when broken)  | Shared baby with invite codes; any number of caregivers; offline-first |
-| No subscription, no ads, privacy                        | Free, local-only, no accounts                               |
+| No subscription, no ads, privacy                        | Free, no accounts; sharing goes to a server you host        |
 | Apple Watch, nursing timer, diapers, sleep              | Later                                                       |
 
 Sources: [Pebbi 2026 comparison](https://pebbi.co/blog/best-baby-tracker-apps-2026),
@@ -258,13 +258,21 @@ travelling), default amounts, Siri phrases, CSV export.
 
 | Model         | Fields                                                                 |
 |---------------|------------------------------------------------------------------------|
-| `Baby`        | `uuid`, `name`, `birthDate?`, `isShared`, `ownerUserID?` + sync fields |
+| `Baby`        | `uuid`, `name`, `birthDate?`, `sexRaw`, `dueDate?`, `isShared`, `ownerUserID?` + sync fields |
 | `FeedEntry`   | `uuid`, `babyID`, `startTime`, `kindRaw`, `amountML?`, `durationMinutes?`, `sideRaw?`, `note`, `loggedByName` + sync fields |
 | `WeightEntry` | `uuid`, `babyID`, `date`, `grams`, `note`, `loggedByName` + sync fields |
+| `CareNote`    | `uuid`, `babyID`, `date`, `kindRaw`, `note`, `severityRaw?`, `resolvedAt?`, `loggedByName` + sync fields |
 
 Sync fields on every model: `updatedAt`, `deletedAt` (soft delete), `needsUpload`.
-The current baby's name and birthday are mirrored into UserDefaults (`BabyProfile`) so
-the rest of the app can read them synchronously; `BabyStore` keeps the two in step.
+The three logged models conform to `BabyScopedRow`, which is where the one
+`active(for:)` filter — undeleted rows for one baby — lives, so the screens
+can't disagree about what's on screen.
+
+The current baby's profile (name, birthday, sex, due date) is mirrored into
+UserDefaults (`BabyProfile`) so the rest of the app can read it synchronously;
+`BabyStore` keeps the two in step, and the Baby tab pushes every edit back to
+the model. The mirror is the copy that loses: `bootstrap` overwrites it from
+the model at launch, so anything edited only in the mirror is discarded.
 Preferences live in `AppSettings` / `FeedDefaults`.
 
 ## Project layout
@@ -306,8 +314,10 @@ BabyFeedTests/            Unit tests (Swift Testing)
 2. Select the `BabyFeed` target → Signing & Capabilities → pick your team. Do the same
    for `BabyFeedWidget`.
 3. Run on an iPhone or simulator running iOS 26+. `Cmd+U` runs the tests.
-4. The app is local-only. There is nothing to configure and nothing to sign into; the
-   Caregivers screen says so.
+4. There is nothing to configure and nothing to sign into. The app runs entirely on the
+   phone until you set up sharing, and the Caregivers screen says which it's doing.
+5. To share with a second phone, run the server in `server/` on a Mac mini — see
+   `server/README.md`. It needs Node 22.5+ and has no dependencies.
 
 Widgets and the Live Activity share data through an **App Group**
 (`group.com.babyfeed.shared`), and reminders use the **Time Sensitive Notifications**

@@ -79,6 +79,7 @@ BabyFeed/            SwiftUI app: Models, Services (reminders, alarm, live activ
 Shared/              Types compiled into both the app and the widget
 BabyFeedWidget/      Lock Screen / Home Screen widget and the Live Activity
 BabyFeedTests/       Unit tests for guidance rules, units, stats, CSV, snapshot, sync merge rules
+server/              The self-hosted sync server (Node, SQLite, launchd) — `npm test` runs its own suite
 ```
 
 ## Medical note

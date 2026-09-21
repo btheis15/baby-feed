@@ -22,10 +22,18 @@ struct SettingsView: View {
     @AppStorage(AppSettings.liveActivityKey) private var liveActivity = true
     @AppStorage(BabyProfile.nameKey) private var babyName = ""
     @AppStorage(AppSettings.displayNameKey) private var displayName = ""
+    /// Not read directly: bound so the "typical for age" interval label
+    /// re-renders when the birthday is set on the Baby tab.
     @AppStorage(BabyProfile.birthDateKey) private var birthInterval: Double = 0
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
     @State private var permissionMessage: String?
+    /// The export text, rebuilt only when the log or the unit changes.
+    ///
+    /// `ShareLink` wants its item up front, so reading it from a computed
+    /// property re-serialised the whole log every time this screen re-rendered
+    /// — which is on every toggle in it.
+    @State private var exportCSV = ""
 
     private var unit: VolumeUnit { VolumeUnit(rawValue: unitRaw) ?? .ounces }
     private var activeEntries: [FeedEntry] { entries.active(for: UUID(uuidString: currentBabyIDRaw)) }
@@ -71,7 +79,18 @@ struct SettingsView: View {
             }
             .onChange(of: liveActivity) { _, _ in FeedCoordinator.settingsDidChange(in: modelContext) }
             .onChange(of: unitRaw) { _, _ in FeedCoordinator.settingsDidChange(in: modelContext) }
+            .onChange(of: exportIdentity, initial: true) { _, _ in
+                exportCSV = FeedStats.csv(activeEntries, unit: unit)
+            }
         }
+    }
+
+    /// Changes exactly when the exported text would: a feed added, removed or
+    /// edited (every edit bumps `updatedAt`), or the unit switched. Scanning
+    /// dates is cheap; rebuilding the CSV to find out is not.
+    private var exportIdentity: String {
+        let newest = entries.map(\.updatedAt).max() ?? .distantPast
+        return "\(unitRaw)|\(entries.count)|\(newest.timeIntervalSince1970)"
     }
 
     // MARK: Sections
@@ -233,10 +252,10 @@ struct SettingsView: View {
 
     private var exportSection: some View {
         Section {
-            ShareLink(item: FeedStats.csv(activeEntries, unit: unit), subject: Text("Baby Feed log")) {
+            ShareLink(item: exportCSV, subject: Text("Baby Feed log")) {
                 Label("Export as CSV", systemImage: "square.and.arrow.up")
             }
-            .disabled(activeEntries.isEmpty)
+            .disabled(exportCSV.isEmpty || activeEntries.isEmpty)
         } header: {
             Text("Export")
         } footer: {

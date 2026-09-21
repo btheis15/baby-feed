@@ -123,12 +123,12 @@ final class SyncEngine {
         let feeds = fetch(FeedEntry.self, in: context).filter {
             $0.needsUpload && $0.babyID.map(sharedIDs.contains) == true
         }
-        payload.feeds = feeds.compactMap { FeedDTO(entry: $0, userID: userID ?? UUID()) }
+        payload.feeds = feeds.compactMap { FeedDTO(entry: $0, userID: userID) }
 
         let weights = fetch(WeightEntry.self, in: context).filter {
             $0.needsUpload && $0.babyID.map(sharedIDs.contains) == true
         }
-        payload.weights = weights.compactMap { WeightDTO(entry: $0, userID: userID ?? UUID()) }
+        payload.weights = weights.compactMap { WeightDTO(entry: $0, userID: userID) }
 
         let notes = fetch(CareNote.self, in: context).filter {
             $0.needsUpload && $0.babyID.map(sharedIDs.contains) == true

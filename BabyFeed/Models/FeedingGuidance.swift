@@ -33,10 +33,14 @@ enum FeedingStyle: String, CaseIterable, Identifiable {
 /// - Research summarized by KellyMom: exclusively breastfed babies 1–6 months
 ///   take about 25 oz (750 ml) a day, typical range 19–30 oz (570–900 ml).
 enum FeedingGuidance {
-    static let mlPerOunce = 29.5735
+    /// The published rules are written in ounces and pounds, so the arithmetic
+    /// reads best in them. Both conversions forward to the unit types rather
+    /// than repeating the number: a correction there has to reach here too.
+    private static let mlPerOunce = VolumeUnit.millilitersPerOunce
+    private static let gramsPerPound = WeightUnit.gramsPerPound
 
     /// AAP formula rule: 2.5 oz per pound per day, expressed per gram.
-    static let formulaMLPerGramPerDay = 2.5 * mlPerOunce / 453.59237
+    static let formulaMLPerGramPerDay = 2.5 * mlPerOunce / gramsPerPound
     /// AAP ceiling: about 32 oz per day.
     static let maxDailyML = 32 * mlPerOunce
     /// Exclusively breastfed, 1–6 months.
@@ -212,7 +216,7 @@ enum FeedingGuidance {
         if let weightGrams, weightGrams > 0 {
             let raw = weightGrams * formulaMLPerGramPerDay
             let target = min(raw, maxDailyML)
-            let pounds = weightGrams / 453.59237
+            let pounds = weightGrams / gramsPerPound
             var basis = "2½ oz per pound per day (AAP) at \(pounds.formatted(.number.precision(.fractionLength(1)))) lb"
             if raw > maxDailyML { basis += ", capped at 32 oz" }
             // Early days: babies ramp up, so also show the age-typical range as context.

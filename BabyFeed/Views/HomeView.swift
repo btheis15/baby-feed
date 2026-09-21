@@ -32,91 +32,92 @@ struct HomeView: View {
     private var currentBabyID: UUID? { UUID(uuidString: currentBabyIDRaw) }
     private var intervalMinutes: Int { AppSettings.resolvedIntervalMinutes(raw: intervalMinutesRaw) }
     private var profile: BabyProfile {
-        BabyProfile(
-            name: babyName,
-            birthDate: birthInterval > 0 ? Date(timeIntervalSince1970: birthInterval) : nil,
-            sex: BabySex(rawValue: sexRaw) ?? .unspecified,
-            dueDate: dueInterval > 0 ? Date(timeIntervalSince1970: dueInterval) : nil
-        )
+        BabyProfile(name: babyName, birthInterval: birthInterval, sexRaw: sexRaw, dueInterval: dueInterval)
     }
 
     var body: some View {
         NavigationStack {
-            // Re-renders every 30 seconds so the counter stays live.
-            TimelineView(.periodic(from: .now, by: 30)) { context in
-                let now = context.date
-                let visible = entries.active(for: currentBabyID)
-                let babyWeights = weights.active(for: currentBabyID)
-                let latestWeight = babyWeights.first
-                let recent = FeedStats.entries(visible, within: 24 * 60 * 60, now: now)
-                let summary = FeedSummary(recent)
-                // Once the sex is known the target follows the baby's percentile
-                // forward instead of sitting frozen at the last weigh-in.
-                let guidance = FeedingGuidance.currentTarget(
-                    weights: babyWeights,
-                    profile: profile,
-                    style: feedingStyle,
-                    feedsPerDay: feedsPerDay,
-                    now: now,
-                    calendar: calendar
-                )
-                let target = guidance.target
-                let projection = guidance.projection
-                let dueDate = visible.first.map { $0.startTime.addingTimeInterval(Double(intervalMinutes) * 60) }
+            // Everything here is recomputed when the log, the settings or the
+            // baby change — not on a timer. Only the hero counter ticks.
+            let now = Date.now
+            let visible = entries.active(for: currentBabyID)
+            let babyWeights = weights.active(for: currentBabyID)
+            let latestWeight = babyWeights.first
+            let recent = FeedStats.entries(visible, within: 24 * 60 * 60, now: now)
+            let summary = FeedSummary(recent)
+            // Once the sex is known the target follows the baby's percentile
+            // forward instead of sitting frozen at the last weigh-in.
+            let guidance = FeedingGuidance.currentTarget(
+                weights: babyWeights,
+                profile: profile,
+                style: feedingStyle,
+                feedsPerDay: feedsPerDay,
+                now: now,
+                calendar: calendar
+            )
+            let target = guidance.target
+            let projection = guidance.projection
+            let dueDate = visible.first.map { $0.startTime.addingTimeInterval(Double(intervalMinutes) * 60) }
 
-                List {
-                    Section {
+            List {
+                Section {
+                    // The one thing on this screen that has to keep moving by
+                    // itself. Wrapping the whole List in this — which is what
+                    // it used to do — re-ran the WHO percentile projection and
+                    // regrouped the log every 30 seconds to advance a minute
+                    // counter.
+                    TimelineView(.periodic(from: .now, by: 30)) { context in
                         LastFedCard(
                             lastFeed: visible.first,
                             unit: unit,
-                            now: now,
+                            now: context.date,
                             nudgeAfter: remindersEnabled ? Double(intervalMinutes) * 60 : 3 * 60 * 60,
                             dueDate: remindersEnabled ? dueDate : nil
                         )
                     }
+                }
 
-                    Section {
-                        QuickLogButtons(unit: unit) { kind in
-                            newFeedKind = kind
+                Section {
+                    QuickLogButtons(unit: unit) { kind in
+                        newFeedKind = kind
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                }
+
+                Section {
+                    GuidanceCard(
+                        target: target,
+                        consumedML: summary.totalML,
+                        nursingMinutes: summary.nursingMinutes,
+                        unit: unit,
+                        weightText: latestWeight.map { weightUnit.format(grams: $0.grams) },
+                        babyName: profile.displayName,
+                        projection: projection,
+                        weightUnit: weightUnit
+                    ) {
+                        router.tab = .baby
+                    }
+                }
+
+                Section {
+                    SummaryCard(title: "Last 24 hours", summary: summary, unit: unit)
+                }
+
+                if !recent.isEmpty {
+                    Section("Recent feeds") {
+                        ForEach(recent) { entry in
+                            FeedRow(entry: entry, unit: unit)
+                                .contentShape(Rectangle())
+                                .onTapGesture { editingEntry = entry }
                         }
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
-                    }
-
-                    Section {
-                        GuidanceCard(
-                            target: target,
-                            consumedML: summary.totalML,
-                            nursingMinutes: summary.nursingMinutes,
-                            unit: unit,
-                            weightText: latestWeight.map { weightUnit.format(grams: $0.grams) },
-                            babyName: profile.displayName,
-                            projection: projection,
-                            weightUnit: weightUnit
-                        ) {
-                            router.tab = .baby
-                        }
-                    }
-
-                    Section {
-                        SummaryCard(title: "Last 24 hours", summary: summary, unit: unit)
-                    }
-
-                    if !recent.isEmpty {
-                        Section("Recent feeds") {
-                            ForEach(recent) { entry in
-                                FeedRow(entry: entry, unit: unit)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture { editingEntry = entry }
-                            }
-                            .onDelete { offsets in
-                                delete(offsets.map { recent[$0] })
-                            }
+                        .onDelete { offsets in
+                            delete(offsets.map { recent[$0] })
                         }
                     }
                 }
-                .listStyle(.insetGrouped)
             }
+            .listStyle(.insetGrouped)
             .navigationTitle(babyName.isEmpty ? "Baby Feed" : babyName)
             .sheet(item: $newFeedKind) { kind in
                 LogFeedSheet(mode: .new(kind))

@@ -25,8 +25,6 @@ final class WeightEntry {
         self.needsUpload = true
     }
 
-    var isActive: Bool { deletedAt == nil }
-
     func markChanged() {
         updatedAt = .now
         needsUpload = true
@@ -38,8 +36,4 @@ final class WeightEntry {
     }
 }
 
-extension Array where Element == WeightEntry {
-    func active(for babyID: UUID?) -> [WeightEntry] {
-        filter { $0.deletedAt == nil && (babyID == nil || $0.babyID == babyID) }
-    }
-}
+extension WeightEntry: BabyScopedRow {}

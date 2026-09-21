@@ -6,15 +6,27 @@ import WidgetKit
 /// through here so widgets, the reminder, the Live Activity and sync stay in step.
 @MainActor
 enum FeedCoordinator {
+    /// How many of the newest feeds this needs, across all babies on the phone.
+    ///
+    /// Everything below reads the very recent end of the log: the last feed,
+    /// the last 24 hours, and the median of the last ten bottles of each kind.
+    /// Fetching the whole log instead — which this did — materialises every
+    /// feed ever logged, on the main actor, between tapping Save and the sheet
+    /// closing, and again on every foreground and after every sync. 400 covers
+    /// well over a fortnight of newborn feeding even with twins.
+    private static let recentFeedLimit = 400
+    /// The target only reads the latest weigh-in, and the projection anchors on
+    /// it. Two would do; this leaves room for soft-deleted rows.
+    private static let recentWeightLimit = 40
+
     static func feedsDidChange(in context: ModelContext, triggerSync: Bool = true) {
         try? context.save()
 
         let babyID = AppSettings.currentBabyID
-        let allFeeds = (try? context.fetch(FetchDescriptor<FeedEntry>(sortBy: [SortDescriptor(\.startTime, order: .reverse)]))) ?? []
-        let entries = allFeeds.active(for: babyID)
-
-        let allWeights = (try? context.fetch(FetchDescriptor<WeightEntry>(sortBy: [SortDescriptor(\.date, order: .reverse)]))) ?? []
-        let weights = allWeights.active(for: babyID)
+        let entries = fetchRecent(FeedEntry.self, sortedBy: \.startTime, limit: recentFeedLimit, in: context)
+            .active(for: babyID)
+        let weights = fetchRecent(WeightEntry.self, sortedBy: \.date, limit: recentWeightLimit, in: context)
+            .active(for: babyID)
 
         let unit = AppSettings.volumeUnit
         let profile = BabyProfile.load()
@@ -77,6 +89,15 @@ enum FeedCoordinator {
         feedsDidChange(in: context)
     }
 
+    /// A care note changed. Notes drive nothing derived — no widget snapshot,
+    /// no reminder, no Live Activity — so this deliberately does less than
+    /// `feedsDidChange` rather than recomputing all of it for nothing. It
+    /// exists so every write in the app still funnels through one place.
+    static func careNotesDidChange(in context: ModelContext) {
+        try? context.save()
+        SyncEngine.shared.requestSync()
+    }
+
     /// Deletes are soft so they reach other caregivers' phones.
     static func delete(_ entry: FeedEntry, in context: ModelContext) {
         entry.softDelete()
@@ -87,4 +108,24 @@ enum FeedCoordinator {
         weight.softDelete()
         settingsDidChange(in: context)
     }
+
+    static func delete(_ careNote: CareNote, in context: ModelContext) {
+        careNote.softDelete()
+        careNotesDidChange(in: context)
+    }
+
+    /// Newest-first, capped. The cap is across every baby on the phone; the
+    /// caller narrows to one afterwards, which is why the limits above are
+    /// generous rather than tight.
+    private static func fetchRecent<T: PersistentModel>(
+        _ type: T.Type,
+        sortedBy keyPath: KeyPath<T, Date> & Sendable,
+        limit: Int,
+        in context: ModelContext
+    ) -> [T] {
+        var descriptor = FetchDescriptor<T>(sortBy: [SortDescriptor(keyPath, order: .reverse)])
+        descriptor.fetchLimit = limit
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
 }

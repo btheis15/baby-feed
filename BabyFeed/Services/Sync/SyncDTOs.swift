@@ -93,7 +93,7 @@ struct FeedDTO: Codable, Equatable {
         case serverUpdatedAt = "server_updated_at"
     }
 
-    init?(entry: FeedEntry, userID: UUID) {
+    init?(entry: FeedEntry, userID: UUID?) {
         guard let uuid = entry.uuid, let babyID = entry.babyID else { return nil }
         id = uuid
         self.babyID = babyID
@@ -148,7 +148,7 @@ struct WeightDTO: Codable, Equatable {
         case serverUpdatedAt = "server_updated_at"
     }
 
-    init?(entry: WeightEntry, userID: UUID) {
+    init?(entry: WeightEntry, userID: UUID?) {
         guard let uuid = entry.uuid, let babyID = entry.babyID else { return nil }
         id = uuid
         self.babyID = babyID

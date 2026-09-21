@@ -75,6 +75,4 @@ enum DeepLink {
         if let kindRaw { string += "/\(kindRaw)" }
         return URL(string: string)!
     }
-
-    static let home = URL(string: "\(scheme)://home")!
 }
