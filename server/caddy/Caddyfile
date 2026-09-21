@@ -24,7 +24,6 @@
 #
 # Both values come from ~/baby-feed-data/.env via the launchd job, so the
 # hostname and the DuckDNS token are never in this repo.
-
 {
 	http_port 9081
 	https_port 9444
@@ -39,6 +38,11 @@
 		resolvers 8.8.8.8 1.1.1.1
 	}
 
+	# X-Forwarded-For is set by Caddy's reverse proxy on its own, and the
+	# server's pairing rate limiter keys on it — without a real client address
+	# every request would look like 127.0.0.1 and one person guessing invite
+	# codes would lock out both phones. Setting it here as well is redundant,
+	# and Caddy says so on every start.
 	reverse_proxy 127.0.0.1:8791 {
 		# Pushes and pulls are small JSON; a phone on a bad connection just
 		# needs longer than the default to finish one.
@@ -47,10 +51,6 @@
 			write_timeout 60s
 			dial_timeout 10s
 		}
-		# The rate limiter in front of pairing keys on the real client address.
-		# Without this every request looks like it came from 127.0.0.1, and one
-		# person guessing invite codes would lock out both phones.
-		header_up X-Forwarded-For {remote_host}
 	}
 
 	encode gzip

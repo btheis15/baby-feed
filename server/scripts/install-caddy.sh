@@ -58,8 +58,13 @@ done
 
 echo
 echo "Getting a certificate for $HOSTNAME_FULL — this takes a minute or two."
+# --resolve so this asks THIS machine directly. Going out to the hostname would
+# leave the house, come back through the router, and fail on a router that
+# doesn't do hairpin NAT — reporting a problem with the certificate that isn't
+# one. The port-forward is checked from a phone, not from here.
 for i in $(seq 1 30); do
-  if curl -fsS --max-time 5 "https://$HOSTNAME_FULL:9444/v1/health" >/dev/null 2>&1; then
+  if curl -fsS --max-time 5 --resolve "$HOSTNAME_FULL:9444:127.0.0.1" \
+       "https://$HOSTNAME_FULL:9444/v1/health" >/dev/null 2>&1; then
     echo
     echo "  Ready. Use this as the server address in the app:"
     echo
