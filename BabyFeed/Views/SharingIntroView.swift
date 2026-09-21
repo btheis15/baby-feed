@@ -41,7 +41,7 @@ struct SharingIntroView: View {
                 point("person.2.fill", "Both phones, one log",
                       "Feeds, weights and notes show up on the other caregiver's phone, with who logged what.")
                 point("lock.iphone", "No account to make",
-                      "No email, no password, nothing to manage. It syncs through a server you run yourself, and signing in with Apple only attaches the baby's log to your Apple Account so it can come back on a new iPhone.")
+                      "No email, no password, nothing to sign up for. It syncs through a server you run yourself, and a recovery key you can write down is the way back if every phone is lost.")
             }
             .padding(.horizontal, 32)
 

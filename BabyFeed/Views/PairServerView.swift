@@ -104,40 +104,6 @@ struct PairServerView: View {
                     }
                 }
 
-                // Signing in reaches the same place as an invite code, and on
-                // a replacement phone it's the only thing that does: an invite
-                // has to come from an owner, and the owner might be you.
-                if mode == .join, serverURL != nil {
-                    Section {
-                        AppleSignInButton(label: .signIn) { result in
-                            signIn(with: result)
-                        } onFailure: { error in
-                            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                        }
-                        .disabled(isWorking)
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                    } header: {
-                        Text("Or sign in")
-                    } footer: {
-                        Text(SyncMerge.isPlausibleInviteCode(code)
-                             ? "Joins with the code above and attaches the log to your Apple Account, in one step, so it comes back if you replace this phone."
-                             : "Brings back a log already attached to your Apple Account. There's no account to create here — a log reaches you by invite or not at all.")
-                    }
-                }
-
-                Section {
-                    Button {
-                        submit()
-                    } label: {
-                        HStack {
-                            Spacer()
-                            if isWorking { ProgressView() } else { Text(mode == .join ? "Join" : "Connect") }
-                            Spacer()
-                        }
-                    }
-                    .disabled(!canSubmit)
-                }
             }
             .navigationTitle("Set up sharing")
             .navigationBarTitleDisplayMode(.inline)
@@ -173,27 +139,6 @@ struct PairServerView: View {
             }
         } else if let existing = SyncCredentials.serverURL {
             serverText = existing.absoluteString
-        }
-    }
-
-    private func signIn(with result: AppleSignIn.Result) {
-        guard let serverURL, !isWorking else { return }
-        isWorking = true
-        errorMessage = nil
-        Task {
-            do {
-                try await SyncEngine.shared.signInWithApple(
-                    serverURL: serverURL,
-                    result: result,
-                    inviteCode: SyncMerge.isPlausibleInviteCode(code) ? code : nil,
-                    context: modelContext)
-                let trimmedName = name.trimmingCharacters(in: .whitespaces)
-                if !trimmedName.isEmpty { displayName = trimmedName }
-                dismiss()
-            } catch {
-                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            }
-            isWorking = false
         }
     }
 

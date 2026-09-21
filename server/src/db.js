@@ -29,22 +29,18 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    TEXT NOT NULL
 );
 
--- How a caregiver proves they're the same person on a phone that isn't the
--- one they paired. Without this a wiped phone is a lost log: the device token
--- is gone and only an owner can issue invites, so an owner had no way back in.
---
--- Typed rather than an apple_sub column on users, because the point of the
--- type is that there will be a second one: a passkey is the same shape — some
--- subject Apple vouches for — and slots in as another row.
-CREATE TABLE IF NOT EXISTS credentials (
-  type          TEXT NOT NULL,           -- 'apple' today, 'passkey' later
-  subject       TEXT NOT NULL,           -- Apple's stable subject for this app
-  user_id       TEXT NOT NULL REFERENCES users(id),
+-- One per baby: the last way back in when every phone that had the log is
+-- gone. The phone generates the key and keeps it; the server is told only its
+-- hash, so a stolen database file yields no way into anything — the same
+-- reasoning as device tokens, and the reason the key can be shown on a phone
+-- but never re-sent by the server.
+CREATE TABLE IF NOT EXISTS recovery_keys (
+  baby_id       TEXT PRIMARY KEY REFERENCES babies(id),
+  key_hash      TEXT NOT NULL UNIQUE,
   created_at    TEXT NOT NULL,
-  last_used_at  TEXT,
-  PRIMARY KEY (type, subject)
+  last_used_at  TEXT
 );
-CREATE INDEX IF NOT EXISTS credentials_user ON credentials(user_id);
+CREATE INDEX IF NOT EXISTS recovery_keys_hash ON recovery_keys(key_hash);
 
 -- One row per phone. Tokens are stored hashed, so a stolen database file
 -- can't be replayed against a running server.

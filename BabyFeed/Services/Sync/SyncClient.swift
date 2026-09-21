@@ -155,44 +155,6 @@ struct SyncClient: Sendable {
         return try await send(try request("POST", "/v1/pair/invite", body: body), as: Pairing.self)
     }
 
-    /// What `/v1/auth/apple` answers with. `token` is null when an already
-    /// paired phone attaches an account: it keeps the token it has, because a
-    /// second device row for the same phone shows up as a stranger under
-    /// Caregivers.
-    struct AppleSignInResult: Decodable {
-        let token: String?
-        let userID: UUID
-        let displayName: String
-        let isNewAccount: Bool
-        let baby: BabyDTO?
-        let babies: [MembershipDTO]
-
-        enum CodingKeys: String, CodingKey {
-            case token, baby, babies
-            case userID = "user_id"
-            case displayName = "display_name"
-            case isNewAccount = "is_new_account"
-        }
-    }
-
-    /// Signs in, or attaches an account to a phone that's already paired when
-    /// this client was built with that phone's token. An invite code can ride
-    /// along so being invited and signing in is one step.
-    func signInWithApple(identityToken: String, rawNonce: String, displayName: String,
-                         deviceName: String, inviteCode: String?) async throws -> AppleSignInResult {
-        var body: [String: String] = [
-            "identity_token": identityToken,
-            "raw_nonce": rawNonce,
-            "device_name": deviceName,
-        ]
-        if !displayName.isEmpty { body["display_name"] = displayName }
-        if let inviteCode, !inviteCode.isEmpty {
-            body["invite_code"] = SyncMerge.normalizedInviteCode(inviteCode)
-        }
-        return try await send(try request("POST", "/v1/auth/apple", body: try Self.encoder.encode(body)),
-                              as: AppleSignInResult.self)
-    }
-
     struct Account: Decodable {
         let userID: UUID
         let displayName: String

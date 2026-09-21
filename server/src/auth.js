@@ -35,6 +35,31 @@ export function newToken() {
   return randomBytes(32).toString('base64url')
 }
 
+/**
+ * The recovery key's shape, so the phone and the server agree on what counts
+ * as the same key. Six groups of four from the same unambiguous alphabet as an
+ * invite code — 24 characters, about 120 bits, and no character anyone has to
+ * squint at when they're copying it onto paper at 3 a.m.
+ *
+ * The server never sees a key it didn't already have the hash of: the phone
+ * makes it, keeps it, and sends the hash. So this is only for normalising what
+ * somebody types back in.
+ */
+export const RECOVERY_KEY_GROUPS = 6
+export const RECOVERY_KEY_GROUP_SIZE = 4
+export const RECOVERY_KEY_LENGTH = RECOVERY_KEY_GROUPS * RECOVERY_KEY_GROUP_SIZE
+
+/** "abcd efgh-JKLM…" -> "ABCDEFGHJKLM…", so dashes and spaces don't matter. */
+export function normalizeRecoveryKey(input) {
+  return normalizeCode(input)
+}
+
+export function isPlausibleRecoveryKey(input) {
+  const key = normalizeRecoveryKey(input)
+  if (key.length !== RECOVERY_KEY_LENGTH) return false
+  return [...key].every((character) => CODE_ALPHABET.includes(character))
+}
+
 export function hashToken(token) {
   return createHash('sha256').update(token).digest('hex')
 }

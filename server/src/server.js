@@ -12,9 +12,9 @@ import { openDatabase, primeStamp, stamp, ROW_TABLES } from './db.js'
 import {
   authenticate, createRateLimiter, hashToken, newInviteCode, newToken,
   normalizeCode, secretsMatch, CODE_LENGTH,
+  isPlausibleRecoveryKey, normalizeRecoveryKey,
 } from './auth.js'
 import { normalizeRow, upsertRow, rowsSince, RowError } from './sync.js'
-import { createAppleVerifier } from './apple.js'
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024 // a very long catch-up push is ~100 KB
 const MAX_PULL_LIMIT = 1000
@@ -54,17 +54,8 @@ async function readJSON(req) {
   }
 }
 
-/**
- * @param appleAudience  The app's bundle identifier. Sign in with Apple is off
- *                       unless this is set, so a server that hasn't been told
- *                       which app it serves says so rather than trusting any
- *                       token that turns up.
- * @param verifyAppleToken  Injected by the tests; production builds its own.
- */
 export function createApp({
   dbPath, setupSecret, log = console.log,
-  appleAudience = null,
-  verifyAppleToken = appleAudience ? createAppleVerifier({ audience: appleAudience }) : null,
   // Only raised by the tests, which come from one address and would otherwise
   // rate-limit themselves rather than the thing they mean to check.
   pairRateLimit = { limit: 10, windowMs: 60_000 },
@@ -115,10 +106,7 @@ export function createApp({
        WHERE baby_id = ? ORDER BY joined_at ASC`).all(babyID)
   }
 
-  /**
-   * Checks an invite is real, unexpired and unspent. Separate from redeeming
-   * it so a sign-in can fail on a bad code before it creates an account.
-   */
+  /** Checks an invite is real, unexpired and unspent. */
   function requireUsableInvite(rawCode) {
     const code = normalizeCode(rawCode)
     if (code.length !== CODE_LENGTH) {
@@ -137,7 +125,7 @@ export function createApp({
 
   /**
    * Adds a caregiver to the invite's baby and spends the code. Caller owns the
-   * transaction, because sign-in also creates the user in the same one.
+   * transaction, because it also creates the caregiver in the same one.
    */
   function redeemInvite(invite, userID, displayName, now, at) {
     const already = membership(invite.baby_id, userID)
@@ -193,7 +181,7 @@ export function createApp({
   // password is not a server worth arguing about.
   //
   // Nothing is lost by spending it: a second caregiver arrives on an invite,
-  // and an owner who replaces their phone comes back with Sign in with Apple.
+  // and an owner who lost every phone comes back with the recovery key.
   route('POST', '/v1/pair/claim', async (req, res, params, ctx) => {
     if (!pairLimiter(ctx.clientKey)) throw new HttpError(429, 'Too many attempts. Wait a minute.')
     const body = await readJSON(req)
@@ -203,7 +191,7 @@ export function createApp({
     }
     if (db.prepare('SELECT 1 FROM users LIMIT 1').get()) {
       throw new HttpError(409,
-        'This server has already been set up. Sign in with Apple to get back in, or ask for an invite.',
+        'This server has already been set up. Scan the QR from a phone that has the log, or use the recovery key.',
         'already_claimed')
     }
     const displayName = String(body.display_name ?? '').slice(0, 200)
@@ -253,99 +241,100 @@ export function createApp({
     }
   })
 
-  // ------------------------------------------------------------- sign-in
+  // ------------------------------------------------------------- recovery
 
-  // Sign in with Apple. This is the only way back into your own log on a phone
-  // that isn't the one you paired — the device token is device-bound, and only
-  // an owner can issue invites, so before this an owner who wiped their phone
-  // was locked out of their own baby's log for good.
+  // The last way back into a baby's log when every phone that had it is gone.
   //
-  // Four things can be happening here, and which one it is falls out of
-  // whether we've seen this Apple ID before and whether the phone already
-  // holds a token:
+  // The phone generates the key and keeps it; the server is only ever told the
+  // hash. That is the whole design: this database, the nightly backups and any
+  // copy of them contain nothing that opens a log. It also means the server
+  // physically cannot show anyone their key again — only the phones that hold
+  // it can, which is why the app can reveal it on demand and this API can't.
   //
-  //   known Apple ID, no token   -> signing in on a new phone. Hand back a
-  //                                 token for the account they already have.
-  //   new Apple ID, holds token  -> a phone that paired the old way, now
-  //                                 attaching an account so it's recoverable.
-  //                                 Keeps its token; nothing else changes.
-  //   new Apple ID + invite      -> the invited caregiver. Joins that baby.
-  //   new Apple ID, nothing else -> refused. See below.
-  //   known Apple ID, different
-  //   account holds the token    -> refused. Merging two caregivers' histories
-  //                                 is not something to guess at.
-  //
-  // That last-but-one rule is the important one. Signing in cannot conjure an
-  // account out of nothing, because an account with no baby on it is worth
-  // nothing to its owner and the endpoint is worth quite a lot to everybody
-  // else: this hostname answers to the internet, and an open sign-up is a
-  // thing to defend. An account here only ever comes from the one setup code
-  // or an invite the owner issued.
-  route('POST', '/v1/auth/apple', async (req, res, params, ctx) => {
-    if (!verifyAppleToken) {
-      throw new HttpError(503, 'Signing in with Apple is not configured on this server.', 'no_apple')
-    }
-    if (!pairLimiter(ctx.clientKey)) throw new HttpError(429, 'Too many attempts. Wait a minute.')
+  // One key per baby, because the log is the thing being recovered. Replacing
+  // it invalidates the old one, so a key written on paper that's since been
+  // lost track of can be retired.
+  route('POST', '/v1/babies/:babyID/recovery', async (req, res, params) => {
+    const { user } = requireUser(req)
+    requireOwner(params.babyID, user.id)
     const body = await readJSON(req)
 
-    let identity
-    try {
-      identity = await verifyAppleToken(body.identity_token, { rawNonce: body.raw_nonce })
-    } catch (error) {
-      throw new HttpError(401, error.message || "That Apple sign-in couldn't be verified.", 'bad_apple_token')
+    // Only ever the hash. If a key itself turned up here it would mean the
+    // phone had sent the one thing this endpoint is designed never to learn.
+    const keyHash = String(body.key_hash ?? '')
+    if (!/^[a-f0-9]{64}$/.test(keyHash)) {
+      throw new HttpError(400, 'A recovery key hash is 64 hex characters.', 'bad_key_hash')
     }
 
-    // Validate the invite before creating anything, so a mistyped code doesn't
-    // leave a stray account behind.
-    const invite = body.invite_code ? requireUsableInvite(body.invite_code) : null
-
-    // An already-paired phone attaching an account, rather than signing in.
-    const caller = authenticate(db, req.headers.authorization)
-    const existing = db.prepare('SELECT * FROM credentials WHERE type = ? AND subject = ?')
-      .get('apple', identity.subject)
-
-    if (existing && caller && existing.user_id !== caller.user.id) {
-      throw new HttpError(409,
-        'That Apple Account is already attached to a different caregiver on this server.',
-        'apple_in_use')
-    }
-
-    if (!existing && !caller && !invite) {
-      throw new HttpError(403,
-        "Nothing on this server is shared with your Apple Account yet. Ask whoever set it up to send you an invite.",
-        'needs_invite')
-    }
-
-    const requestedName = String(body.display_name ?? '').trim().slice(0, 200)
     const now = new Date().toISOString()
+    db.prepare(`INSERT INTO recovery_keys (baby_id, key_hash, created_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(baby_id) DO UPDATE SET key_hash = excluded.key_hash,
+                                                   created_at = excluded.created_at,
+                                                   last_used_at = NULL`)
+      .run(params.babyID, keyHash, now)
+    log(`[recovery] key set for baby ${params.babyID}`)
+    return { baby_id: params.babyID, created_at: now }
+  })
+
+  /** Whether a log has a recovery key yet — never the key, and never the hash. */
+  route('GET', '/v1/babies/:babyID/recovery', (req, res, params) => {
+    const { user } = requireUser(req)
+    requireMember(params.babyID, user.id)
+    const row = db.prepare('SELECT created_at, last_used_at FROM recovery_keys WHERE baby_id = ?')
+      .get(params.babyID)
+    return { exists: Boolean(row), created_at: row?.created_at ?? null, last_used_at: row?.last_used_at ?? null }
+  })
+
+  // Redeeming one. No token required — the key *is* the credential, which is
+  // the point of having it. Rate limited like the other two unauthenticated
+  // routes: 24 characters from a 32-letter alphabet is about 120 bits, so
+  // guessing is not the threat, but there's no reason to allow the attempt.
+  route('POST', '/v1/recover', async (req, res, params, ctx) => {
+    if (!pairLimiter(ctx.clientKey)) throw new HttpError(429, 'Too many attempts. Wait a minute.')
+    const body = await readJSON(req)
+    const key = normalizeRecoveryKey(body.key)
+    if (!isPlausibleRecoveryKey(key)) {
+      throw new HttpError(400, "That doesn't look like a recovery key.", 'bad_key')
+    }
+
+    const row = db.prepare('SELECT * FROM recovery_keys WHERE key_hash = ?').get(hashToken(key))
+    if (!row) throw new HttpError(404, "That recovery key doesn't match any log on this server.", 'bad_key')
+
+    const baby = db.prepare('SELECT * FROM babies WHERE id = ?').get(row.baby_id)
+    if (!baby || baby.deleted_at) {
+      throw new HttpError(410, 'The log that key belonged to is gone.', 'baby_gone')
+    }
+
+    // A phone holds one token, and a caregiver can be on more than one baby.
+    // So a phone that's already paired adds this log to the caregiver it
+    // already is, rather than becoming a second one — otherwise recovering a
+    // second baby would quietly cost you the first.
+    const caller = authenticate(db, req.headers.authorization)
+    const displayName = String(body.display_name ?? '').slice(0, 200)
+    const now = new Date().toISOString()
+    const userID = caller?.user.id ?? randomUUID().toUpperCase()
     const at = stamp()
-    const isNewAccount = !existing && !caller
-    const userID = existing?.user_id ?? caller?.user.id ?? randomUUID().toUpperCase()
 
     db.exec('BEGIN')
     try {
-      if (isNewAccount) {
+      if (!caller) {
         db.prepare('INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)')
-          .run(userID, requestedName, now)
-      } else if (requestedName) {
-        // Apple only hands over the name the very first time someone authorises
-        // the app, so a later sign-in sends nothing. Never let that blank out a
-        // name that's already on the caregiver's feeds.
-        db.prepare('UPDATE users SET display_name = ? WHERE id = ? AND display_name = \'\'')
-          .run(requestedName, userID)
+          .run(userID, displayName, now)
       }
-      if (!existing) {
-        db.prepare(`INSERT INTO credentials (type, subject, user_id, created_at, last_used_at)
-                    VALUES (?, ?, ?, ?, ?)`)
-          .run('apple', identity.subject, userID, now, now)
+      // Recovering restores the owner's seat: whoever holds the key is the
+      // person who can hand the log to anyone else, and a caregiver who
+      // couldn't issue invites would be locked out of doing exactly that.
+      const already = membership(row.baby_id, userID)
+      if (already) {
+        db.prepare("UPDATE members SET role = 'owner' WHERE baby_id = ? AND user_id = ?")
+          .run(row.baby_id, userID)
       } else {
-        db.prepare('UPDATE credentials SET last_used_at = ? WHERE type = ? AND subject = ?')
-          .run(now, 'apple', identity.subject)
+        db.prepare(`INSERT INTO members (baby_id, user_id, role, display_name, joined_at, server_ms)
+                    VALUES (?, ?, 'owner', ?, ?, ?)`)
+          .run(row.baby_id, userID, caller?.user.display_name ?? displayName, now, at.ms)
       }
-      if (invite) {
-        const user = db.prepare('SELECT display_name FROM users WHERE id = ?').get(userID)
-        redeemInvite(invite, userID, user?.display_name ?? requestedName, now, at)
-      }
+      db.prepare('UPDATE recovery_keys SET last_used_at = ? WHERE baby_id = ?').run(now, row.baby_id)
       db.exec('COMMIT')
     } catch (error) {
       db.exec('ROLLBACK')
@@ -353,24 +342,14 @@ export function createApp({
     }
 
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userID)
-    const babies = db.prepare(
-      `SELECT m.role, b.id, b.name, b.birth_date, b.sex, b.due_date, b.created_by,
-              b.updated_at, b.deleted_at, b.server_updated_at
-       FROM members m JOIN babies b ON b.id = m.baby_id
-       WHERE m.user_id = ? ORDER BY b.name`).all(userID)
-
-    // A phone that already holds a token keeps it: it's the same phone, and a
-    // second device row for it would show up as a stranger under Caregivers.
     const token = caller ? null : issueDevice(userID, body.device_name)
-    log(`[auth] apple ${existing ? 'sign-in' : caller ? 'link' : 'new account'} for ${userID}`)
-
+    log(`[recovery] baby ${row.baby_id} recovered by "${user.display_name || 'unnamed'}"`)
     return {
       token,
       user_id: userID,
       display_name: user.display_name,
-      is_new_account: isNewAccount,
-      baby: invite ? babyPayload(invite.baby_id) : null,
-      babies,
+      baby: babyPayload(row.baby_id),
+      members: membersOf(row.baby_id),
     }
   })
 
@@ -619,15 +598,22 @@ export function createApp({
         || req.socket.remoteAddress || 'unknown',
     }
 
+    // Keep looking after a path match whose method doesn't fit: two verbs can
+    // share a path, and stopping at the first one made whichever was
+    // registered second unreachable. 405 is only right once every route with
+    // this path has been tried.
+    let pathExists = false
     for (const r of routes) {
       const match = r.regex.exec(url.pathname)
       if (!match) continue
       if (r.method !== req.method) {
-        throw new HttpError(405, `${req.method} isn't allowed here.`)
+        pathExists = true
+        continue
       }
       const params = Object.fromEntries(r.names.map((name, i) => [name, decodeURIComponent(match[i + 1])]))
       return await r.handler(req, res, params, ctx)
     }
+    if (pathExists) throw new HttpError(405, `${req.method} isn't allowed here.`)
     throw new HttpError(404, 'No such endpoint.')
   }
 

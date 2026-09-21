@@ -252,6 +252,19 @@ test('a caregiver can leave, and then sees nothing', async () => {
   assert.equal((await call('GET', `/v1/sync/pull?baby_id=${babyID}`, { token: annette })).status, 404)
 })
 
+test('two verbs can share a path', async () => {
+  // The router used to 405 on the first path match whose method didn't fit,
+  // which made whichever route was registered second unreachable. Listing
+  // invites is a GET on a path that also takes a POST, so it was dead.
+  const listed = await call('GET', `/v1/babies/${babyID}/invites`, { token: brian })
+  assert.equal(listed.status, 200)
+  assert.ok(Array.isArray(listed.body.invites))
+
+  // And a verb genuinely nobody serves is still a 405, not a 404.
+  const nonsense = await call('DELETE', `/v1/babies/${babyID}/invites`, { token: brian })
+  assert.equal(nonsense.status, 405)
+})
+
 test('a revoked device stops working', async () => {
   const devices = await call('GET', '/v1/devices', { token: brian })
   // A spare phone, arriving the only way a phone can: on an invite.
