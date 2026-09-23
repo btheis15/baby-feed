@@ -83,6 +83,12 @@ struct HomeView: View {
                         .listRowInsets(EdgeInsets())
                     }
 
+                    Section("Diapers") {
+                        DiaperSection()
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                    }
+
                     Section {
                         GuidanceCard(
                             target: target,

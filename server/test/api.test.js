@@ -220,6 +220,34 @@ test('weights and care notes sync too', async () => {
   assert.equal(pull.body.care_notes.find((n) => n.id === noteID).severity, 2)
 })
 
+test('diapers sync too, and a made-up kind is refused', async () => {
+  const diaperID = uuid()
+  const push = await call('POST', '/v1/sync/push', {
+    token: annette,
+    body: {
+      diapers: [
+        { id: diaperID, baby_id: babyID, time: iso(), kind: 'both', logged_by_name: 'Annette', updated_at: iso() },
+        { id: uuid(), baby_id: babyID, time: iso(), kind: 'radioactive', updated_at: iso() },
+      ],
+    },
+  })
+  assert.equal(push.body.applied.length, 1)
+  assert.equal(push.body.rejected.length, 1, 'a kind the app never produces is a malformed row')
+
+  const pull = await call('GET', `/v1/sync/pull?baby_id=${babyID}`, { token: brian })
+  const diaper = pull.body.diapers.find((d) => d.id === diaperID)
+  assert.equal(diaper.kind, 'both')
+  assert.equal(diaper.logged_by_name, 'Annette')
+
+  // Soft delete propagates, like every other row type.
+  await call('POST', '/v1/sync/push', {
+    token: brian,
+    body: { diapers: [{ id: diaperID, baby_id: babyID, time: diaper.time, kind: 'both', updated_at: iso(60000), deleted_at: iso(60000) }] },
+  })
+  const after = await call('GET', `/v1/sync/pull?baby_id=${babyID}`, { token: annette })
+  assert.ok(after.body.diapers.find((d) => d.id === diaperID).deleted_at, 'the delete reaches the other phone')
+})
+
 test('a malformed row is refused without spoiling the rest of the push', async () => {
   const goodID = uuid()
   const push = await call('POST', '/v1/sync/push', {

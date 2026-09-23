@@ -16,6 +16,7 @@ struct SummarySheet: View {
     @Query(sort: \FeedEntry.startTime, order: .reverse) private var entries: [FeedEntry]
     @Query(sort: \WeightEntry.date, order: .reverse) private var weights: [WeightEntry]
     @Query(sort: \CareNote.date, order: .reverse) private var careNotes: [CareNote]
+    @Query(sort: \DiaperEntry.time, order: .reverse) private var diapers: [DiaperEntry]
 
     @AppStorage(FeedDefaults.volumeUnit) private var unitRaw = VolumeUnit.ounces.rawValue
     @AppStorage(AppSettings.weightUnitKey) private var weightUnitRaw = WeightUnit.poundsOunces.rawValue
@@ -33,6 +34,7 @@ struct SummarySheet: View {
             entries: entries.active(for: UUID(uuidString: currentBabyIDRaw)),
             weights: weights.active(for: UUID(uuidString: currentBabyIDRaw)),
             careNotes: careNotes.active(for: UUID(uuidString: currentBabyIDRaw)),
+            diapers: diapers.active(for: UUID(uuidString: currentBabyIDRaw)),
             days: days,
             unit: unit,
             weightUnit: weightUnit,
@@ -161,11 +163,12 @@ struct SummarySheet: View {
         }
     }
 
-    /// "5 feeds · 16.9 oz · 17 min nursing"
+    /// "5 feeds · 16.9 oz · 17 min nursing · diapers 4 wet · 2 dirty"
     private func stackedDetail(for day: DaySummaryGenerator.Report.Day) -> String {
         var parts = ["\(day.feedCount) feed\(day.feedCount == 1 ? "" : "s")"]
         if let volume = day.volumeText { parts.append(volume) }
         if let nursing = day.nursingText { parts.append("\(nursing) nursing") }
+        if let diapers = day.diaperText { parts.append("diapers \(diapers)") }
         return parts.joined(separator: " · ")
     }
 

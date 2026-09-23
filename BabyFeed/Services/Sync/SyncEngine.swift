@@ -135,6 +135,11 @@ final class SyncEngine {
         }
         payload.careNotes = notes.compactMap { CareNoteDTO(entry: $0, userID: userID) }
 
+        let diapers = fetch(DiaperEntry.self, in: context).filter {
+            $0.needsUpload && $0.babyID.map(sharedIDs.contains) == true
+        }
+        payload.diapers = diapers.compactMap { DiaperDTO(entry: $0, userID: userID) }
+
         guard !payload.isEmpty else { return }
         let result = try await client.push(payload)
 
@@ -146,6 +151,7 @@ final class SyncEngine {
         for feed in feeds where feed.uuid.map(accepted.contains) == true { feed.needsUpload = false }
         for weight in weights where weight.uuid.map(accepted.contains) == true { weight.needsUpload = false }
         for note in notes where note.uuid.map(accepted.contains) == true { note.needsUpload = false }
+        for diaper in diapers where diaper.uuid.map(accepted.contains) == true { diaper.needsUpload = false }
         try? context.save()
 
         if !result.rejected.isEmpty {
@@ -210,6 +216,9 @@ final class SyncEngine {
         merge(result.careNotes, in: context, key: \CareNote.uuid,
               apply: { dto, entry in dto.apply(to: entry) },
               newRow: { CareNote(uuid: $0.id, kind: .other) })
+        merge(result.diapers, in: context, key: \DiaperEntry.uuid,
+              apply: { dto, entry in dto.apply(to: entry) },
+              newRow: { DiaperEntry(uuid: $0.id, kind: .wet) })
 
         try? context.save()
         // Everything derived from the log — the next-feed countdown, the
@@ -389,6 +398,7 @@ final class SyncEngine {
         for feed in fetch(FeedEntry.self, in: context) where feed.babyID == babyID { feed.needsUpload = true }
         for weight in fetch(WeightEntry.self, in: context) where weight.babyID == babyID { weight.needsUpload = true }
         for note in fetch(CareNote.self, in: context) where note.babyID == babyID { note.needsUpload = true }
+        for diaper in fetch(DiaperEntry.self, in: context) where diaper.babyID == babyID { diaper.needsUpload = true }
     }
 
     func createInvite(babyID: UUID) async throws -> SyncClient.Invite {
@@ -469,6 +479,7 @@ protocol SyncRow {
 extension FeedDTO: SyncRow {}
 extension WeightDTO: SyncRow {}
 extension CareNoteDTO: SyncRow {}
+extension DiaperDTO: SyncRow {}
 
 protocol SyncableRow: AnyObject {
     var updatedAt: Date { get }
@@ -478,6 +489,7 @@ protocol SyncableRow: AnyObject {
 extension FeedEntry: SyncableRow {}
 extension WeightEntry: SyncableRow {}
 extension CareNote: SyncableRow {}
+extension DiaperEntry: SyncableRow {}
 
 enum SyncError: LocalizedError {
     case notConfigured

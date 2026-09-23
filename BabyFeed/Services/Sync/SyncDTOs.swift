@@ -250,6 +250,55 @@ struct CareNoteDTO: Codable, Equatable {
     }
 }
 
+struct DiaperDTO: Codable, Equatable {
+    var id: UUID
+    var babyID: UUID
+    var time: Date
+    var kind: String
+    var note: String
+    var loggedBy: UUID?
+    var loggedByName: String
+    var updatedAt: Date
+    var deletedAt: Date?
+    var serverUpdatedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id, time, kind, note
+        case babyID = "baby_id"
+        case loggedBy = "logged_by"
+        case loggedByName = "logged_by_name"
+        case updatedAt = "updated_at"
+        case deletedAt = "deleted_at"
+        case serverUpdatedAt = "server_updated_at"
+    }
+
+    init?(entry: DiaperEntry, userID: UUID?) {
+        guard let uuid = entry.uuid, let babyID = entry.babyID else { return nil }
+        id = uuid
+        self.babyID = babyID
+        time = entry.time
+        kind = entry.kindRaw
+        note = entry.note
+        loggedBy = userID
+        loggedByName = entry.loggedByName
+        updatedAt = entry.updatedAt
+        deletedAt = entry.deletedAt
+        serverUpdatedAt = nil
+    }
+
+    func apply(to entry: DiaperEntry) {
+        entry.uuid = id
+        entry.babyID = babyID
+        entry.time = time
+        entry.kindRaw = kind
+        entry.note = note
+        entry.loggedByName = loggedByName
+        entry.updatedAt = updatedAt
+        entry.deletedAt = deletedAt
+        entry.needsUpload = false
+    }
+}
+
 /// A baby as /v1/me lists it: the baby's own fields plus this caregiver's role.
 struct MembershipDTO: Codable, Equatable, Identifiable {
     var id: UUID

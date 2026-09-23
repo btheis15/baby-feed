@@ -21,6 +21,8 @@ const COLUMNS = {
     'updated_at', 'deleted_at'],
   care_notes: ['id', 'baby_id', 'date', 'kind', 'note', 'severity', 'resolved_at', 'logged_by',
     'logged_by_name', 'updated_at', 'deleted_at'],
+  diapers: ['id', 'baby_id', 'time', 'kind', 'note', 'logged_by', 'logged_by_name',
+    'updated_at', 'deleted_at'],
 }
 
 const REQUIRED = {
@@ -28,7 +30,11 @@ const REQUIRED = {
   feeds: ['id', 'baby_id', 'start_time', 'kind', 'updated_at'],
   weights: ['id', 'baby_id', 'date', 'grams', 'updated_at'],
   care_notes: ['id', 'baby_id', 'date', 'kind', 'updated_at'],
+  diapers: ['id', 'baby_id', 'time', 'kind', 'updated_at'],
 }
+
+/** Mirrors DiaperKind on the phone; anything else is a malformed row. */
+const DIAPER_KINDS = new Set(['wet', 'dirty', 'both'])
 
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 
@@ -119,6 +125,11 @@ export function normalizeRow(table, raw, { userID }) {
     row.note = normalizeText(raw.note, 'note') ?? ''
     row.severity = normalizeNumber(raw.severity, 'severity', { min: 1, max: 3, integer: true })
     row.resolved_at = normalizeDate(raw.resolved_at, 'resolved_at')
+  } else if (table === 'diapers') {
+    row.time = normalizeDate(raw.time, 'time', { required: true })
+    row.kind = normalizeText(raw.kind, 'kind', 40)
+    if (!DIAPER_KINDS.has(row.kind)) throw new RowError('kind must be wet, dirty or both')
+    row.note = normalizeText(raw.note, 'note') ?? ''
   }
   return row
 }

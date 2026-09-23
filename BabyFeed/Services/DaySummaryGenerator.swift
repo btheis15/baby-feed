@@ -23,6 +23,8 @@ enum DaySummaryGenerator {
             let volumeText: String?
             /// Nil when the day had no nursing.
             let nursingText: String?
+            /// "4 wet · 2 dirty" — nil when no diapers were logged that day.
+            let diaperText: String?
         }
 
         /// One label/value pair, which is all most of this report is.
@@ -64,6 +66,7 @@ enum DaySummaryGenerator {
         entries: [FeedEntry],
         weights: [WeightEntry],
         careNotes: [CareNote] = [],
+        diapers: [DiaperEntry] = [],
         days: Int,
         unit: VolumeUnit,
         weightUnit: WeightUnit,
@@ -75,6 +78,12 @@ enum DaySummaryGenerator {
         let recent = entries.filter { $0.startTime >= cutoff }
         let groups = FeedStats.groupByDay(recent, calendar: calendar)
         let total = FeedSummary(recent)
+
+        // Diapers, tallied per calendar day. Wet count per day is the question
+        // a pediatrician actually asks, so it belongs in this report.
+        let recentDiapers = diapers.filter { $0.time >= cutoff && $0.deletedAt == nil }
+        let diapersByDay = Dictionary(grouping: recentDiapers) { calendar.startOfDay(for: $0.time) }
+            .mapValues(DiaperTally.init)
 
         var weightItems: [Report.Item] = []
         if let latest = weights.first {
@@ -129,6 +138,27 @@ enum DaySummaryGenerator {
                     value: FeedStats.durationText(hours: gap)
                 ))
             }
+            if !diapersByDay.isEmpty {
+                // Averaged over days with diapers logged, same reasoning as
+                // feeds: a day nobody logged shouldn't read as a dry day.
+                let diaperDayCount = Double(diapersByDay.count)
+                let totalWet = diapersByDay.values.reduce(0) { $0 + $1.wet }
+                let totalDirty = diapersByDay.values.reduce(0) { $0 + $1.dirty }
+                if totalWet > 0 {
+                    averageItems.append(.init(
+                        id: "wetDiapers",
+                        label: "Wet diapers",
+                        value: (Double(totalWet) / diaperDayCount).formatted(.number.precision(.fractionLength(1)))
+                    ))
+                }
+                if totalDirty > 0 {
+                    averageItems.append(.init(
+                        id: "dirtyDiapers",
+                        label: "Dirty diapers",
+                        value: (Double(totalDirty) / diaperDayCount).formatted(.number.precision(.fractionLength(1)))
+                    ))
+                }
+            }
 
             let formulaML = recent.filter { $0.kind == .formula }.reduce(0) { $0 + ($1.amountML ?? 0) }
             let breastMilkML = recent.filter { $0.kind == .breastMilk }.reduce(0) { $0 + ($1.amountML ?? 0) }
@@ -148,13 +178,15 @@ enum DaySummaryGenerator {
 
             dayRows = groups.map { group in
                 let summary = group.summary
+                let tally = diapersByDay[group.day]
                 return Report.Day(
                     id: group.day,
                     title: FeedStats.dayTitle(for: group.day, calendar: calendar, now: now),
                     shortTitle: shortDayTitle(for: group.day, calendar: calendar, now: now),
                     feedCount: summary.feedCount,
                     volumeText: summary.bottleCount > 0 ? unit.format(milliliters: summary.totalML) : nil,
-                    nursingText: summary.nursingMinutes > 0 ? "\(summary.nursingMinutes) min" : nil
+                    nursingText: summary.nursingMinutes > 0 ? "\(summary.nursingMinutes) min" : nil,
+                    diaperText: (tally?.isEmpty ?? true) ? nil : tally?.text
                 )
             }
         }
@@ -201,6 +233,7 @@ enum DaySummaryGenerator {
         entries: [FeedEntry],
         weights: [WeightEntry],
         careNotes: [CareNote] = [],
+        diapers: [DiaperEntry] = [],
         days: Int,
         unit: VolumeUnit,
         weightUnit: WeightUnit,
@@ -212,6 +245,7 @@ enum DaySummaryGenerator {
             entries: entries,
             weights: weights,
             careNotes: careNotes,
+            diapers: diapers,
             days: days,
             unit: unit,
             weightUnit: weightUnit,
@@ -251,6 +285,7 @@ enum DaySummaryGenerator {
             var parts = ["\(day.feedCount) feed\(day.feedCount == 1 ? "" : "s")"]
             if let volume = day.volumeText { parts.append(volume) }
             if let nursing = day.nursingText { parts.append("\(nursing) nursing") }
+            if let diapers = day.diaperText { parts.append("diapers \(diapers)") }
             lines.append("\(day.title): " + parts.joined(separator: " · "))
         }
 

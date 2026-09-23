@@ -269,23 +269,38 @@ struct SyncClient: Sendable {
         let feeds: [FeedDTO]
         let weights: [WeightDTO]
         let careNotes: [CareNoteDTO]
+        let diapers: [DiaperDTO]
         let members: [MemberDTO]
         let hasMore: Bool
 
         enum CodingKeys: String, CodingKey {
-            case babies, feeds, weights, members
+            case babies, feeds, weights, diapers, members
             case careNotes = "care_notes"
             case hasMore = "has_more"
+        }
+
+        // A server from before diapers existed omits the key; that's an older
+        // deployment, not an error, and everything else should still sync.
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            babies = try container.decode([BabyDTO].self, forKey: .babies)
+            feeds = try container.decode([FeedDTO].self, forKey: .feeds)
+            weights = try container.decode([WeightDTO].self, forKey: .weights)
+            careNotes = try container.decode([CareNoteDTO].self, forKey: .careNotes)
+            diapers = try container.decodeIfPresent([DiaperDTO].self, forKey: .diapers) ?? []
+            members = try container.decode([MemberDTO].self, forKey: .members)
+            hasMore = try container.decode(Bool.self, forKey: .hasMore)
         }
 
         /// Every server timestamp in this response, for the next watermark.
         var serverStamps: [Date] {
             babies.compactMap(\.serverUpdatedAt) + feeds.compactMap(\.serverUpdatedAt)
                 + weights.compactMap(\.serverUpdatedAt) + careNotes.compactMap(\.serverUpdatedAt)
+                + diapers.compactMap(\.serverUpdatedAt)
         }
 
         var isEmpty: Bool {
-            babies.isEmpty && feeds.isEmpty && weights.isEmpty && careNotes.isEmpty
+            babies.isEmpty && feeds.isEmpty && weights.isEmpty && careNotes.isEmpty && diapers.isEmpty
         }
     }
 
@@ -310,14 +325,16 @@ struct SyncPushPayload: Encodable {
     var feeds: [FeedDTO]?
     var weights: [WeightDTO]?
     var careNotes: [CareNoteDTO]?
+    var diapers: [DiaperDTO]?
 
     enum CodingKeys: String, CodingKey {
-        case babies, feeds, weights
+        case babies, feeds, weights, diapers
         case careNotes = "care_notes"
     }
 
     var isEmpty: Bool {
         (babies?.isEmpty ?? true) && (feeds?.isEmpty ?? true)
             && (weights?.isEmpty ?? true) && (careNotes?.isEmpty ?? true)
+            && (diapers?.isEmpty ?? true)
     }
 }
