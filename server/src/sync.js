@@ -23,6 +23,8 @@ const COLUMNS = {
     'logged_by_name', 'updated_at', 'deleted_at'],
   diapers: ['id', 'baby_id', 'time', 'kind', 'note', 'logged_by', 'logged_by_name',
     'updated_at', 'deleted_at'],
+  solid_foods: ['id', 'baby_id', 'time', 'name', 'texture', 'reaction', 'note',
+    'logged_by', 'logged_by_name', 'updated_at', 'deleted_at'],
 }
 
 const REQUIRED = {
@@ -31,10 +33,15 @@ const REQUIRED = {
   weights: ['id', 'baby_id', 'date', 'grams', 'updated_at'],
   care_notes: ['id', 'baby_id', 'date', 'kind', 'updated_at'],
   diapers: ['id', 'baby_id', 'time', 'kind', 'updated_at'],
+  solid_foods: ['id', 'baby_id', 'time', 'name', 'texture', 'updated_at'],
 }
 
 /** Mirrors DiaperKind on the phone; anything else is a malformed row. */
 const DIAPER_KINDS = new Set(['wet', 'dirty', 'both'])
+
+/** Mirror FoodTexture and FoodReaction on the phone. */
+const FOOD_TEXTURES = new Set(['puree', 'mashed', 'fingerFood', 'familyFood'])
+const FOOD_REACTIONS = new Set(['loved', 'ate', 'refused', 'possibleReaction'])
 
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 
@@ -129,6 +136,15 @@ export function normalizeRow(table, raw, { userID }) {
     row.time = normalizeDate(raw.time, 'time', { required: true })
     row.kind = normalizeText(raw.kind, 'kind', 40)
     if (!DIAPER_KINDS.has(row.kind)) throw new RowError('kind must be wet, dirty or both')
+    row.note = normalizeText(raw.note, 'note') ?? ''
+  } else if (table === 'solid_foods') {
+    row.time = normalizeDate(raw.time, 'time', { required: true })
+    row.name = normalizeText(raw.name, 'name', 200)
+    if (!row.name || !row.name.trim()) throw new RowError('name is required')
+    row.texture = normalizeText(raw.texture, 'texture', 40)
+    if (!FOOD_TEXTURES.has(row.texture)) throw new RowError('texture is not one the app produces')
+    row.reaction = normalizeText(raw.reaction, 'reaction', 40) ?? 'ate'
+    if (!FOOD_REACTIONS.has(row.reaction)) throw new RowError('reaction is not one the app produces')
     row.note = normalizeText(raw.note, 'note') ?? ''
   }
   return row

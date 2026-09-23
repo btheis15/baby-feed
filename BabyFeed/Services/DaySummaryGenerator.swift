@@ -55,11 +55,25 @@ enum DaySummaryGenerator {
         var averageItems: [Item]
         /// Totals across the window.
         var totalItems: [Item]
+        /// A food from the window, for the doctor's "what are they eating?".
+        struct Food: Identifiable {
+            let id: UUID
+            let name: String
+            let dateText: String
+            let isFirstTime: Bool
+            /// Only set when it isn't just "ate it" — refusals and reactions
+            /// are the ones a doctor asks about.
+            let reactionTitle: String?
+            let flagged: Bool
+        }
+
         var days: [Day]
         var notes: [Note]
+        var foods: [Food]
 
         var hasFeeds: Bool { !days.isEmpty }
         var hasNotes: Bool { !notes.isEmpty }
+        var hasFoods: Bool { !foods.isEmpty }
     }
 
     static func report(
@@ -67,6 +81,7 @@ enum DaySummaryGenerator {
         weights: [WeightEntry],
         careNotes: [CareNote] = [],
         diapers: [DiaperEntry] = [],
+        solidFoods: [SolidFoodEntry] = [],
         days: Int,
         unit: VolumeUnit,
         weightUnit: WeightUnit,
@@ -205,6 +220,22 @@ enum DaySummaryGenerator {
                 )
             }
 
+        // Foods in the window — first-times marked against the WHOLE log, not
+        // just the window, so a food tried five weeks ago doesn't read as new.
+        let foods = solidFoods
+            .filter { $0.time >= cutoff && $0.deletedAt == nil }
+            .sorted { $0.time > $1.time }
+            .map { food in
+                Report.Food(
+                    id: food.uuid ?? UUID(),
+                    name: food.name,
+                    dateText: FeedStats.dayTitle(for: calendar.startOfDay(for: food.time), calendar: calendar, now: now),
+                    isFirstTime: solidFoods.isFirstTime(food),
+                    reactionTitle: food.reaction == .ate ? nil : food.reaction.title,
+                    flagged: food.reaction == .possibleReaction
+                )
+            }
+
         return Report(
             babyName: profile.displayName,
             ageText: profile.ageText(on: now, calendar: calendar),
@@ -213,7 +244,8 @@ enum DaySummaryGenerator {
             averageItems: averageItems,
             totalItems: totalItems,
             days: dayRows,
-            notes: notes
+            notes: notes,
+            foods: foods
         )
     }
 
@@ -234,6 +266,7 @@ enum DaySummaryGenerator {
         weights: [WeightEntry],
         careNotes: [CareNote] = [],
         diapers: [DiaperEntry] = [],
+        solidFoods: [SolidFoodEntry] = [],
         days: Int,
         unit: VolumeUnit,
         weightUnit: WeightUnit,
@@ -246,6 +279,7 @@ enum DaySummaryGenerator {
             weights: weights,
             careNotes: careNotes,
             diapers: diapers,
+            solidFoods: solidFoods,
             days: days,
             unit: unit,
             weightUnit: weightUnit,
@@ -269,6 +303,7 @@ enum DaySummaryGenerator {
 
         if !report.hasFeeds {
             lines.append("No feeds logged in this period.")
+            lines.append(contentsOf: foodLines(report))
             lines.append(contentsOf: noteLines(report))
             return lines.joined(separator: "\n")
         }
@@ -289,8 +324,24 @@ enum DaySummaryGenerator {
             lines.append("\(day.title): " + parts.joined(separator: " · "))
         }
 
+        lines.append(contentsOf: foodLines(report))
         lines.append(contentsOf: noteLines(report))
         return lines.joined(separator: "\n")
+    }
+
+    /// The foods, first-times and reactions marked, because "what's she eating
+    /// now?" and "any reactions?" are questions asked at every visit from six
+    /// months on.
+    private static func foodLines(_ report: Report) -> [String] {
+        guard report.hasFoods else { return [] }
+        var lines = ["", "Foods"]
+        for food in report.foods {
+            var line = "\(food.dateText) — \(food.name)"
+            if food.isFirstTime { line += " (first time)" }
+            if let reaction = food.reactionTitle { line += ": \(reaction.lowercased())" }
+            lines.append(line)
+        }
+        return lines
     }
 
     /// Pulled out so a window with no feeds still carries its notes – the

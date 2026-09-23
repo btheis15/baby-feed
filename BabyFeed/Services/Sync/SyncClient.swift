@@ -270,17 +270,20 @@ struct SyncClient: Sendable {
         let weights: [WeightDTO]
         let careNotes: [CareNoteDTO]
         let diapers: [DiaperDTO]
+        let solidFoods: [SolidFoodDTO]
         let members: [MemberDTO]
         let hasMore: Bool
 
         enum CodingKeys: String, CodingKey {
             case babies, feeds, weights, diapers, members
             case careNotes = "care_notes"
+            case solidFoods = "solid_foods"
             case hasMore = "has_more"
         }
 
-        // A server from before diapers existed omits the key; that's an older
-        // deployment, not an error, and everything else should still sync.
+        // A server from before diapers or solid foods existed omits those
+        // keys; that's an older deployment, not an error, and everything else
+        // should still sync.
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             babies = try container.decode([BabyDTO].self, forKey: .babies)
@@ -288,6 +291,7 @@ struct SyncClient: Sendable {
             weights = try container.decode([WeightDTO].self, forKey: .weights)
             careNotes = try container.decode([CareNoteDTO].self, forKey: .careNotes)
             diapers = try container.decodeIfPresent([DiaperDTO].self, forKey: .diapers) ?? []
+            solidFoods = try container.decodeIfPresent([SolidFoodDTO].self, forKey: .solidFoods) ?? []
             members = try container.decode([MemberDTO].self, forKey: .members)
             hasMore = try container.decode(Bool.self, forKey: .hasMore)
         }
@@ -296,11 +300,12 @@ struct SyncClient: Sendable {
         var serverStamps: [Date] {
             babies.compactMap(\.serverUpdatedAt) + feeds.compactMap(\.serverUpdatedAt)
                 + weights.compactMap(\.serverUpdatedAt) + careNotes.compactMap(\.serverUpdatedAt)
-                + diapers.compactMap(\.serverUpdatedAt)
+                + diapers.compactMap(\.serverUpdatedAt) + solidFoods.compactMap(\.serverUpdatedAt)
         }
 
         var isEmpty: Bool {
-            babies.isEmpty && feeds.isEmpty && weights.isEmpty && careNotes.isEmpty && diapers.isEmpty
+            babies.isEmpty && feeds.isEmpty && weights.isEmpty && careNotes.isEmpty
+                && diapers.isEmpty && solidFoods.isEmpty
         }
     }
 
@@ -326,15 +331,17 @@ struct SyncPushPayload: Encodable {
     var weights: [WeightDTO]?
     var careNotes: [CareNoteDTO]?
     var diapers: [DiaperDTO]?
+    var solidFoods: [SolidFoodDTO]?
 
     enum CodingKeys: String, CodingKey {
         case babies, feeds, weights, diapers
         case careNotes = "care_notes"
+        case solidFoods = "solid_foods"
     }
 
     var isEmpty: Bool {
         (babies?.isEmpty ?? true) && (feeds?.isEmpty ?? true)
             && (weights?.isEmpty ?? true) && (careNotes?.isEmpty ?? true)
-            && (diapers?.isEmpty ?? true)
+            && (diapers?.isEmpty ?? true) && (solidFoods?.isEmpty ?? true)
     }
 }

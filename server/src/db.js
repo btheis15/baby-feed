@@ -14,7 +14,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 /** Every synced table, and the DTO field order the API speaks. */
-export const ROW_TABLES = ['babies', 'feeds', 'weights', 'care_notes', 'diapers']
+export const ROW_TABLES = ['babies', 'feeds', 'weights', 'care_notes', 'diapers', 'solid_foods']
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -152,6 +152,23 @@ CREATE TABLE IF NOT EXISTS diapers (
   server_ms     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS diapers_pull ON diapers(baby_id, server_ms);
+
+CREATE TABLE IF NOT EXISTS solid_foods (
+  id            TEXT PRIMARY KEY,
+  baby_id       TEXT NOT NULL,
+  time          TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  texture       TEXT NOT NULL,
+  reaction      TEXT NOT NULL DEFAULT 'ate',
+  note          TEXT NOT NULL DEFAULT '',
+  logged_by     TEXT,
+  logged_by_name TEXT NOT NULL DEFAULT '',
+  updated_at    TEXT NOT NULL,
+  deleted_at    TEXT,
+  server_updated_at TEXT NOT NULL,
+  server_ms     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS solid_foods_pull ON solid_foods(baby_id, server_ms);
 
 -- Invite codes. Six characters, matching SyncMerge.inviteCodeLength, so the
 -- normalising and validation the app already ships against are the rules here.

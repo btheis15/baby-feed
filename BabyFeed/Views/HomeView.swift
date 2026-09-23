@@ -89,6 +89,18 @@ struct HomeView: View {
                             .listRowInsets(EdgeInsets())
                     }
 
+                    // Only once the AAP stages open anything beyond milk —
+                    // before four months (or without a birthday) there is
+                    // nothing to log, so there is nothing to show.
+                    if let ageMonths = profile.ageInDays(on: now, calendar: calendar).map(FoodGuidance.months(fromDays:)),
+                       !FoodTexture.available(atMonths: ageMonths).isEmpty {
+                        Section("Foods") {
+                            FoodLogSection(ageMonths: ageMonths)
+                                .listRowBackground(Color.clear)
+                                .listRowInsets(EdgeInsets())
+                        }
+                    }
+
                     Section {
                         GuidanceCard(
                             target: target,

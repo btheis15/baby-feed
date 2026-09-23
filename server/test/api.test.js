@@ -248,6 +248,27 @@ test('diapers sync too, and a made-up kind is refused', async () => {
   assert.ok(after.body.diapers.find((d) => d.id === diaperID).deleted_at, 'the delete reaches the other phone')
 })
 
+test('solid foods sync, and made-up textures or reactions are refused', async () => {
+  const foodID = uuid()
+  const push = await call('POST', '/v1/sync/push', {
+    token: brian,
+    body: {
+      solid_foods: [
+        { id: foodID, baby_id: babyID, time: iso(), name: 'Avocado', texture: 'puree', reaction: 'loved', logged_by_name: 'Brian', updated_at: iso() },
+        { id: uuid(), baby_id: babyID, time: iso(), name: 'Steak', texture: 'flambeed', updated_at: iso() },
+        { id: uuid(), baby_id: babyID, time: iso(), name: '  ', texture: 'puree', updated_at: iso() },
+      ],
+    },
+  })
+  assert.equal(push.body.applied.length, 1)
+  assert.equal(push.body.rejected.length, 2, 'unknown texture and a blank name are both malformed')
+
+  const pull = await call('GET', `/v1/sync/pull?baby_id=${babyID}`, { token: annette })
+  const food = pull.body.solid_foods.find((f) => f.id === foodID)
+  assert.equal(food.name, 'Avocado')
+  assert.equal(food.reaction, 'loved')
+})
+
 test('a malformed row is refused without spoiling the rest of the push', async () => {
   const goodID = uuid()
   const push = await call('POST', '/v1/sync/push', {
