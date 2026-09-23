@@ -24,7 +24,7 @@ struct FeedSnapshot: Codable, Equatable {
     var babyName: String
     var updatedAt: Date
 
-    static let appGroupID = "group.com.babyfeed.shared"
+    static let appGroupID = "group.com.briantheis.babyfeed"
     static let key = "feedSnapshot"
 
     /// Falls back to standard defaults when the App Group isn't available

@@ -5,6 +5,8 @@ struct RootView: View {
     @AppStorage(BabyProfile.nameKey) private var babyName = ""
     /// Read so the whole tree re-renders when the time zone setting changes.
     @AppStorage(AppSettings.timeZoneKey) private var timeZoneIdentifier = ""
+    @AppStorage(AppSettings.hasSeenSharingIntroKey) private var hasSeenSharingIntro = false
+    @State private var wantsSharingSetup = false
 
     var body: some View {
         @Bindable var router = router
@@ -33,8 +35,33 @@ struct RootView: View {
         // means. Empty identifier = follow the device, which is the default.
         .environment(\.calendar, AppSettings.calendar)
         .environment(\.timeZone, AppSettings.timeZone)
-        .sheet(isPresented: $router.showLogSheet) {
-            LogFeedSheet(mode: .new(router.pendingLogKind ?? .formula))
+        // One sheet modifier, so an invite that arrives while the log sheet is
+        // open replaces it instead of being dropped. Presented here rather than
+        // inside Settings so an invite opened from Messages or the Camera works
+        // from whatever tab happened to be showing.
+        .sheet(item: $router.sheet) { sheet in
+            switch sheet {
+            case .log(let kind):
+                LogFeedSheet(mode: .new(kind))
+            case .pairing(let invitation):
+                PairServerView(invitation: invitation)
+            case .sharingIntro:
+                SharingIntroView(wantsToSetUpSharing: $wantsSharingSetup)
+            }
+        }
+        // Once, on the very first launch. Skipped entirely if something more
+        // urgent already claimed the sheet — an invite tapped from Messages
+        // right after installing shouldn't queue behind an explainer.
+        .task {
+            guard !hasSeenSharingIntro else { return }
+            hasSeenSharingIntro = true
+            guard router.sheet == nil, !SyncCredentials.isPaired else { return }
+            router.sheet = .sharingIntro
+        }
+        .onChange(of: wantsSharingSetup) { _, wants in
+            guard wants else { return }
+            wantsSharingSetup = false
+            router.sheet = .pairing(nil)
         }
     }
 }

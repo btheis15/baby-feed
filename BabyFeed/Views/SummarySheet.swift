@@ -16,6 +16,8 @@ struct SummarySheet: View {
     @Query(sort: \FeedEntry.startTime, order: .reverse) private var entries: [FeedEntry]
     @Query(sort: \WeightEntry.date, order: .reverse) private var weights: [WeightEntry]
     @Query(sort: \CareNote.date, order: .reverse) private var careNotes: [CareNote]
+    @Query(sort: \DiaperEntry.time, order: .reverse) private var diapers: [DiaperEntry]
+    @Query(sort: \SolidFoodEntry.time, order: .reverse) private var solidFoods: [SolidFoodEntry]
 
     @AppStorage(FeedDefaults.volumeUnit) private var unitRaw = VolumeUnit.ounces.rawValue
     @AppStorage(AppSettings.weightUnitKey) private var weightUnitRaw = WeightUnit.poundsOunces.rawValue
@@ -33,6 +35,8 @@ struct SummarySheet: View {
             entries: entries.active(for: UUID(uuidString: currentBabyIDRaw)),
             weights: weights.active(for: UUID(uuidString: currentBabyIDRaw)),
             careNotes: careNotes.active(for: UUID(uuidString: currentBabyIDRaw)),
+            diapers: diapers.active(for: UUID(uuidString: currentBabyIDRaw)),
+            solidFoods: solidFoods.active(for: UUID(uuidString: currentBabyIDRaw)),
             days: days,
             unit: unit,
             weightUnit: weightUnit,
@@ -64,6 +68,10 @@ struct SummarySheet: View {
                         Text("No feeds logged in this period.")
                             .foregroundStyle(.secondary)
                     }
+                }
+
+                if report.hasFoods {
+                    foodsSection(report.foods)
                 }
 
                 if report.hasNotes {
@@ -161,11 +169,12 @@ struct SummarySheet: View {
         }
     }
 
-    /// "5 feeds · 16.9 oz · 17 min nursing"
+    /// "5 feeds · 16.9 oz · 17 min nursing · diapers 4 wet · 2 dirty"
     private func stackedDetail(for day: DaySummaryGenerator.Report.Day) -> String {
         var parts = ["\(day.feedCount) feed\(day.feedCount == 1 ? "" : "s")"]
         if let volume = day.volumeText { parts.append(volume) }
         if let nursing = day.nursingText { parts.append("\(nursing) nursing") }
+        if let diapers = day.diaperText { parts.append("diapers \(diapers)") }
         return parts.joined(separator: " · ")
     }
 
@@ -204,6 +213,35 @@ struct SummarySheet: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// The foods, with first-times and reactions marked — "what are they
+    /// eating?" and "any reactions?" get asked at every visit from six months.
+    private func foodsSection(_ foods: [DaySummaryGenerator.Report.Food]) -> some View {
+        Section {
+            ForEach(foods) { food in
+                HStack(alignment: .firstTextBaseline) {
+                    Text(food.name)
+                        .font(.subheadline)
+                    if food.isFirstTime {
+                        Text("first time")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    }
+                    if let reaction = food.reactionTitle {
+                        Text(reaction)
+                            .font(.caption)
+                            .foregroundStyle(food.flagged ? .red : .secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Text(food.dateText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text("Foods")
+        }
     }
 
     /// The notes, which are the part a doctor reads rather than scans.

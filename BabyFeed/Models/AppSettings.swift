@@ -12,6 +12,9 @@ enum AppSettings {
     static let weightUnitKey = "weightUnit"
     static let currentBabyIDKey = "baby.currentID"
     static let displayNameKey = "sync.displayName"
+    /// Set once the first-run sharing card has been shown, so it's offered
+    /// once and then never nags again.
+    static let hasSeenSharingIntroKey = "sync.hasSeenSharingIntro"
     /// A TimeZone identifier, or empty for "follow the device".
     static let timeZoneKey = "timeZone.identifier"
 
