@@ -51,7 +51,7 @@ after each.
 | 4 | The first weeks: getting enough, nursing side and timer, dark at night | app, widget | **Done** 2026-09-28 (4.1–4.4; 4.5 pumping not built): "Getting enough?" on Today for 6 weeks, back to birth weight, next side and a minutes-only nursing timer with its Live Activity, dark at night; 276 tests |
 | 5 | Health for the first year: concerns, medicines, doctor visits | app, server | **Done** 2026-09-28: a Health tab; concerns with updates and "It's better"; medicines with notices that never block and never suggest a dose; visits and the AAP checkup schedule; "Right now" on Today; the summary since the last visit; 4 server tables and a column migration; 300 app and 69 server tests. **Deploy the server before the app** |
 | 6 | Charts, numbers first | app | **Done** 2026-09-28: Timeline \| Charts with feeds, diapers, feed rhythm and a care overview, each led by the sentence stating its number; the weight chart with the WHO bands on the Baby tab; the numbers stay underneath; 312 tests |
-| 7 | Copy and docs refresh | app, docs | Not started |
+| 7 | Copy and docs refresh | app, docs | **Done** 2026-09-28: the last stale strings in Settings; README and PLAN.md rewritten for what the app is now |
 | 8 | Rename to "Baby Care" | app | Optional (decided to keep "Baby Feed" for now) |
 | Later | Sync away from home, push notifications, sleep, more | | [Later](#later-directional) |
 
@@ -1266,6 +1266,14 @@ Stale text found in the audit. Fix whatever earlier phases haven't already repla
   - "The app is local-only…".
 - `server/README.md` was already refreshed in 3a.
 
+**As built:** most of the view copy above had already been rewritten by the phases that replaced
+those screens. What was left:
+- **Settings:** "the same feeds" became "the same log". The widget row now uses the widget's real
+  name ("Next Feed") and says it shows when the next feed is due.
+- **README and PLAN.md** were rewritten for the countdown, the Timeline and its charts, Health,
+  sharing by QR with one recovery phrase, all ten synced types and the App Group. The data model
+  and the layout now come from the code.
+
 ---
 
 ## Phase 8 — Rename to "Baby Care" (optional)
@@ -1504,7 +1512,7 @@ it (you're left at a `quote>` prompt; press Ctrl‑C to get out).
 | Server: `created_by` gets overwritten, a stored row's baby isn't checked, and `X-Forwarded-For` is trusted | `server/src/server.js` | 3a ✅ |
 | `IntakeView` shows fixed expectations, not the logged diapers | `IntakeView` | 4 |
 | `CareNote.resolvedAt` is never set, and its doc comment is inverted | `CareNote.swift` | 5 |
-| Stale copy (see Phase 7) | various | 7 |
+| Stale copy (see Phase 7) | various | 7 ✅ |
 | The launchd plists assume `~/baby-feed`; the Caddyfile hard-codes `/Users/brian/…`; `uninstall-launchd.sh` leaves the Caddy and DuckDNS jobs | `server/launchd`, `server/caddy` | Later (noted) |
 
 ## Appendix D — Gotchas

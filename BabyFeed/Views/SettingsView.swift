@@ -96,7 +96,7 @@ struct SettingsView: View {
                 }
             }
         } footer: {
-            Text("Share the log with your partner or anyone else who feeds the baby. Everyone sees the same feeds.")
+            Text("Share the log with your partner or anyone else who feeds the baby. Everyone sees the same log.")
         }
     }
 
@@ -270,11 +270,11 @@ struct SettingsView: View {
         Section {
             Label("“Log a feed in Baby Feed”", systemImage: "mic.fill")
             Label("“When did the baby last eat in Baby Feed?”", systemImage: "mic.fill")
-            Label("Add the Last Feed widget to your Lock Screen or Home Screen", systemImage: "square.grid.2x2")
+            Label("Add the Next Feed widget to your Lock Screen or Home Screen", systemImage: "square.grid.2x2")
         } header: {
             Text("Siri, Shortcuts & widgets")
         } footer: {
-            Text("Siri and the Shortcuts app can log feeds hands-free. The widget shows time since the last feed and opens the log with one tap.")
+            Text("Siri and the Shortcuts app can log feeds hands-free. The widget shows when the next feed is due and opens the log with one tap.")
         }
     }
 

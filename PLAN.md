@@ -2,14 +2,18 @@
 
 An iPhone app for logging newborn feeds so a sleep-deprived parent always knows
 **when the last feed was, how much it was, what it was, how much the baby should be
-getting, and when the next feed is due**.
+getting, and when the next feed is due**, and, around the feeds, the diapers, weigh-ins
+and health worries of the first year. [ROADMAP.md](ROADMAP.md) records what was built,
+phase by phase.
 
 ## Guiding principles
 
-1. **Two taps to log a feed.** Tap the kind (Formula / Breast Milk / Nursing), tap Save.
-   Amount and time default to sensible values so most feeds need nothing else.
-2. **The answer to "when did I last feed?" is the first thing on screen**, in huge type,
-   ticking live, and also on the Lock Screen, in the Dynamic Island, and via Siri.
+1. **Two taps to log a feed, one for a diaper.** Tap the kind (Formula / Breast Milk /
+   Nursing), tap Save. Amount and time default to sensible values so most feeds need
+   nothing else.
+2. **The answer to "when's the next feed?" is the first thing on screen**: a countdown
+   in minutes, with when the last feed was, also on the Lock Screen, in the Dynamic
+   Island, and via Siri. Nothing ticks by the second, which also saves the battery.
 3. **Nothing to set up.** No account and no paywall; data lives on the phone. Sharing is
    opt-in and goes to a server you run yourself.
 4. **Forgiving.** Every entry can be edited or deleted. Feeds can be backdated.
@@ -26,14 +30,14 @@ Nara, Baby Connect, Feedr and others. Recurring themes:
 | Parents love / ask for                                  | How Baby Feed answers it                                   |
 |---------------------------------------------------------|------------------------------------------------------------|
 | Log in under 3 seconds, one-handed                      | Quick-log buttons pre-filled from the last feed; Siri      |
-| "How long since the last feed" without opening the app  | Lock Screen + Home Screen widgets, Live Activity, tab bar strip |
+| "How long since the last feed" without opening the app  | The countdown to the next feed, with the last one, on the widgets, the Live Activity and the tab bar strip |
 | A reminder for the next feed that actually wakes you    | Notification or a real AlarmKit alarm that rings through silent mode |
-| Knowing whether the baby is getting enough              | Weight- and age-based daily target vs. last 24 h            |
-| Seeing patterns ("is she clustering at night?")         | Per-day 24-hour strips; trends as numbers with a day-part breakdown |
-| Something to show the pediatrician                      | Plain-text summary (optionally rewritten on-device) + CSV   |
-| Partner / caregiver sync (the #1 complaint when broken)  | Shared baby with invite codes; any number of caregivers; offline-first |
-| No subscription, no ads, privacy                        | Free, local-only, no accounts                               |
-| Apple Watch, nursing timer, diapers, sleep              | Later                                                       |
+| Knowing whether the baby is getting enough              | Weight- and age-based daily target vs. last 24 h; in the first weeks, diapers and back to birth weight |
+| Seeing patterns ("is she clustering at night?")         | Per-day 24-hour strips; charts that each lead with their number; the numbers with a day-part breakdown |
+| Something to show the pediatrician                      | Summary since the last visit (optionally rewritten on-device) + CSV of everything |
+| Partner / caregiver sync (the #1 complaint when broken)  | Scan a QR on the home Wi‑Fi, nothing to type; one recovery phrase; offline-first |
+| No subscription, no ads, privacy                        | Free, no accounts; on the phone and your own Mac mini      |
+| Apple Watch, nursing timer, diapers, sleep              | Diapers and a nursing timer are built; Watch and sleep later |
 
 Sources: [Pebbi 2026 comparison](https://pebbi.co/blog/best-baby-tracker-apps-2026),
 [Tottli 2026 comparison](https://tottli.com/blog/best-baby-tracker-apps-2026.html),
@@ -119,22 +123,31 @@ and nothing else.
 The app is still local-first. Each phone's SwiftData store is the source of
 truth, every screen reads it, and nothing on the path between tapping Save and
 seeing the feed touches the network. With no server configured the app behaves
-exactly as it did before, and says so under Caregivers.
+exactly as it did before, and says so under Caregivers. For now it syncs on the
+home Wi‑Fi: away from home, entries wait on the phone and catch up when it's
+back (sync from anywhere is under Later in ROADMAP.md).
 
-- **Who logged it**: every feed, weight and care note carries the caregiver's
-  display name, shown in the list as "Logged by <name>" and carried into the
+- **Who logged it**: every entry carries the caregiver's display name, shown in the list as "Logged by <name>" and carried into the
   pediatrician summary. Deliberately *logged by*, not *fed by* — the person with
   a free hand to tap Save often isn't the person holding the bottle.
-- **Pairing is a QR code, not a sign-up.** The first phone connects with a setup
-  code the mini prints once. Every phone after that joins from a six-character
-  invite the first phone generates, delivered as a QR the stock Camera app
-  reads, a link you can send, or six characters read aloud. There is no open
-  registration endpoint, and the app needs no camera permission — the Camera app
-  does the scanning and hands over the `babyfeed://join` URL.
+- **Pairing is a QR code, not a sign-up.** The first phone sets itself up with
+  nothing typed, and the mini only allows that from its own home network (no
+  proxy headers, not through the internet-facing port). Every phone after that
+  joins from an invite for the baby on screen, good for a day and ten phones,
+  delivered as a QR the stock Camera app reads or as a link you can send. The
+  app needs no camera permission: the Camera app does the scanning and hands
+  over the `babyfeed://join` URL. A phone that joins becomes a member of that
+  log and never makes an identity of its own.
+- **One recovery phrase per parent**, not per baby: 24 characters to write down
+  when the first baby is backed up, kept in iCloud Keychain, and shown again under
+  Caregivers after Face ID. The server only ever sees its SHA-256, and a new or wiped phone
+  that types it gets back every log that parent was on. It is never replaced
+  without the parent asking.
 - **What syncs**: babies (including sex and due date, because the WHO
-  percentiles need them), feeds, weights and care notes. Not preferences —
-  units, reminder settings, time zone and learned bottle amounts belong to a
-  phone, not to the baby.
+  percentiles need them), feeds, diapers, solid foods, weights, care notes,
+  concerns, medicines, doses and doctor visits. Not preferences: units, reminder
+  settings, time zone and learned bottle amounts belong to a phone, not to the
+  baby.
 - **Merge rules**: `SyncMerge`, unchanged and still transport-agnostic — last
   writer wins, an un-pushed local edit kept on a tie. The server implements the
   same rule from its side and tests it.
@@ -142,7 +155,12 @@ exactly as it did before, and says so under Caregivers.
   the other pushing its stale copy.
 - **Watermarks**: `SyncEngine.watermark(for:)` per baby, never moving backwards.
   The server's timestamps never repeat a millisecond, so two phones pushing at
-  the same instant can't hide a row from each other's next pull.
+  the same instant can't hide a row from each other's next pull. Pushes go in
+  batches of 400 rows, and a pull pages through the server's exact `next_since`
+  cursor, so a phone joining a long log receives all of it.
+- **An old server** says which tables it stores in `/v1/health`. Rows it can't
+  store wait on the phone, and the app says "your Mac mini needs an update"
+  rather than sending them into the void.
 - **The token** lives in the Keychain, not UserDefaults — it's equivalent to the
   whole log and UserDefaults comes back in an unencrypted backup.
 
@@ -180,6 +198,7 @@ and after every local change, which is when it syncs.
 | Pediatrician summary rewritten on-device     | Foundation Models (iOS 26)       | `DaySummaryGenerator.swift`            |
 | Persistent strip above the tab bar, glass buttons, minimizing tab bar | SwiftUI iOS 26 (`tabViewBottomAccessory`, `.glassProminent`, `tabBarMinimizeBehavior`) | `RootView.swift`, `LogFeedSheet.swift` |
 | Growth percentiles and weight projection     | WHO Child Growth Standards (bundled LMS tables) | `GrowthStandard.swift`, `GrowthProjection.swift` |
+| Charts that lead with their number           | Swift Charts                     | `ChartsView.swift`, `CareCharts.swift` |
 | Age-based food guidance with sources          | Bundled AAP/CDC/WHO guidance     | `FoodGuidance.swift`, `FoodsView.swift` |
 | Deep links from widgets & notifications      | `babyfeed://log/<kind>` URL scheme | `AppRouter.swift`                    |
 | Multi-caregiver sync                         | Self-hosted server on a Mac mini | `Services/Sync/`, `server/`      |
@@ -211,28 +230,52 @@ parts that are stable and verifiable now, and leaves hooks for the rest:
 
 ## Screens
 
-### Today
-Last-fed hero (turns orange past the reminder interval), three quick-log buttons,
-**Daily target** card (consumed vs. target, per-feed amount, basis), last-24-hour totals,
-recent feeds. Title is the baby's name.
+Tabs: Today · Timeline · Health · {the baby's name} · Settings.
 
-### History
-- **Days**: every day with a 24-hour strip of feed times, totals, and the entries.
-- **Trends**: numbers rather than charts. Today so far against the target; the last
-  seven *complete* days' volume and feeds per day with the direction they moved against
-  the previous seven; average gap and longest stretch; a day-part breakdown
-  (overnight / morning / afternoon / evening) that answers "is she clustering at night?";
-  and the exact per-day totals.
-- Toolbar: **For the pediatrician** – 3/7/14-day plain-text summary, optional on-device
-  rewrite, share sheet.
+### Today
+The hero: **"Next feed in 1h 20m · around 5:10 PM"**, with when the last feed was, in
+minutes; while nursing it becomes the running timer and the side. Then the quick-log
+buttons (the next side suggested) and the diaper row, one tap each. In the first six
+weeks, **"Getting enough?"**: wet and dirty diapers against what's expected at that age,
+and back to birth weight. **Right now** lists a medicine due, a concern due a check-in or
+a checkup this week, and is hidden when empty. Then "+ Log something else", the last 24
+hours against the daily target, and the most recent entries of any kind. It goes dark at
+night.
+
+### Timeline
+- **Timeline**: every entry by day, newest first: feeds, diapers, food, weigh-ins, notes,
+  concerns, doses and visits. Filter chips and search ("eye"). Each day shows its tallies
+  and a 24-hour strip, and older days say how long ago they were and fold into one line.
+- **Charts**, over 2 weeks, a month, 3 months or since the last visit. Each chart opens
+  with a sentence stating its number:
+  - feeds and bottle volume a day against the target;
+  - diapers, stacked, with the 6-wet line after the first week;
+  - when feeds happen;
+  - a care overview with concerns, doses, visits, feeds and diapers, where tapping a day
+    lists what was logged on it.
+
+  Under them, **the numbers**: today so far, the last seven complete days against the
+  seven before, the average and longest gaps, the day-part breakdown, and the per-day
+  totals.
+- Toolbar: **For the pediatrician**, a plain-text summary (since the last visit by
+  default, or the last 3, 7, 14 or 30 days) with an optional on-device rewrite and a
+  share sheet.
+
+### Health
+Concerns as episodes with a start and an end ("Red left eye · day 4 · since Sep 25"),
+with updates and "It's better". Medicines and the doses given: notices about "too soon"
+or the day's limit never block Save, and the app never suggests a dose. Doctor visits,
+with what was said, any follow-up, and the next checkup from the AAP schedule. The tab
+shows a badge when a medicine is due.
 
 ### Baby
 Name, birthday, sex and an optional due date (sex and due date only feed the WHO
-percentiles). Weight log with the last change, the whole-log rate against the typical
-5–7 oz/week, and gain since the first weigh-in. **Growth**: current percentile with its
-drift since the last weigh-in, today's estimated weight with a range, a countdown to the
-next weigh-in, and a plain warning if the baby has dropped a full centile band.
-**Foods by age**, feeding style and feeds-per-day, and the age band's typical amounts.
+percentiles). Weight: the latest weigh-in, a **weight chart** against the WHO percentile
+bands, the last change, the whole-log rate against the typical 5–7 oz/week, and gain
+since the first weigh-in. **Growth**: current percentile with its drift since the last
+weigh-in, today's estimated weight with a range, a countdown to the next weigh-in, and a
+plain warning if the baby has dropped a full centile band. **Foods by age**, feeding style
+and feeds-per-day, the age band's typical amounts, and the caregivers.
 
 ### Foods by age
 Reached from the Baby tab, and it tracks the baby's age: what to offer now, what's still
@@ -249,23 +292,32 @@ only: settled dangers stay in the hard avoid list, and a test stops them appeari
 as open questions.
 
 ### Settings
-Caregivers & sync (sign in, share, invite codes, members, join, switch babies), reminders
-(interval, alarm vs. notification, Live Activity), units (oz/ml, lb·oz/kg), time zone
-(automatic, following the device, or pinned to keep the log on home time while
-travelling), default amounts, Siri phrases, CSV export.
+Caregivers and sync (share, members, your recovery phrase, and a typed address or code
+under Advanced), reminders (interval, alarm vs. notification, the Lock Screen countdown),
+dark at night, units (oz/ml, lb·oz/kg), time zone (automatic, following the device, or
+pinned to keep the log on home time while travelling), default amounts, Siri phrases, CSV
+export.
 
 ## Data model
 
-| Model         | Fields                                                                 |
-|---------------|------------------------------------------------------------------------|
-| `Baby`        | `uuid`, `name`, `birthDate?`, `isShared`, `ownerUserID?` + sync fields |
-| `FeedEntry`   | `uuid`, `babyID`, `startTime`, `kindRaw`, `amountML?`, `durationMinutes?`, `sideRaw?`, `note`, `loggedByName` + sync fields |
-| `WeightEntry` | `uuid`, `babyID`, `date`, `grams`, `note`, `loggedByName` + sync fields |
+| Model            | Fields                                                                 |
+|------------------|------------------------------------------------------------------------|
+| `Baby`           | `uuid`, `name`, `birthDate?`, `sexRaw`, `dueDate?`, `isShared`, `ownerUserID?` + sync fields |
+| `FeedEntry`      | `startTime`, `kindRaw`, `amountML?`, `durationMinutes?`, `sideRaw?`, `note` |
+| `DiaperEntry`    | `time`, `kindRaw` (wet, dirty or both), `note`                         |
+| `SolidFoodEntry` | `time`, `name`, `textureRaw`, `reactionRaw`, `note`                    |
+| `WeightEntry`    | `date`, `grams`, `note`                                                |
+| `CareNote`       | `date`, `kindRaw`, `note`, `severityRaw?`, `resolvedAt?`, `concernID?` (an update on a concern) |
+| `HealthConcern`  | `title`, `kindRaw`, `startedAt`, `resolvedAt?`, `severityRaw?`, `note`, `outcome` |
+| `Medication`     | `name`, `kindRaw`, `doseAmount?`, `doseUnitRaw`, `scheduleRaw`, `timesPerDay?`, `intervalHours?`, `minHoursBetween?`, `maxDosesPer24h?`, `startDate`, `endDate?`, `instructions` |
+| `MedicationDose` | `medicationID?`, `medicationName`, `time`, `amount?`, `unitRaw?`, `note` |
+| `DoctorVisit`    | `date`, `kindRaw`, `provider`, `reason`, `doctorNotes`, `followUpDate?`, `followUpNote`, `vaccines`, `weightEntryID?` |
 
-Sync fields on every model: `updatedAt`, `deletedAt` (soft delete), `needsUpload`.
-The current baby's name and birthday are mirrored into UserDefaults (`BabyProfile`) so
-the rest of the app can read them synchronously; `BabyStore` keeps the two in step.
-Preferences live in `AppSettings` / `FeedDefaults`.
+Every entry also has `uuid`, `babyID` and `loggedByName`, and every model has the sync
+fields: `updatedAt`, `deletedAt` (soft delete) and `needsUpload`. The list of models lives
+once, in `AppSchema.models`. The current baby's profile is mirrored into UserDefaults
+(`BabyProfile`) so the rest of the app can read it synchronously; `BabyStore` keeps the two
+in step. Preferences live in `AppSettings` / `FeedDefaults`.
 
 ## Project layout
 
@@ -273,44 +325,51 @@ Preferences live in `AppSettings` / `FeedDefaults`.
 BabyFeed.xcodeproj/
 BabyFeed/                 App target (iOS 26+)
   BabyFeedApp.swift       Container, notification delegate, deep links
-  AppRouter.swift         Tab + "open the log sheet" state for widgets/Siri/notifications
-  RootView.swift          Tabs, bottom accessory
-  Info.plist              URL scheme, AlarmKit usage string, Live Activities
+  AppRouter.swift         Tab, the one sheet showing, and deep links from widgets/Siri/notifications
+  RootView.swift          Tabs, bottom accessory, dark at night
+  Info.plist              URL scheme and AlarmKit usage string (Live Activities and the Local
+                          Network prompt are build settings)
   BabyFeed.entitlements   App Group, time-sensitive notifications
-  Models/                 Baby, FeedEntry, WeightEntry, FeedStats, WeightStats, FeedingGuidance,
-                          GrowthStandard + WHOWeightForAge + GrowthProjection, FoodGuidance,
-                          BabyProfile, units, settings
-  Services/               FeedCoordinator, BabyStore, ReminderScheduler, FeedAlarmScheduler, LiveActivityManager, DaySummaryGenerator
-  Services/Sync/          SyncEngine (push/pull), SyncClient (transport), SyncMerge
-                          (pure rules), SyncDTOs, SyncCredentials, SyncLink
-  server/                 The self-hosted sync server (Node, SQLite, launchd)
+  ServerConfig.plist      This build's sync server (gitignored; see Config/)
+  Models/                 The @Model types (AppSchema lists them), FeedingGuidance, IntakeGuidance,
+                          FirstWeeks, GrowthStandard + WHOWeightForAge + GrowthProjection,
+                          FoodGuidance, HealthLogic, Timeline, CareCharts, stats, units, settings
+  Services/               FeedCoordinator, BabyStore, ReminderScheduler, FeedAlarmScheduler,
+                          LiveActivityManager, NursingTimer, DaySummaryGenerator, CareLogCSV, DebugSeed
+  Services/Sync/          SyncEngine (connect, push, pull), SyncPlan (its decisions), SyncClient
+                          (transport), SyncMerge (pure rules), SyncDTOs, SyncCredentials, SyncLink,
+                          RecoveryKey, ServerConfig
   Intents/                LogFeedIntent, LastFeedIntent, App Shortcuts
-  Views/                  Home, LogFeedSheet, History, Trends, Baby, Foods, Settings, TimeZonePicker,
-                          Family (caregivers), SignIn, Join, cards
-Shared/                   Compiled into app AND widget: FeedKind, FeedSnapshot, activity attributes, ElapsedText
-BabyFeedWidget/           Widget extension: Last Feed widget + Live Activity
+  Views/                  Home and its cards, CareTimelineView, ChartsView, TrendsView, HealthView,
+                          BabyView, FoodsView, SettingsView, onboarding, sharing and join, sheets
+Shared/                   Compiled into app AND widget: FeedKind, FeedCountdown, FeedSnapshot,
+                          activity attributes, ElapsedText, NursingSide
+BabyFeedWidget/           Widget extension: Next Feed widget + the Live Activity
 BabyFeedTests/            Unit tests (Swift Testing)
+Config/                   ServerConfig.example.plist
+server/                   The self-hosted sync server (Node, SQLite, launchd)
 ```
 
-## Later (v3)
+## Later
 
-- **Live nursing timer** with a Live Activity, and pumping.
-- **Apple Watch** quick-log and complication.
-- Diapers, sleep, medication; length and head-circumference percentiles.
-- iOS 27 App Intents schemas and View Annotations for the new Siri.
+[ROADMAP.md](ROADMAP.md) keeps the list: sync from anywhere, not just the home Wi‑Fi;
+a notification on the other caregiver's phone; sleep; length and head-circumference
+percentiles; milestones and vaccines; pumping; photos; an Apple Watch quick-log; App
+Intents for diapers and medicines, and iOS 27's intent schemas for the new Siri.
 
 ## How to run
 
 1. Open `BabyFeed.xcodeproj` in **Xcode 26 or newer** (iOS 26 SDK; the project uses
-   AlarmKit, Liquid Glass and Foundation Models).
+   AlarmKit, Liquid Glass, Swift Charts and Foundation Models).
 2. Select the `BabyFeed` target → Signing & Capabilities → pick your team. Do the same
    for `BabyFeedWidget`.
 3. Run on an iPhone or simulator running iOS 26+. `Cmd+U` runs the tests.
-4. The app is local-only. There is nothing to configure and nothing to sign into; the
-   Caregivers screen says so.
+4. There is nothing to sign into. Without `BabyFeed/ServerConfig.plist` the app keeps
+   everything on the phone, and Caregivers says so. To sync, copy
+   `Config/ServerConfig.example.plist` there and fill in the Mac mini's address.
 
 Widgets and the Live Activity share data through an **App Group**
-(`group.com.babyfeed.shared`), and reminders use the **Time Sensitive Notifications**
+(`group.com.briantheis.babyfeed`), and reminders use the **Time Sensitive Notifications**
 entitlement. Both need a paid Apple Developer membership. On a free personal team, remove
 those two capabilities (or delete the widget target); the app itself, Siri, reminders and
 AlarmKit still work.
