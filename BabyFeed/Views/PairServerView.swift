@@ -223,5 +223,5 @@ struct PairServerView: View {
 
 #Preview {
     PairServerView()
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self, CareNote.self], inMemory: true)
+        .modelContainer(.preview)
 }

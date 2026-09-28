@@ -2,9 +2,12 @@
 import Foundation
 import SwiftData
 
-/// Fills the store with a realistic fortnight of feeds and weigh-ins, so the
-/// trends, the pediatrician summary and the guidance can be looked at with
-/// something that resembles real use.
+/// Fills the store with a realistic first fortnight — feeds, diapers,
+/// weigh-ins and notes — so the trends, the pediatrician summary and the
+/// guidance can be looked at with something that resembles real use.
+///
+/// No solid foods: the seeded baby is two weeks old, and the Foods section
+/// doesn't open until four months.
 ///
 /// Debug builds only, and only when launched with `--seed-demo-data`, so it
 /// cannot run for anyone who isn't deliberately asking for it. It replaces
@@ -35,6 +38,8 @@ enum DebugSeed {
         for feed in (try? context.fetch(FetchDescriptor<FeedEntry>())) ?? [] { context.delete(feed) }
         for weight in (try? context.fetch(FetchDescriptor<WeightEntry>())) ?? [] { context.delete(weight) }
         for note in (try? context.fetch(FetchDescriptor<CareNote>())) ?? [] { context.delete(note) }
+        for diaper in (try? context.fetch(FetchDescriptor<DiaperEntry>())) ?? [] { context.delete(diaper) }
+        for food in (try? context.fetch(FetchDescriptor<SolidFoodEntry>())) ?? [] { context.delete(food) }
 
         let calendar = AppSettings.calendar
         let today = calendar.startOfDay(for: .now)
@@ -109,6 +114,40 @@ enum DebugSeed {
             }
         }
 
+        // Diapers the way the first fortnight goes: one or two on the first
+        // day, climbing as the milk comes in, then six to eight wet and three
+        // or four dirty a day from day five — the counts IntakeGuidance tells
+        // parents to expect. Generated after the feeds, so the feeds come out
+        // the same as they always have.
+        var diaperCount = 0
+        for dayOffset in 0...14 {
+            guard let day = calendar.date(byAdding: .day, value: dayOffset - 14, to: today) else { continue }
+            let wet = dayOffset < 5 ? dayOffset + 1 : 6 + random.next(3)
+            let dirty = dayOffset < 5 ? min(dayOffset + 1, 3) : 3 + random.next(2)
+            // Some changes are both at once: one row, counted once toward each tally.
+            let both = min(wet, dirty) / 2
+            var kinds = Array(repeating: DiaperKind.both, count: both)
+                + Array(repeating: DiaperKind.wet, count: wet - both)
+                + Array(repeating: DiaperKind.dirty, count: dirty - both)
+            for index in stride(from: kinds.count - 1, to: 0, by: -1) {
+                kinds.swapAt(index, random.next(index + 1))
+            }
+
+            let spacing = 24.0 / Double(kinds.count)
+            for (index, kind) in kinds.enumerated() {
+                let minutesIn = Int(Double(index) * spacing * 60) + random.next(40)
+                guard let time = calendar.date(byAdding: .minute, value: minutesIn, to: day),
+                      time <= .now else { continue }
+                context.insert(DiaperEntry(
+                    babyID: babyID,
+                    time: time,
+                    kind: kind,
+                    loggedByName: index.isMultiple(of: 2) ? "Sam" : "Brian"
+                ))
+                diaperCount += 1
+            }
+        }
+
         // Birth weight, the normal day-three dip, back to birth weight by day
         // eleven, then climbing.
         let weighIns: [(day: Int, grams: Double, note: String)] = [
@@ -153,7 +192,7 @@ enum DebugSeed {
         }
 
         try? context.save()
-        print("[DebugSeed] \(feedCount) feeds over 15 days, \(weighIns.count) weigh-ins, \(notes.count) notes, born \(birth)")
+        print("[DebugSeed] \(feedCount) feeds and \(diaperCount) diapers over 15 days, \(weighIns.count) weigh-ins, \(notes.count) notes, born \(birth)")
     }
 }
 #endif

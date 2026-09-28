@@ -116,5 +116,5 @@ struct CareNotesView: View {
     NavigationStack {
         CareNotesView(babyName: "Nora")
     }
-    .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self, CareNote.self], inMemory: true)
+    .modelContainer(.preview)
 }

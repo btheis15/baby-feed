@@ -47,6 +47,9 @@ with newborn needs first.
   (plus `FeedCountdown` once Phase 1 lands). Screens call these; they never recompute the numbers.
 - **Sheets** use `Mode { case new; case edit(Model) }`. App-level sheets go through `AppRouter.sheet`,
   one at a time (commit `0802233` explains why).
+- **Models are listed once**, in `AppSchema.models`. Previews use `.modelContainer(.preview)`, and
+  tests use `AppSchema.inMemoryContainer()`. A new `@Model` type goes in that list and nowhere
+  else.
 - **Minutes, not seconds.** Nothing ticks every second. Use `TimelineView(.everyMinute)` in the app, and
   the minute-precision `Text(.currentDate, format: …)` styles in the widget and Live Activity.
 - **Guidance, not orders.**

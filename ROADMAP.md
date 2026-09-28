@@ -43,7 +43,7 @@ after each.
 
 | Phase | What | Touches | Status |
 |---|---|---|---|
-| 0 | Safety net: tests green, previews render | app | Tests already green (187 pass, 2026-09-28); 0.2–0.4 not started |
+| 0 | Safety net: tests green, previews render | app | **Done** 2026-09-28: 190 tests pass; one shared model list; `removeLocally` and the debug seed cover every type |
 | 1 | Today: a countdown, minutes not seconds, less battery | app, widget | Not started |
 | 2 | Logging that visibly lands, and one Timeline | app | Not started |
 | 3a | Sharing without credentials: server | server | **Done.** Merged to `main` in PR #2 and running on the mini since 2026-09-28 (`/v1/health` reports `"api":2`, `"enroll":"lan"`) |
@@ -163,33 +163,41 @@ Phone A: Today → [Share]          Phone B: Camera → banner → Baby Feed
 
 **Changes**
 
-0.1 **Run the whole suite** (⌘U) and keep it green.
-- On 2026-09-28 all 187 tests passed on the iPhone 17 simulator. That includes `DiaperEntryTests`
-  (8) and `SolidFoodTests` (9), which had been committed without ever running while the simulator's
-  test runner was wedged.
-- If anything fails now, fix it before starting the rest of this phase.
+0.1 **Run the whole suite** (⌘U) and keep it green. ✅
+- On 2026-09-28 all 188 existing tests passed on the iPhone 17 simulator, including
+  `DiaperEntryTests` (8) and `SolidFoodTests` (9). Those had been committed without ever running
+  while the simulator's test runner was wedged. With Phase 0's two new tests, the total is 190.
+- If anything fails at the start of a later phase, fix it first.
 - From the command line:
   `xcodebuild test -project BabyFeed.xcodeproj -scheme BabyFeed -destination 'platform=iOS Simulator,name=<an installed iPhone>'`
   (`xcrun simctl list devices available` lists them).
 
-0.2 **One list of models.**
-- Add `AppSchema.models`, listing every `@Model` type. Use it in `AppModelContainer.shared`
-  (`BabyFeedApp.swift`), in a new in-memory `ModelContainer.preview`, and in a `TestContainer.make()`
-  helper in `BabyFeedTests`.
-- Replace every `#Preview`'s hand-written `.modelContainer(for: [...])` with `.modelContainer(.preview)`.
-  Several previews list only three models while their view queries diapers, foods or notes
-  (`HomeView`, `RootView`, `SummarySheet`, `BabyView`), so they are likely to crash.
+0.2 **One list of models.** ✅
+- `AppSchema.models` (in `BabyFeed/Models/AppSchema.swift`) lists every `@Model` type, and
+  `AppModelContainer.shared` builds its schema from it.
+- `ModelContainer.preview` is an in-memory container with every model. Every `#Preview` now uses
+  `.modelContainer(.preview)` instead of a hand-written list. Several of those lists named only
+  three models while their view queried diapers, foods or notes.
+- Tests call `AppSchema.inMemoryContainer()`, which returns a fresh, uniquely named in-memory
+  store.
 
-0.3 **`BabyStore.removeLocally`** also deletes the baby's diapers and solid foods. Today it only
-removes feeds, weights and notes.
+0.3 **`BabyStore.removeLocally`** also deletes the baby's diapers and solid foods, and switches away
+from the baby before deleting it. ✅
 
-0.4 **`DebugSeed`** clears and seeds diapers and solid foods like the other types. Give the seeded
-baby a realistic first week (feeds 8–12 a day, wet diapers ramping from 1 on day 1 to 6+ by day 5,
-and the day-3 weight dip it already seeds) so Phase 4 has something to show.
+0.4 **`DebugSeed`** clears diapers and solid foods like the other types. ✅
+- It seeds a realistic first fortnight of diapers: 1 wet and 1 dirty on day 1, climbing to 6–8 wet
+  and 3–4 dirty from day 5, with some "both".
+- It seeds no solid foods, because the seeded baby is two weeks old.
+- Feeds and weights are unchanged: 9 feeds a day in week one, then the day-3 weight dip and back
+  to birth weight by day 11.
+- Launch a Debug build with `--seed-demo-data` to use it.
 
-**Done when:** ⌘U is green, every `#Preview` renders, and removing a baby leaves none of its rows.
+**Done when:** ⌘U is green, every `#Preview` builds against the full schema, and removing a baby
+leaves none of its rows. ✅ The previews compile as part of the test build; open a few in Xcode's
+canvas to see them render.
 
-**Tests:** `BabyStoreTests.removeLocallyDeletesEveryType`.
+**Tests:** `BabyStoreTests.removeLocallyDeletesEveryType` and
+`BabyStoreTests.inMemoryContainersDoNotShareRows`. ✅
 
 **Prompt**
 
@@ -1343,8 +1351,8 @@ followed `sync-server`. Moving it to `main` is what step 2 does.
 | The hero turns orange at a hard-coded 3 h when reminders are off | `HomeView` (`nudgeAfter`) | 1 |
 | Typing the baby's name saves, syncs and refreshes on every keystroke | `BabyView` | 1 |
 | Clock times ignore a pinned time zone, and the widget never sees it | `.formatted()` calls; `FeedSnapshot` | 1 |
-| `removeLocally` leaves diapers and solid foods behind | `BabyStore.removeLocally` | 0 |
-| Previews list too few models and are likely to crash | `#Preview` blocks | 0 |
+| `removeLocally` leaves diapers and solid foods behind | `BabyStore.removeLocally` | 0 ✅ |
+| Previews list too few models and are likely to crash | `#Preview` blocks | 0 ✅ (`.modelContainer(.preview)`) |
 | `DiaperEntryTests` and `SolidFoodTests` had never run | `BabyFeedTests` | 0 ✅ (ran and passed 2026-09-28) |
 | History's empty state and summary button count only feeds | `HistoryView` | 2 |
 | The summary drops days with only diapers, and has no diaper column | `DaySummaryGenerator`, `SummarySheet` | 2 |

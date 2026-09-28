@@ -231,5 +231,5 @@ struct EditDiaperSheet: View {
             Section("Diapers") { DiaperSection() }
         }
     }
-    .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self, CareNote.self, DiaperEntry.self], inMemory: true)
+    .modelContainer(.preview)
 }

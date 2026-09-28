@@ -542,5 +542,5 @@ struct BabyView: View {
 #Preview {
     BabyView()
         .environment(AppRouter())
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self], inMemory: true)
+        .modelContainer(.preview)
 }
