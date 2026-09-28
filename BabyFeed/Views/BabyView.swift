@@ -21,6 +21,9 @@ struct BabyView: View {
     @AppStorage(AppSettings.feedsPerDayKey) private var feedsPerDay = 0
 
     @State private var showAddWeight = false
+    /// Typing the name used to save, sync and refresh every widget on each
+    /// keystroke. Now it waits for a second of quiet.
+    @State private var nameSaveTask: Task<Void, Never>?
 
     private var weightUnit: WeightUnit { WeightUnit(rawValue: weightUnitRaw) ?? .poundsOunces }
     private var unit: VolumeUnit { VolumeUnit(rawValue: unitRaw) ?? .ounces }
@@ -108,12 +111,27 @@ struct BabyView: View {
                 FeedCoordinator.settingsDidChange(in: modelContext)
             }
             .onChange(of: babyName) { _, _ in
-                BabyStore.profileDefaultsChanged(in: modelContext)
-                FeedCoordinator.settingsDidChange(in: modelContext)
+                nameSaveTask?.cancel()
+                nameSaveTask = Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1))
+                    guard !Task.isCancelled else { return }
+                    saveProfile()
+                }
+            }
+            .onDisappear {
+                // Leaving within the second still saves what was typed.
+                if nameSaveTask != nil { saveProfile() }
             }
             .onChange(of: feedingStyleRaw) { _, _ in FeedCoordinator.settingsDidChange(in: modelContext) }
             .onChange(of: feedsPerDay) { _, _ in FeedCoordinator.settingsDidChange(in: modelContext) }
         }
+    }
+
+    private func saveProfile() {
+        nameSaveTask?.cancel()
+        nameSaveTask = nil
+        BabyStore.profileDefaultsChanged(in: modelContext)
+        FeedCoordinator.settingsDidChange(in: modelContext)
     }
 
     // MARK: Sections

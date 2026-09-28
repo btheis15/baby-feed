@@ -34,6 +34,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 caregiversSection
+                feedingScheduleSection
                 remindersSection
                 unitsSection
                 timeZoneSection
@@ -115,21 +116,32 @@ struct SettingsView: View {
         }
     }
 
+    /// The interval the countdown runs on. It used to live inside the
+    /// reminders switch, so with reminders off — the default — there was no
+    /// way to see or change it, and no next-feed time anywhere.
+    private var feedingScheduleSection: some View {
+        Section {
+            // 0 is "typical for age", so the gap widens on its own as the
+            // baby grows rather than staying where it was set in week one.
+            Picker("Feed every", selection: $intervalMinutesRaw) {
+                Text("Typical for age · \(intervalLabel(AppSettings.suggestedIntervalMinutes))")
+                    .tag(0)
+                ForEach(AppSettings.intervalChoices, id: \.self) { minutes in
+                    Text(intervalLabel(minutes)).tag(minutes)
+                }
+            }
+        } header: {
+            Text("Feeding schedule")
+        } footer: {
+            Text("The countdown on Today, the widget and the Lock Screen runs from each feed you log. Newborns typically eat every 2–3 hours; pediatricians suggest waking a newborn who has gone about 4 hours without eating until birth weight is regained.")
+        }
+    }
+
     private var remindersSection: some View {
         Section {
             Toggle("Remind me for the next feed", isOn: $remindersEnabled)
 
             if remindersEnabled {
-                // 0 is "typical for age", so the gap widens on its own as the
-                // baby grows rather than staying where it was set in week one.
-                Picker("Every", selection: $intervalMinutesRaw) {
-                    Text("Typical for age · \(intervalLabel(AppSettings.suggestedIntervalMinutes))")
-                        .tag(0)
-                    ForEach(AppSettings.intervalChoices, id: \.self) { minutes in
-                        Text(intervalLabel(minutes)).tag(minutes)
-                    }
-                }
-
                 Toggle(isOn: $useAlarm) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Ring an alarm instead")
@@ -143,7 +155,7 @@ struct SettingsView: View {
             Toggle(isOn: $liveActivity) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Countdown on Lock Screen")
-                    Text("Live Activity in the Dynamic Island with time since the last feed.")
+                    Text("The time until the next feed, in the Dynamic Island and on the Lock Screen.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -157,7 +169,7 @@ struct SettingsView: View {
         } header: {
             Text("Reminders")
         } footer: {
-            Text("The reminder is set automatically from the time of each feed you log. Newborns typically eat every 2–3 hours; pediatricians suggest waking a newborn who has gone about 4 hours without eating until birth weight is regained.")
+            Text("The reminder goes off when the countdown runs out, and moves by itself every time a feed is logged.")
         }
     }
 

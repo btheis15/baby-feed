@@ -20,18 +20,16 @@ struct LastFeedProvider: TimelineProvider {
         let snapshot = FeedSnapshot.load() ?? .empty
         let now = Date.now
 
-        // Entries every 10 minutes for the next two hours keep the compact
-        // "1h 20m" text fresh on families that can't use live relative text.
-        var entries: [LastFeedEntry] = []
-        for step in 0..<12 {
-            entries.append(LastFeedEntry(date: now.addingTimeInterval(Double(step) * 600), snapshot: snapshot))
+        // The countdown text updates itself, a minute at a time, so entries
+        // are only needed where the widget changes what it says: at the due
+        // time ("Feed is due"), and an interval later, when it goes quiet.
+        // The app reloads the timeline whenever a feed is logged.
+        var entries = [LastFeedEntry(date: now, snapshot: snapshot)]
+        if let last = snapshot.lastFeed, let due = snapshot.nextFeedDue {
+            entries += FeedCountdown.transitions(lastFeed: last.time, due: due, after: now)
+                .map { LastFeedEntry(date: $0, snapshot: snapshot) }
         }
-        // Also flip exactly at the due time so "Feed is due" appears on time.
-        if let due = snapshot.nextFeedDue, due > now, due < now.addingTimeInterval(2 * 3600) {
-            entries.append(LastFeedEntry(date: due.addingTimeInterval(1), snapshot: snapshot))
-            entries.sort { $0.date < $1.date }
-        }
-        completion(Timeline(entries: entries, policy: .atEnd))
+        completion(Timeline(entries: entries, policy: .never))
     }
 }
 
@@ -42,8 +40,8 @@ struct LastFeedWidget: Widget {
         StaticConfiguration(kind: kind, provider: LastFeedProvider()) { entry in
             LastFeedWidgetView(entry: entry)
         }
-        .configurationDisplayName("Last Feed")
-        .description("How long since the last feed, and when the next one is due.")
+        .configurationDisplayName("Next Feed")
+        .description("When the next feed is due, and when the last one was.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular, .accessoryInline])
     }
 }
@@ -54,9 +52,12 @@ struct LastFeedWidgetView: View {
 
     private var snapshot: FeedSnapshot { entry.snapshot }
     private var kind: FeedKind? { snapshot.lastFeed.flatMap { FeedKind(rawValue: $0.kindRaw) } }
-    private var isDue: Bool {
-        guard let due = snapshot.nextFeedDue else { return false }
-        return due <= entry.date
+    private var countdown: FeedCountdown {
+        FeedCountdown.state(lastFeed: snapshot.lastFeed?.time, due: snapshot.nextFeedDue, now: entry.date)
+    }
+
+    private func clock(_ date: Date) -> String {
+        ClockText.time(date, in: snapshot.timeZone)
     }
 
     var body: some View {
@@ -85,26 +86,46 @@ struct LastFeedWidgetView: View {
     private var small: some View {
         VStack(alignment: .leading, spacing: 4) {
             header
-            if let last = snapshot.lastFeed {
-                Text(last.time, style: .relative)
+            switch countdown {
+            case .upcoming(let due, _):
+                Text(.currentDate, format: .reference(to: due, allowedFields: [.hour, .minute], maxFieldCount: 2))
                     .font(.title2.weight(.bold))
                     .lineLimit(2)
                     .minimumScaleFactor(0.6)
-                    .foregroundStyle(isDue ? Color.orange : Color.primary)
                     .widgetAccentable()
-                Text("\(last.title) · \(last.detail)")
-                    .font(.caption)
+                Text("around \(clock(due))")
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
+            case .overdue(let due, _):
+                Text("Due \(clock(due))")
+                    .font(.title2.weight(.bold))
                     .lineLimit(1)
-                Spacer(minLength: 0)
-                dueLine
-            } else {
+                    .minimumScaleFactor(0.6)
+                    .foregroundStyle(.red)
+                    .widgetAccentable()
+                Text(.currentDate, format: .reference(to: due, allowedFields: [.hour, .minute], maxFieldCount: 2))
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+            case .quiet(let last):
+                Text(ClockText.since(last, now: entry.date, in: snapshot.timeZone))
+                    .font(.title3.weight(.bold))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.6)
+            case .noFeeds:
                 Spacer(minLength: 0)
                 Text("No feeds yet")
                     .font(.headline)
                 Text("Tap to log one")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            if let last = snapshot.lastFeed {
+                Text("\(last.title) · \(last.detail) · \(clock(last.time))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -138,33 +159,18 @@ struct LastFeedWidgetView: View {
         HStack(spacing: 4) {
             Image(systemName: kind?.systemImage ?? "moon.zzz.fill")
                 .foregroundStyle(kind?.color ?? .secondary)
-            Text(isDue ? "Feed is due" : "Since last feed")
+            Text(headerText)
                 .font(.caption.weight(.medium))
-                .foregroundStyle(isDue ? Color.orange : Color.secondary)
+                .foregroundStyle(countdown.isOverdue ? Color.red : Color.secondary)
         }
     }
 
-    @ViewBuilder
-    private var dueLine: some View {
-        if let due = snapshot.nextFeedDue {
-            HStack(spacing: 4) {
-                Image(systemName: "bell.fill")
-                    .imageScale(.small)
-                if isDue {
-                    Text("Due now")
-                } else {
-                    Text("Next ~\(due, style: .time)")
-                }
-            }
-            .font(.caption.weight(.medium))
-            .foregroundStyle(isDue ? Color.orange : Color.secondary)
-        } else {
-            HStack(spacing: 4) {
-                Text("24h: \(snapshot.last24hFeedCount) feeds · \(snapshot.last24hVolumeText)")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
+    private var headerText: String {
+        switch countdown {
+        case .upcoming: "Next feed"
+        case .overdue: "Feed is due"
+        case .quiet: "Last feed"
+        case .noFeeds: "Baby Feed"
         }
     }
 
@@ -176,12 +182,24 @@ struct LastFeedWidgetView: View {
             VStack(spacing: 0) {
                 Image(systemName: kind?.systemImage ?? "moon.zzz.fill")
                     .font(.caption)
-                if let last = snapshot.lastFeed {
-                    Text(ElapsedText.compact(since: last.time, now: entry.date))
+                switch countdown {
+                case .upcoming(let due, _):
+                    if let last = snapshot.lastFeed, last.time < due {
+                        Text(.currentDate, format: .timer(
+                            countingDownIn: last.time..<due,
+                            showsHours: true,
+                            maxFieldCount: 2,
+                            maxPrecision: .seconds(60)
+                        ))
                         .font(.headline)
+                        .monospacedDigit()
                         .minimumScaleFactor(0.5)
                         .lineLimit(1)
-                } else {
+                    }
+                case .overdue:
+                    Text("Due")
+                        .font(.headline)
+                case .quiet, .noFeeds:
                     Text("—")
                         .font(.headline)
                 }
@@ -192,25 +210,43 @@ struct LastFeedWidgetView: View {
 
     private var rectangular: some View {
         VStack(alignment: .leading, spacing: 2) {
-            if let last = snapshot.lastFeed {
-                Text(isDue ? "Feed is due" : "Since last feed")
+            switch countdown {
+            case .upcoming(let due, _):
+                Text("Next feed · \(clock(due))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                Text(last.time, style: .relative)
+                Text(.currentDate, format: .reference(to: due, allowedFields: [.hour, .minute], maxFieldCount: 2))
                     .font(.headline)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .widgetAccentable()
-                Text("\(last.title) · \(last.detail)")
+            case .overdue(let due, _):
+                Text("was due \(clock(due))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                Text("Feed is due")
+                    .font(.headline)
+                    .widgetAccentable()
+            case .quiet(let last):
+                Text("Last fed")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(ClockText.since(last, now: entry.date, in: snapshot.timeZone))
+                    .font(.headline)
                     .lineLimit(1)
-            } else {
+                    .minimumScaleFactor(0.7)
+            case .noFeeds:
                 Text("Baby Feed")
                     .font(.headline)
                 Text("No feeds logged yet")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+            }
+            if let last = snapshot.lastFeed, !countdown.isQuiet {
+                Text("\(last.title) · \(last.detail) · \(clock(last.time))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -218,13 +254,14 @@ struct LastFeedWidgetView: View {
 
     private var inline: some View {
         Group {
-            if let last = snapshot.lastFeed {
-                if isDue {
-                    Text("Feed due · last \(ElapsedText.compact(since: last.time, now: entry.date)) ago")
-                } else {
-                    Text("Fed \(ElapsedText.compact(since: last.time, now: entry.date)) ago · \(last.detail)")
-                }
-            } else {
+            switch countdown {
+            case .upcoming(let due, _):
+                Text("Next feed ~\(clock(due))")
+            case .overdue(let due, _):
+                Text("Feed due since \(clock(due))")
+            case .quiet(let last):
+                Text("Last fed \(ClockText.since(last, now: entry.date, in: snapshot.timeZone))")
+            case .noFeeds:
                 Text("No feeds logged yet")
             }
         }

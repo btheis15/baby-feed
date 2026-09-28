@@ -14,7 +14,8 @@ struct FeedSnapshot: Codable, Equatable {
     }
 
     var lastFeed: Feed?
-    /// When the next feed is due, if reminders are on.
+    /// When the next feed is due. Set whenever there's a last feed, whether or
+    /// not reminders are on — the countdown doesn't need an alert to be useful.
     var nextFeedDue: Date?
     var last24hFeedCount: Int
     /// "14 oz"
@@ -23,9 +24,24 @@ struct FeedSnapshot: Codable, Equatable {
     var targetText: String?
     var babyName: String
     var updatedAt: Date
+    /// The time zone pinned in Settings, or nil to follow the device — so the
+    /// widget's "5:10 PM" is the same one the app shows.
+    var timeZoneIdentifier: String? = nil
 
     static let appGroupID = "group.com.briantheis.babyfeed"
     static let key = "feedSnapshot"
+
+    var timeZone: TimeZone {
+        timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .current
+    }
+
+    /// Equal apart from when it was written. Saving and reloading every widget
+    /// only when this is false is what stops each sync from waking them all.
+    func sameContent(as other: FeedSnapshot) -> Bool {
+        var copy = other
+        copy.updatedAt = updatedAt
+        return copy == self
+    }
 
     /// Falls back to standard defaults when the App Group isn't available
     /// (e.g. running on a personal team without the capability).

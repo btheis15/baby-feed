@@ -86,11 +86,16 @@ struct LastFeedIntent: AppIntent {
         let elapsed = FeedStats.elapsedText(since: last.startTime)
         let when = elapsed == "Just now" ? "just now" : "\(elapsed) ago"
         var text = "Last feed was \(when): \(last.kind.title.lowercased()), \(last.detailText(unit: unit))."
-        if AppSettings.remindersEnabled {
-            let due = AppSettings.nextDue(after: last.startTime)
-            text += due > .now
-                ? " Next feed is due around \(due.formatted(date: .omitted, time: .shortened))."
-                : " The next feed is due now."
+        // The same answer the hero gives, reminders on or not.
+        switch AppSettings.countdown(lastFeed: last.startTime) {
+        case .upcoming(let due, _):
+            text += " Next feed is due around \(ClockText.time(due, in: AppSettings.timeZone))."
+        case .overdue(let due, let minutesLate):
+            text += minutesLate == 0
+                ? " The next feed is due now."
+                : " The next feed was due at \(ClockText.time(due, in: AppSettings.timeZone))."
+        case .quiet, .noFeeds:
+            break
         }
         return .result(dialog: "\(text)")
     }

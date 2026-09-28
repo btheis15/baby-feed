@@ -25,4 +25,15 @@ enum ElapsedText {
         }
         return "\(minutes)m"
     }
+
+    /// "1 hour 20 minutes", for VoiceOver, which would read "1h 20m" as letters.
+    static func spoken(minutes totalMinutes: Int) -> String {
+        let total = max(0, totalMinutes)
+        let hours = total / 60
+        let minutes = total % 60
+        var parts: [String] = []
+        if hours > 0 { parts.append(hours == 1 ? "1 hour" : "\(hours) hours") }
+        if minutes > 0 || hours == 0 { parts.append(minutes == 1 ? "1 minute" : "\(minutes) minutes") }
+        return parts.joined(separator: " ")
+    }
 }

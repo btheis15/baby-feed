@@ -122,6 +122,19 @@ enum AppSettings {
     }
 
     static func nextDue(after lastFeed: Date) -> Date {
-        lastFeed.addingTimeInterval(interval)
+        FeedCountdown.nextDue(after: lastFeed, intervalMinutes: intervalMinutes)
+    }
+
+    /// Where the next feed stands. Views that read the interval through
+    /// `@AppStorage` (so they re-render when it changes) pass the raw value.
+    static func countdown(lastFeed: Date?, intervalRaw: Int? = nil, now: Date = .now) -> FeedCountdown {
+        let minutes = intervalRaw.map(resolvedIntervalMinutes(raw:)) ?? intervalMinutes
+        return FeedCountdown.state(lastFeed: lastFeed, intervalMinutes: minutes, now: now)
+    }
+
+    /// What the widget and Live Activity should format times in: the pinned
+    /// zone, or nil to follow the device like they would anyway.
+    static var pinnedTimeZoneIdentifier: String? {
+        followsDeviceTimeZone ? nil : timeZone.identifier
     }
 }

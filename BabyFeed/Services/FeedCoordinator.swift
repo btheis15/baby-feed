@@ -19,6 +19,9 @@ enum FeedCoordinator {
         let unit = AppSettings.volumeUnit
         let profile = BabyProfile.load()
         let lastFeed = entries.first
+        // The countdown is shown whether or not reminders are on; the
+        // reminder toggle only decides whether something also goes off.
+        let countdown = AppSettings.countdown(lastFeed: lastFeed?.startTime)
         let due = lastFeed.map { AppSettings.nextDue(after: $0.startTime) }
 
         let recent = FeedStats.entries(entries, within: 24 * 60 * 60)
@@ -47,21 +50,27 @@ enum FeedCoordinator {
             lastFeed: lastFeed.map {
                 FeedSnapshot.Feed(time: $0.startTime, kindRaw: $0.kindRaw, title: $0.kind.title, detail: $0.detailText(unit: unit))
             },
-            nextFeedDue: AppSettings.remindersEnabled ? due : nil,
+            nextFeedDue: due,
             last24hFeedCount: summary.feedCount,
             last24hVolumeText: unit.format(milliliters: summary.totalML),
             targetText: target.map { "~\(unit.format(milliliters: $0.targetML))" },
             babyName: profile.displayName,
-            updatedAt: .now
+            updatedAt: .now,
+            timeZoneIdentifier: AppSettings.pinnedTimeZoneIdentifier
         )
-        snapshot.save()
-        WidgetCenter.shared.reloadAllTimelines()
+        // Only when something a widget shows has changed. Every foreground
+        // and every pulled page used to reload them all, which is battery
+        // spent redrawing the same numbers.
+        if !(FeedSnapshot.load()?.sameContent(as: snapshot) ?? false) {
+            snapshot.save()
+            WidgetCenter.shared.reloadAllTimelines()
+        }
 
         Task {
             await ReminderScheduler.reschedule(lastFeed: lastFeed, unit: unit, babyName: profile.displayName)
             await LiveActivityManager.update(
                 lastFeed: lastFeed,
-                dueDate: AppSettings.remindersEnabled ? due : nil,
+                countdown: countdown,
                 unit: unit,
                 babyName: profile.displayName
             )

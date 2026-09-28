@@ -51,7 +51,10 @@ with newborn needs first.
   tests use `AppSchema.inMemoryContainer()`. A new `@Model` type goes in that list and nowhere
   else.
 - **Minutes, not seconds.** Nothing ticks every second. Use `TimelineView(.everyMinute)` in the app, and
-  the minute-precision `Text(.currentDate, format: …)` styles in the widget and Live Activity.
+  the minute-precision `Text(.currentDate, format: …)` styles in the widget and Live Activity. Where
+  the next feed stands always comes from `FeedCountdown`.
+- **Never nest one `TimelineView` inside another.** In a List it loops the main thread at 100% before
+  the first frame. Keep one ticking view per screen, and drive slower refreshes from a `@State` clock.
 - **Guidance, not orders.**
   - Every guidance number cites the AAP, CDC or WHO through `FoodGuidance.Source`; a test enforces the
     hosts.

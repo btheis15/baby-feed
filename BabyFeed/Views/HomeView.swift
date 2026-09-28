@@ -1,18 +1,19 @@
 import SwiftData
 import SwiftUI
 
-/// The main screen: time since last feed, daily target, 24-hour totals,
-/// big log buttons, and the recent feeds.
+/// The main screen: a countdown to the next feed, the big log buttons,
+/// diapers, the daily target, 24-hour totals and the recent feeds.
 struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.calendar) private var calendar
+    @Environment(\.timeZone) private var timeZone
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(AppRouter.self) private var router
     @Query(sort: \FeedEntry.startTime, order: .reverse) private var entries: [FeedEntry]
     @Query(sort: \WeightEntry.date, order: .reverse) private var weights: [WeightEntry]
 
     @AppStorage(FeedDefaults.volumeUnit) private var unitRaw = VolumeUnit.ounces.rawValue
     @AppStorage(AppSettings.weightUnitKey) private var weightUnitRaw = WeightUnit.poundsOunces.rawValue
-    @AppStorage(AppSettings.remindersEnabledKey) private var remindersEnabled = false
     /// 0 means "follow what's typical for this age"; resolved below.
     @AppStorage(AppSettings.intervalMinutesKey) private var intervalMinutesRaw = 0
     @AppStorage(AppSettings.feedingStyleKey) private var feedingStyleRaw = FeedingStyle.formula.rawValue
@@ -25,12 +26,20 @@ struct HomeView: View {
 
     @State private var newFeedKind: FeedKind?
     @State private var editingEntry: FeedEntry?
+    /// The time the 24-hour numbers are worked out at. They drift slowly as
+    /// feeds age out of the window, so this moves every ten minutes and
+    /// whenever the app comes to the front — not every few seconds. Only the
+    /// countdown ticks, once a minute, in its own TimelineView.
+    ///
+    /// A plain value rather than an outer TimelineView on purpose: a
+    /// TimelineView nested inside another one, in a List, sends SwiftUI into
+    /// a redraw loop that pins the main thread at 100% before the first frame.
+    @State private var clock = Date.now
 
     private var unit: VolumeUnit { VolumeUnit(rawValue: unitRaw) ?? .ounces }
     private var weightUnit: WeightUnit { WeightUnit(rawValue: weightUnitRaw) ?? .poundsOunces }
     private var feedingStyle: FeedingStyle { FeedingStyle(rawValue: feedingStyleRaw) ?? .formula }
     private var currentBabyID: UUID? { UUID(uuidString: currentBabyIDRaw) }
-    private var intervalMinutes: Int { AppSettings.resolvedIntervalMinutes(raw: intervalMinutesRaw) }
     private var profile: BabyProfile {
         BabyProfile(
             name: babyName,
@@ -42,9 +51,8 @@ struct HomeView: View {
 
     var body: some View {
         NavigationStack {
-            // Re-renders every 30 seconds so the counter stays live.
-            TimelineView(.periodic(from: .now, by: 30)) { context in
-                let now = context.date
+            Group {
+                let now = clock
                 let visible = entries.active(for: currentBabyID)
                 let babyWeights = weights.active(for: currentBabyID)
                 let latestWeight = babyWeights.first
@@ -62,17 +70,24 @@ struct HomeView: View {
                 )
                 let target = guidance.target
                 let projection = guidance.projection
-                let dueDate = visible.first.map { $0.startTime.addingTimeInterval(Double(intervalMinutes) * 60) }
 
                 List {
                     Section {
-                        LastFedCard(
-                            lastFeed: visible.first,
-                            unit: unit,
-                            now: now,
-                            nudgeAfter: remindersEnabled ? Double(intervalMinutes) * 60 : 3 * 60 * 60,
-                            dueDate: remindersEnabled ? dueDate : nil
-                        )
+                        TimelineView(.everyMinute) { minute in
+                            NextFeedCard(
+                                lastFeed: visible.first,
+                                countdown: AppSettings.countdown(
+                                    lastFeed: visible.first?.startTime,
+                                    intervalRaw: intervalMinutesRaw,
+                                    now: minute.date
+                                ),
+                                unit: unit,
+                                now: minute.date,
+                                timeZone: timeZone,
+                                showsNewbornWakeLine: showsNewbornWakeLine(lastFeed: visible.first, now: minute.date),
+                                onLog: { router.openLog(kind: visible.first?.kind) }
+                            )
+                        }
                     }
 
                     Section {
@@ -142,7 +157,29 @@ struct HomeView: View {
             .sheet(item: $editingEntry) { entry in
                 LogFeedSheet(mode: .edit(entry))
             }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { clock = .now }
+            }
+            .task {
+                clock = .now
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(600))
+                    clock = .now
+                }
+            }
         }
+    }
+
+    /// The AAP's guidance for the first weeks: a newborn who has gone about
+    /// four hours without a feed is woken for one, until they're back to birth
+    /// weight. Two weeks is when most babies are; Phase 4 of the roadmap swaps
+    /// this for the actual weigh-ins once birth weight is tracked.
+    private func showsNewbornWakeLine(lastFeed: FeedEntry?, now: Date) -> Bool {
+        guard let lastFeed,
+              let ageDays = profile.ageInDays(on: now, calendar: calendar),
+              ageDays < 14
+        else { return false }
+        return now.timeIntervalSince(lastFeed.startTime) >= FeedingGuidance.newbornMaxGapHours * 3600
     }
 
     private func delete(_ toDelete: [FeedEntry]) {

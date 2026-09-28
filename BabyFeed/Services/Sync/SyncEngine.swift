@@ -39,6 +39,9 @@ final class SyncEngine {
     /// Set when a change lands mid-sync, so it isn't left sitting until the
     /// next one. A feed logged while a pull is in flight still goes up.
     private var syncAgain = false
+    /// Whether this sync brought anything down, so everything derived from
+    /// the log is refreshed once at the end rather than after every page.
+    private var pulledChanges = false
     private var lastSyncDateValue: Date?
 
     private init() {}
@@ -70,6 +73,11 @@ final class SyncEngine {
             syncAgain = true
             return
         }
+        // Claimed here rather than inside the Task. Launch and every
+        // foreground ask twice in the same moment, and with the flag only set
+        // once the Task started, both calls got past the check and two syncs
+        // ran side by side.
+        isSyncing = true
         Task { await sync() }
     }
 
@@ -78,15 +86,21 @@ final class SyncEngine {
     func syncNow() async {
         guard isConfigured else { return }
         guard !isSyncing else { return }
+        isSyncing = true
         await sync()
     }
 
     // MARK: The sync itself
 
+    /// Callers set `isSyncing` before calling, so two can't start at once.
     private func sync() async {
-        guard let container, let client else { return }
+        guard let container, let client else {
+            isSyncing = false
+            return
+        }
         isSyncing = true
         syncAgain = false
+        pulledChanges = false
         status = .syncing
         let context = container.mainContext
 
@@ -103,6 +117,15 @@ final class SyncEngine {
             status = .error("This phone was unpaired from the server. Pair it again under Caregivers.")
         } catch {
             status = .error((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+        }
+
+        // Everything derived from the log — the countdown, the widget, the
+        // reminder, the Live Activity — is recomputed here, once, and only if
+        // a pull brought something new: a feed the other caregiver logged
+        // moves the alarm on this phone too, and a sync that changed nothing
+        // wakes nothing. triggerSync: false, because this IS the sync.
+        if pulledChanges {
+            FeedCoordinator.feedsDidChange(in: context, triggerSync: false)
         }
 
         isSyncing = false
@@ -230,13 +253,7 @@ final class SyncEngine {
               newRow: { SolidFoodEntry(uuid: $0.id, name: "", texture: .puree) })
 
         try? context.save()
-        // Everything derived from the log — the next-feed countdown, the
-        // widget, the reminder, the Live Activity — is recomputed here rather
-        // than by each screen, so a feed the other caregiver logged moves the
-        // alarm on this phone too.
-        // triggerSync: false — this IS the sync; asking it to start another
-        // one from inside itself is how you get a loop.
-        FeedCoordinator.feedsDidChange(in: context, triggerSync: false)
+        if !result.isEmpty { pulledChanges = true }
     }
 
     /// Shared merge path for the three row types. Each one is: find the local
