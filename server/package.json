@@ -1,0 +1,13 @@
+{
+  "name": "babyfeed-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted sync server for Baby Feed. Runs on the Mac mini; no dependencies.",
+  "engines": { "node": ">=22.5" },
+  "bin": { "babyfeed-server": "bin/babyfeed-server.js" },
+  "scripts": {
+    "start": "node bin/babyfeed-server.js",
+    "test": "node --test test/*.test.js"
+  }
+}

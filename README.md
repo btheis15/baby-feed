@@ -25,8 +25,13 @@ lack of sleep and washing bottles.
 - **Who logged what**: every feed, weight and note records the caregiver who entered it
   ("Logged by Brian"), and that reaches the pediatrician summary too — so a shared log
   reads clearly even when whoever fed the baby wasn't whoever had a free hand to log it
-- **Everything is on the phone.** No account, no company holding your data, works with no
-  signal. More than one baby per phone
+- **Your data stays yours.** No account and no company holding it: the phone is the source
+  of truth, and sharing goes through a server in your own house. Works with no signal.
+  More than one baby per phone
+- **Two phones, one log**: sharing runs through a small server you host yourself on a Mac
+  mini at home — not an account with a company. A second caregiver joins by scanning a QR
+  code; every feed, weight and note then appears on both phones, offline-tolerant and
+  last-writer-wins
 - Ounces or milliliters, CSV export, no subscription, no ads, no sign-in
 
 See [PLAN.md](PLAN.md) for the research behind the features, the guidance sources, the
@@ -42,14 +47,25 @@ Requires **Xcode 26 or newer** and **iOS 26 or newer**.
 3. Pick a simulator or your iPhone and press Run (`Cmd+R`).
 4. `Cmd+U` runs the unit tests.
 
-**Sharing between phones** isn't built. The app is local-first: the on-device SwiftData
-store is the source of truth, and nothing is uploaded. The plan is a small server you host
-yourself (a Mac Mini on the home network), holding only what two phones need to agree on —
-not an account with a company. `Services/Sync/` keeps the parts that are transport-agnostic
-and tested: per-row `uuid`/`updatedAt`/`deletedAt`/`needsUpload`, the `SyncMerge` rules,
-the row shapes, and the per-baby pull watermarks. What's missing is the client.
+## Sharing between phones
 
-Until then, the pediatrician summary under History shares as plain text to anyone.
+Both caregivers see the same log, through **a server you run yourself** — a Mac mini on
+your home network, holding only what two phones need to agree on. No account, no company,
+no third-party backend. See [server/README.md](server/README.md) to set it up; it needs
+Node and nothing else.
+
+The app stays local-first either way: each phone's own store is the source of truth, every
+screen reads it, and logging a feed never waits on the network. Syncing is what makes the
+*other* phone agree, afterwards. With no server configured — or no signal, or the mini
+switched off — the app behaves exactly as it did before.
+
+Pairing is a QR code, not a sign-up. The first phone connects with a setup code printed by
+the mini; every phone after that joins by pointing its Camera at a code on the first phone.
+Invites are six characters, good for an hour, and work once.
+
+Conflicts are last-writer-wins by `updatedAt`, with an un-pushed local edit kept on a tie.
+Deletes are soft, so a feed removed on one phone can't come back from the other. The rules
+live in `SyncMerge` on the phone and are mirrored — and tested — on the server.
 
 **Free personal team?** Widgets/Live Activity use an App Group and reminders use the Time
 Sensitive entitlement; both need a paid developer membership. Remove those capabilities

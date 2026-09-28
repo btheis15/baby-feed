@@ -10,7 +10,8 @@ getting, and when the next feed is due**.
    Amount and time default to sensible values so most feeds need nothing else.
 2. **The answer to "when did I last feed?" is the first thing on screen**, in huge type,
    ticking live, and also on the Lock Screen, in the Dynamic Island, and via Siri.
-3. **Nothing to set up.** No account, no sync, no paywall. Data lives on the phone.
+3. **Nothing to set up.** No account and no paywall; data lives on the phone. Sharing is
+   opt-in and goes to a server you run yourself.
 4. **Forgiving.** Every entry can be edited or deleted. Feeds can be backdated.
 5. **Works one-handed at 3 a.m.** Big buttons, high contrast, Dynamic Type, dark mode.
 6. **Guidance, not orders.** Feeding targets come from published pediatric rules of
@@ -110,47 +111,62 @@ the main newborn red flag and a reassuring estimate must not mask it.
 
 ## Sharing between caregivers
 
-**Status: not built.** The app is local-only and says so under Caregivers. There is no
-account, no third-party backend, and nothing leaves the phone.
+**Status: built.** Sharing runs through a self-hosted server on a Mac mini —
+`server/` in this repo, with its own README. Not an account with a company, and
+not a hosted backend: the mini holds a copy of what two phones need to agree on
+and nothing else.
 
-What exists today:
+The app is still local-first. Each phone's SwiftData store is the source of
+truth, every screen reads it, and nothing on the path between tapping Save and
+seeing the feed touches the network. With no server configured the app behaves
+exactly as it did before, and says so under Caregivers.
 
-- **Who logged it**: every feed, weight and care note carries the caregiver's display
-  name, shown in the list as "Logged by <name>" and carried into the pediatrician
-  summary. Deliberately *logged by*, not *fed by* — the person with a free hand to tap
-  Save often isn't the person holding the bottle.
-- **Local-first storage**: the on-device SwiftData store is the source of truth and every
-  screen reads it. Rows already carry a client `uuid`, `updatedAt`, a soft `deletedAt`
-  and `needsUpload`, so changes can be queued and conflicts resolved.
-- **Merge rules**: `SyncMerge` holds them — last writer wins, keeping an un-pushed local
-  edit on ties. Transport-agnostic and unit-tested.
-- **Row shapes**: `SyncDTOs`, still snake_case so a Postgres table maps straight across.
-- **Watermarks**: `SyncEngine.watermark(for:)` records how far a pull got per baby, and
-  never moves backwards.
+- **Who logged it**: every feed, weight and care note carries the caregiver's
+  display name, shown in the list as "Logged by <name>" and carried into the
+  pediatrician summary. Deliberately *logged by*, not *fed by* — the person with
+  a free hand to tap Save often isn't the person holding the bottle.
+- **Pairing is a QR code, not a sign-up.** The first phone connects with a setup
+  code the mini prints once. Every phone after that joins from a six-character
+  invite the first phone generates, delivered as a QR the stock Camera app
+  reads, a link you can send, or six characters read aloud. There is no open
+  registration endpoint, and the app needs no camera permission — the Camera app
+  does the scanning and hands over the `babyfeed://join` URL.
+- **What syncs**: babies (including sex and due date, because the WHO
+  percentiles need them), feeds, weights and care notes. Not preferences —
+  units, reminder settings, time zone and learned bottle amounts belong to a
+  phone, not to the baby.
+- **Merge rules**: `SyncMerge`, unchanged and still transport-agnostic — last
+  writer wins, an un-pushed local edit kept on a tie. The server implements the
+  same rule from its side and tests it.
+- **Deletes** are soft, so a feed deleted on one phone can't be resurrected by
+  the other pushing its stale copy.
+- **Watermarks**: `SyncEngine.watermark(for:)` per baby, never moving backwards.
+  The server's timestamps never repeat a millisecond, so two phones pushing at
+  the same instant can't hide a row from each other's next pull.
+- **The token** lives in the Keychain, not UserDefaults — it's equivalent to the
+  whole log and UserDefaults comes back in an unencrypted backup.
 
-What's missing is only the client: push rows where `needsUpload` is true, pull rows the
-server has touched since the watermark, hand each to `SyncMerge`. No caller above
-`SyncEngine` changes when that lands, because `requestSync()` is already called after
-every local change and is currently a guarded no-op.
-
-The plan is a **small server hosted on a Mac Mini on the home network** — Postgres
-holding only what two phones need to agree on. Not an account with a company. Credentials
-stay on-device; pairing a second caregiver should be a QR code scanned from the first
-phone rather than a sign-up.
-
-- **Why not Supabase**: it was implemented and then removed at the user's request — they
-  are self-hosting. The abstractions above survived the removal intact, which is the
-  point of keeping the merge rules away from the transport.
-- **Why not CloudKit**: sharing would require moving from SwiftData to Core Data, and it
-  ties caregivers to Apple Family Sharing. Still an option later for the single-user case.
+- **Why not Supabase**: it was implemented and then removed at the user's
+  request — they are self-hosting. The abstractions above survived the removal
+  intact, which is the point of keeping the merge rules away from the transport.
+- **Why not CloudKit**: sharing would require moving from SwiftData to Core
+  Data, and it ties caregivers to Apple Family Sharing.
+- **Why SQLite and not Postgres**: the DTOs are snake_case because they were
+  shaped for a Postgres table, and they still map straight across. But the
+  workload is two phones and a few thousand rows, and a second daemon to keep
+  alive across reboots buys nothing for that. One file is also the only backup
+  story that can't be got wrong.
 
 ### Cross-caregiver notifications
 
-Requested, and blocked on the same server. A notification telling the *other* caregiver
-that a feed was logged needs a transport to reach the other phone — either a push from
-the server or a poll from the receiving device. A local notification would only fire on
-the phone that just logged the feed, which is useless. So this waits for the Mac Mini
-rather than shipping something that looks like it works.
+Half-built. `GET /v1/changes` on the server says who changed what and whether it
+was you, which was the part that had to exist server-side — a notification
+saying "Annette logged a feed" needs a transport to reach the *other* phone, and
+a local notification would only fire on the phone that just logged it.
+
+What's left is the client half plus an APNs auth key for this app's own bundle
+ID. Until then the phone learns about the other caregiver's feeds on foreground
+and after every local change, which is when it syncs.
 
 ## iOS integration
 
@@ -166,7 +182,7 @@ rather than shipping something that looks like it works.
 | Growth percentiles and weight projection     | WHO Child Growth Standards (bundled LMS tables) | `GrowthStandard.swift`, `GrowthProjection.swift` |
 | Age-based food guidance with sources          | Bundled AAP/CDC/WHO guidance     | `FoodGuidance.swift`, `FoodsView.swift` |
 | Deep links from widgets & notifications      | `babyfeed://log/<kind>` URL scheme | `AppRouter.swift`                    |
-| Multi-caregiver sync (not built)             | Self-hosted server, planned      | `Services/Sync/` (merge rules, DTOs, watermarks) |
+| Multi-caregiver sync                         | Self-hosted server on a Mac mini | `Services/Sync/`, `server/`      |
 
 Widgets never open the database: the app writes a small JSON `FeedSnapshot` into the
 App Group after every change and calls `WidgetCenter.reloadAllTimelines()`.
@@ -265,7 +281,9 @@ BabyFeed/                 App target (iOS 26+)
                           GrowthStandard + WHOWeightForAge + GrowthProjection, FoodGuidance,
                           BabyProfile, units, settings
   Services/               FeedCoordinator, BabyStore, ReminderScheduler, FeedAlarmScheduler, LiveActivityManager, DaySummaryGenerator
-  Services/Sync/          SyncEngine (local-only), SyncMerge (pure rules), SyncDTOs
+  Services/Sync/          SyncEngine (push/pull), SyncClient (transport), SyncMerge
+                          (pure rules), SyncDTOs, SyncCredentials, SyncLink
+  server/                 The self-hosted sync server (Node, SQLite, launchd)
   Intents/                LogFeedIntent, LastFeedIntent, App Shortcuts
   Views/                  Home, LogFeedSheet, History, Trends, Baby, Foods, Settings, TimeZonePicker,
                           Family (caregivers), SignIn, Join, cards

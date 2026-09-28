@@ -5,7 +5,8 @@ import UserNotifications
 /// One container for the app and its App Intents (Siri runs intents in-process).
 enum AppModelContainer {
     static let shared: ModelContainer = {
-        let schema = Schema([FeedEntry.self, WeightEntry.self, Baby.self, CareNote.self])
+        let schema = Schema([FeedEntry.self, WeightEntry.self, Baby.self, CareNote.self,
+                             DiaperEntry.self, SolidFoodEntry.self])
         do {
             return try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema)])
         } catch {
