@@ -46,8 +46,8 @@ after each.
 | 0 | Safety net: tests green, previews render | app | Tests already green (187 pass, 2026-09-28); 0.2–0.4 not started |
 | 1 | Today: a countdown, minutes not seconds, less battery | app, widget | Not started |
 | 2 | Logging that visibly lands, and one Timeline | app | Not started |
-| 3a | Sharing without credentials: server | server | **Built, tested (57 pass) and merged to `main`** in PR #2. Not yet running on the mini: deploy with [Appendix B](#appendix-b--deploying-the-server-to-the-mac-mini) |
-| 3b | Sharing without credentials: app | app | Not started (needs 3a live on the mini) |
+| 3a | Sharing without credentials: server | server | **Done.** Merged to `main` in PR #2 and running on the mini since 2026-09-28 (`/v1/health` reports `"api":2`, `"enroll":"lan"`) |
+| 3b | Sharing without credentials: app | app | Not started (3a is live, so nothing blocks it) |
 | 4 | The first weeks: getting enough, nursing side and timer, dark at night | app, widget | Not started |
 | 5 | Health for the first year: concerns, medicines, doctor visits | app, server | Not started |
 | 6 | Charts, numbers first | app | Not started |
@@ -500,7 +500,7 @@ it.
 name (`PairServerView`'s "First phone" mode). The server's `/v1/pair/claim` is single-use and refuses
 once any user exists, and four devices are already paired, so a fresh phone dead-ends.
 
-### 3a — Server (built, tested and merged to `main`; not yet deployed)
+### 3a — Server (done: merged to `main`, running on the mini since 2026-09-28)
 
 What changed in `server/`:
 - `src/{server,auth,db}.js`, `bin/babyfeed-server.js`, `scripts/setup.sh` and `README.md`.
@@ -1282,7 +1282,8 @@ The Phase 3a changes are on `main`, merged from `sync-server` in PR #2. The mini
 checkout at `~/baby-feed`, which is the path the launchd jobs expect, and until now that checkout
 followed `sync-server`. Moving it to `main` is what step 2 does.
 
-1. **On the MacBook:** nothing to do. The work was committed, pushed and merged on 2026-09-28.
+1. **On the MacBook:** nothing to do. The work was committed, pushed and merged on 2026-09-28, and
+   the mini was updated the same day. Rerun the steps below whenever `server/` changes again.
 2. **On the mini:**
 
    ```sh
