@@ -15,7 +15,23 @@ import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 /** Every synced table, and the DTO field order the API speaks. */
-export const ROW_TABLES = ['babies', 'feeds', 'weights', 'care_notes', 'diapers', 'solid_foods']
+export const ROW_TABLES = ['babies', 'feeds', 'weights', 'care_notes', 'diapers', 'solid_foods',
+  'concerns', 'medications', 'medication_doses', 'doctor_visits']
+
+/**
+ * The database's layout version, in PRAGMA user_version. New tables need no
+ * migration (CREATE TABLE IF NOT EXISTS makes them); a column added to a
+ * table that already exists does, and goes in COLUMN_ADDITIONS below.
+ */
+export const SCHEMA_VERSION = 2
+
+/**
+ * Columns added to existing tables, oldest first. Append only: an entry is
+ * applied once to any database that lacks the column, and never edited.
+ */
+export const COLUMN_ADDITIONS = [
+  ['care_notes', 'concern_id', 'TEXT'],
+]
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -191,6 +207,95 @@ CREATE TABLE IF NOT EXISTS solid_foods (
 );
 CREATE INDEX IF NOT EXISTS solid_foods_pull ON solid_foods(baby_id, server_ms);
 
+-- A health concern: an episode with a start and, once it's over, an end —
+-- "Red left eye", started Sep 16. Notes about it link to it by concern_id.
+CREATE TABLE IF NOT EXISTS concerns (
+  id            TEXT PRIMARY KEY,
+  baby_id       TEXT NOT NULL,
+  title         TEXT NOT NULL,
+  kind          TEXT NOT NULL,
+  started_at    TEXT NOT NULL,
+  resolved_at   TEXT,
+  severity      INTEGER,
+  note          TEXT NOT NULL DEFAULT '',
+  outcome       TEXT NOT NULL DEFAULT '',
+  logged_by     TEXT,
+  logged_by_name TEXT NOT NULL DEFAULT '',
+  updated_at    TEXT NOT NULL,
+  deleted_at    TEXT,
+  server_updated_at TEXT NOT NULL,
+  server_ms     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS concerns_pull ON concerns(baby_id, server_ms);
+
+-- A medicine or supplement, as the label or the doctor gives it. Every number
+-- here was typed by a parent; the app never suggests one.
+CREATE TABLE IF NOT EXISTS medications (
+  id            TEXT PRIMARY KEY,
+  baby_id       TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  kind          TEXT NOT NULL DEFAULT 'medicine',
+  dose_amount   REAL,
+  dose_unit     TEXT NOT NULL DEFAULT 'ml',
+  schedule      TEXT NOT NULL DEFAULT 'asNeeded',
+  times_per_day INTEGER,
+  interval_hours REAL,
+  min_hours_between REAL,
+  max_doses_per_24h INTEGER,
+  start_date    TEXT NOT NULL,
+  end_date      TEXT,
+  instructions  TEXT NOT NULL DEFAULT '',
+  logged_by     TEXT,
+  logged_by_name TEXT NOT NULL DEFAULT '',
+  updated_at    TEXT NOT NULL,
+  deleted_at    TEXT,
+  server_updated_at TEXT NOT NULL,
+  server_ms     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS medications_pull ON medications(baby_id, server_ms);
+
+-- One dose given. The medicine's name is copied onto it, so it still reads
+-- right after a rename or once the medicine itself is deleted.
+CREATE TABLE IF NOT EXISTS medication_doses (
+  id            TEXT PRIMARY KEY,
+  baby_id       TEXT NOT NULL,
+  medication_id TEXT,
+  medication_name TEXT NOT NULL,
+  time          TEXT NOT NULL,
+  amount        REAL,
+  unit          TEXT,
+  note          TEXT NOT NULL DEFAULT '',
+  logged_by     TEXT,
+  logged_by_name TEXT NOT NULL DEFAULT '',
+  updated_at    TEXT NOT NULL,
+  deleted_at    TEXT,
+  server_updated_at TEXT NOT NULL,
+  server_ms     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS medication_doses_pull ON medication_doses(baby_id, server_ms);
+
+-- A visit to the doctor, and what they said.
+CREATE TABLE IF NOT EXISTS doctor_visits (
+  id            TEXT PRIMARY KEY,
+  baby_id       TEXT NOT NULL,
+  date          TEXT NOT NULL,
+  kind          TEXT NOT NULL DEFAULT 'checkup',
+  provider      TEXT NOT NULL DEFAULT '',
+  reason        TEXT NOT NULL DEFAULT '',
+  doctor_notes  TEXT NOT NULL DEFAULT '',
+  follow_up_date TEXT,
+  follow_up_note TEXT NOT NULL DEFAULT '',
+  vaccines      TEXT NOT NULL DEFAULT '',
+  weight_entry_id TEXT,
+  logged_by     TEXT,
+  logged_by_name TEXT NOT NULL DEFAULT '',
+  updated_at    TEXT NOT NULL,
+  deleted_at    TEXT,
+  server_updated_at TEXT NOT NULL,
+  server_ms     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS doctor_visits_pull ON doctor_visits(baby_id, server_ms);
+
 -- Invite codes. Six characters, matching SyncMerge.inviteCodeLength, so the
 -- normalising and validation the app already ships against are the rules here.
 CREATE TABLE IF NOT EXISTS invites (
@@ -226,7 +331,33 @@ export function openDatabase(path) {
   mkdirSync(dirname(path), { recursive: true })
   const db = new DatabaseSync(path)
   db.exec(SCHEMA)
+  migrate(db)
   return db
+}
+
+/**
+ * Brings an existing database up to SCHEMA_VERSION: adds any column in
+ * COLUMN_ADDITIONS that a table lacks, then records the version. One
+ * transaction, and safe to run on every open.
+ */
+export function migrate(db) {
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    for (const [table, column, type] of COLUMN_ADDITIONS) {
+      const has = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column)
+      if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
+    }
+    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+}
+
+/** The layout version this database is at. */
+export function schemaVersion(db) {
+  return db.prepare('PRAGMA user_version').get().user_version
 }
 
 /** This database's id, made on first use and never changed after. */

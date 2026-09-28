@@ -33,7 +33,7 @@ struct ExportView: View {
                 } footer: {
                     Text(files.entryCount == 0
                          ? "Nothing logged yet."
-                         : "\(files.entryCount) entries: every feed, diaper, food, weight and note, one row each, with when it happened and who logged it.")
+                         : "\(files.entryCount) entries: every feed, diaper, food, weight, note, concern, dose and visit, one row each, with when it happened and who logged it.")
                 }
 
                 Section {
@@ -71,7 +71,10 @@ struct ExportView: View {
             diapers: all(#Predicate<DiaperEntry> { $0.babyID == id && $0.deletedAt == nil }),
             foods: all(#Predicate<SolidFoodEntry> { $0.babyID == id && $0.deletedAt == nil }),
             weights: all(#Predicate<WeightEntry> { $0.babyID == id && $0.deletedAt == nil }),
-            notes: all(#Predicate<CareNote> { $0.babyID == id && $0.deletedAt == nil })
+            notes: all(#Predicate<CareNote> { $0.babyID == id && $0.deletedAt == nil }),
+            concerns: all(#Predicate<HealthConcern> { $0.babyID == id && $0.deletedAt == nil }),
+            doses: all(#Predicate<MedicationDose> { $0.babyID == id && $0.deletedAt == nil }),
+            visits: all(#Predicate<DoctorVisit> { $0.babyID == id && $0.deletedAt == nil })
         )
         let unit = VolumeUnit(rawValue: unitRaw) ?? .ounces
         let items = TimelineBuilder.items(sources, babyID: id)

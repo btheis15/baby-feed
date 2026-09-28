@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Kinds of thing on the timeline, for the filter chips.
 enum TimelineCategory: String, CaseIterable, Identifiable {
-    case feeds, diapers, food, notes, growth
+    case feeds, diapers, food, notes, health, growth
 
     var id: String { rawValue }
 
@@ -14,6 +14,7 @@ enum TimelineCategory: String, CaseIterable, Identifiable {
         case .diapers: "Diapers"
         case .food: "Food"
         case .notes: "Notes"
+        case .health: "Health"
         case .growth: "Growth"
         }
     }
@@ -24,6 +25,7 @@ enum TimelineCategory: String, CaseIterable, Identifiable {
         case .diapers: "drop.halffull"
         case .food: "carrot.fill"
         case .notes: "note.text"
+        case .health: "stethoscope"
         case .growth: "scalemass.fill"
         }
     }
@@ -64,6 +66,10 @@ enum EntryRef: Hashable, Identifiable {
     case food(PersistentIdentifier)
     case weight(PersistentIdentifier)
     case note(PersistentIdentifier)
+    case concern(PersistentIdentifier)
+    case dose(PersistentIdentifier)
+    case visit(PersistentIdentifier)
+    case medication(PersistentIdentifier)
 
     var id: String {
         switch self {
@@ -72,6 +78,10 @@ enum EntryRef: Hashable, Identifiable {
         case .food(let id): "food:\(id.hashValue)"
         case .weight(let id): "weight:\(id.hashValue)"
         case .note(let id): "note:\(id.hashValue)"
+        case .concern(let id): "concern:\(id.hashValue)"
+        case .dose(let id): "dose:\(id.hashValue)"
+        case .visit(let id): "visit:\(id.hashValue)"
+        case .medication(let id): "medication:\(id.hashValue)"
         }
     }
 }
@@ -85,6 +95,9 @@ enum TimelineItem: Identifiable {
     case food(SolidFoodEntry, isFirstTime: Bool)
     case weight(WeightEntry)
     case note(CareNote)
+    case concern(HealthConcern)
+    case dose(MedicationDose)
+    case visit(DoctorVisit)
 
     var entry: any CareEntry {
         switch self {
@@ -93,6 +106,9 @@ enum TimelineItem: Identifiable {
         case .food(let entry, _): entry
         case .weight(let entry): entry
         case .note(let entry): entry
+        case .concern(let entry): entry
+        case .dose(let entry): entry
+        case .visit(let entry): entry
         }
     }
 
@@ -104,6 +120,9 @@ enum TimelineItem: Identifiable {
         case .food: return "food:\(key)"
         case .weight: return "weight:\(key)"
         case .note: return "note:\(key)"
+        case .concern: return "concern:\(key)"
+        case .dose: return "dose:\(key)"
+        case .visit: return "visit:\(key)"
         }
     }
 
@@ -116,6 +135,9 @@ enum TimelineItem: Identifiable {
         case .food(let food, _): food.reaction.systemImage
         case .weight: "scalemass.fill"
         case .note(let note): note.kind.systemImage
+        case .concern(let concern): concern.kind.systemImage
+        case .dose: "pills.fill"
+        case .visit: "stethoscope"
         }
     }
 
@@ -128,6 +150,9 @@ enum TimelineItem: Identifiable {
         case .food(let food, _): food.reaction.color == .secondary ? .green : food.reaction.color
         case .weight: .blue
         case .note: .purple
+        case .concern: .orange
+        case .dose: .mint
+        case .visit: .indigo
         }
     }
 
@@ -140,6 +165,9 @@ enum TimelineItem: Identifiable {
         case .food(let food, _): food.name.isEmpty ? "Food" : food.name
         case .weight: "Weigh-in"
         case .note: "Note"
+        case .concern(let concern): concern.title.isEmpty ? "Concern" : concern.title
+        case .dose(let dose): dose.medicationName.isEmpty ? "Dose" : dose.medicationName
+        case .visit: "Doctor visit"
         }
     }
 
@@ -150,6 +178,7 @@ enum TimelineItem: Identifiable {
         case .food: .food
         case .weight: .growth
         case .note: .notes
+        case .concern, .dose, .visit: .health
         }
     }
 
@@ -160,6 +189,9 @@ enum TimelineItem: Identifiable {
         case .food(let entry, _): .food(entry.persistentModelID)
         case .weight(let entry): .weight(entry.persistentModelID)
         case .note(let entry): .note(entry.persistentModelID)
+        case .concern(let entry): .concern(entry.persistentModelID)
+        case .dose(let entry): .dose(entry.persistentModelID)
+        case .visit(let entry): .visit(entry.persistentModelID)
         }
     }
 
@@ -178,6 +210,14 @@ enum TimelineItem: Identifiable {
             parts += ["weight", "weigh-in", weight.note]
         case .note(let note):
             parts += [note.kind.title, "note", note.note, note.severity?.title ?? ""]
+        case .concern(let concern):
+            parts += [concern.title, concern.kind.title, "concern", concern.note, concern.outcome,
+                      concern.isOngoing ? "ongoing" : "resolved"]
+        case .dose(let dose):
+            parts += [dose.medicationName, "medicine", "dose", dose.note]
+        case .visit(let visit):
+            parts += ["doctor", "visit", visit.kind.title, visit.provider, visit.reason, visit.doctorNotes,
+                      visit.followUpNote, visit.vaccines]
         }
         return parts.filter { !$0.isEmpty }.joined(separator: " ")
     }
@@ -190,6 +230,9 @@ struct TimelineSources {
     var foods: [SolidFoodEntry] = []
     var weights: [WeightEntry] = []
     var notes: [CareNote] = []
+    var concerns: [HealthConcern] = []
+    var doses: [MedicationDose] = []
+    var visits: [DoctorVisit] = []
 }
 
 /// One day of the timeline, with the tallies its header shows.
@@ -223,6 +266,7 @@ struct TimelineDay: Identifiable {
             parts.append(count == 1 ? one : "\(count) \(many)")
         }
         counted(.notes, "1 note", "notes")
+        counted(.health, "1 health entry", "health entries")
         counted(.food, "1 food", "foods")
         counted(.growth, "weigh-in", "weigh-ins")
         return parts.joined(separator: " · ")
@@ -259,6 +303,11 @@ enum TimelineBuilder {
         if filter.includes(.notes) {
             items += sources.notes.active(for: babyID).map(TimelineItem.note)
         }
+        if filter.includes(.health) {
+            items += sources.concerns.active(for: babyID).map(TimelineItem.concern)
+            items += sources.doses.active(for: babyID).map(TimelineItem.dose)
+            items += sources.visits.active(for: babyID).map(TimelineItem.visit)
+        }
 
         let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
         if !words.isEmpty {
@@ -289,6 +338,8 @@ enum TimelineBuilder {
             case .food: !sources.foods.active(for: babyID).isEmpty
             case .growth: !sources.weights.active(for: babyID).isEmpty
             case .notes: !sources.notes.active(for: babyID).isEmpty
+            case .health: !sources.concerns.active(for: babyID).isEmpty || !sources.doses.active(for: babyID).isEmpty
+                || !sources.visits.active(for: babyID).isEmpty
             }
         }
     }

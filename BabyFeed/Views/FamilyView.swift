@@ -53,6 +53,12 @@ struct FamilyView: View {
                     .foregroundStyle(.green)
             }
 
+            if sync.serverNeedsUpdateForHealth {
+                Text("Your Mac mini needs an update to share health records (concerns, medicines, visits). They're kept on this iPhone until it's done.")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
+
             if !sync.isConfigured, sync.hasServer {
                 Button {
                     backUp()

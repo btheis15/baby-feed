@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 struct RootView: View {
@@ -8,6 +9,9 @@ struct RootView: View {
     /// Read so the whole tree re-renders when the time zone setting changes.
     @AppStorage(AppSettings.timeZoneKey) private var timeZoneIdentifier = ""
     @AppStorage(AppSettings.hasSeenOnboardingKey) private var hasSeenOnboarding = false
+    @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
+    @Query private var medications: [Medication]
+    @Query(sort: \MedicationDose.time, order: .reverse) private var doses: [MedicationDose]
     @AppStorage(AppSettings.darkAtNightKey) private var darkAtNight = true
     @AppStorage(AppSettings.nightStartKey) private var nightStart = NightHours.standard.startMinutes
     @AppStorage(AppSettings.nightEndKey) private var nightEnd = NightHours.standard.endMinutes
@@ -26,6 +30,10 @@ struct RootView: View {
             Tab("Timeline", systemImage: "calendar.day.timeline.left", value: AppRouter.Tab.timeline) {
                 CareTimelineView()
             }
+            Tab("Health", systemImage: "stethoscope", value: AppRouter.Tab.health) {
+                HealthView()
+            }
+            .badge(medicinesDue)
             Tab(babyName.isEmpty ? "Baby" : babyName, systemImage: "figure.child", value: AppRouter.Tab.baby) {
                 BabyView()
             }
@@ -79,6 +87,20 @@ struct RootView: View {
                 AddEntrySheet()
             case .newEntry(let kind):
                 NewEntrySheet(kind: kind)
+            case .newUpdate(let id):
+                if let concern = modelContext.model(for: id) as? HealthConcern {
+                    LogCareNoteSheet(mode: .update(concern))
+                }
+            case .giveDose(let id):
+                LogDoseSheet(mode: .new(id.flatMap { modelContext.model(for: $0) as? Medication }))
+            case .newMedication(let vitaminD):
+                MedicationSheet(mode: vitaminD
+                                ? .new(name: "Vitamin D", kind: .supplement, schedule: .daily, unit: .drop)
+                                : .blank)
+            case .trackConcern(let id):
+                if let note = modelContext.model(for: id) as? CareNote {
+                    LogConcernSheet(mode: .new(kind: note.kind, fromNote: note))
+                }
             }
         }
         // Above the tab bar and its accessory, over whichever tab is showing:
@@ -108,6 +130,15 @@ struct RootView: View {
 }
 
 extension RootView {
+    /// Medicines due now, for the Health tab's badge.
+    private var medicinesDue: Int {
+        let babyID = UUID(uuidString: currentBabyIDRaw)
+        let babyDoses = doses.active(for: babyID)
+        return medications.active(for: babyID).filter {
+            MedicationStats.isDue($0, doses: babyDoses, now: .now, calendar: AppSettings.calendar)
+        }.count
+    }
+
     private var hours: NightHours { NightHours(startMinutes: nightStart, endMinutes: nightEnd) }
 
     private func updateNight() {

@@ -87,15 +87,16 @@ struct CareTimelineView: View {
             descriptor.fetchLimit = 1
             return (try? modelContext.fetch(descriptor))?.first?.occurredAt
         }
-        return [
-            first(#Predicate<FeedEntry> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.startTime)),
-            first(#Predicate<DiaperEntry> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.time)),
-            first(#Predicate<SolidFoodEntry> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.time)),
-            first(#Predicate<WeightEntry> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.date)),
-            first(#Predicate<CareNote> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.date)),
-        ]
-        .compactMap { $0 }
-        .min()
+        var dates: [Date?] = []
+        dates.append(first(#Predicate<FeedEntry> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.startTime)))
+        dates.append(first(#Predicate<DiaperEntry> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.time)))
+        dates.append(first(#Predicate<SolidFoodEntry> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.time)))
+        dates.append(first(#Predicate<WeightEntry> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.date)))
+        dates.append(first(#Predicate<CareNote> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.date)))
+        dates.append(first(#Predicate<HealthConcern> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.startedAt)))
+        dates.append(first(#Predicate<MedicationDose> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.time)))
+        dates.append(first(#Predicate<DoctorVisit> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.date)))
+        return dates.compactMap { $0 }.min()
     }
 }
 
@@ -120,6 +121,9 @@ private struct TimelineQueryView<ModePicker: View>: View {
     @Query private var diapers: [DiaperEntry]
     @Query private var weights: [WeightEntry]
     @Query private var notes: [CareNote]
+    @Query private var concerns: [HealthConcern]
+    @Query private var doses: [MedicationDose]
+    @Query private var visits: [DoctorVisit]
     /// Not windowed: whether a food is a first time depends on the whole log.
     @Query private var foods: [SolidFoodEntry]
     /// Not windowed either: the daily target in Trends needs the latest
@@ -174,10 +178,17 @@ private struct TimelineQueryView<ModePicker: View>: View {
                        sort: \.date, order: .reverse)
         _foods = Query(filter: #Predicate<SolidFoodEntry> { $0.babyID == id && $0.deletedAt == nil },
                        sort: \.time, order: .reverse)
+        _concerns = Query(filter: #Predicate<HealthConcern> { $0.babyID == id && $0.deletedAt == nil && $0.startedAt >= start },
+                          sort: \.startedAt, order: .reverse)
+        _doses = Query(filter: #Predicate<MedicationDose> { $0.babyID == id && $0.deletedAt == nil && $0.time >= start },
+                       sort: \.time, order: .reverse)
+        _visits = Query(filter: #Predicate<DoctorVisit> { $0.babyID == id && $0.deletedAt == nil && $0.date >= start },
+                        sort: \.date, order: .reverse)
     }
 
     var body: some View {
-        let sources = TimelineSources(feeds: feeds, diapers: diapers, foods: foods, weights: weights, notes: notes)
+        let sources = TimelineSources(feeds: feeds, diapers: diapers, foods: foods, weights: weights, notes: notes,
+                                      concerns: concerns, doses: doses, visits: visits)
         let categories = TimelineBuilder.categoriesPresent(sources, babyID: babyID)
         let days = Self.signposter.withIntervalSignpost("Build days") {
             let start = since ?? .distantPast

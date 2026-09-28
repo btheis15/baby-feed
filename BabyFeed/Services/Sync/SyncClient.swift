@@ -148,14 +148,18 @@ struct SyncClient: Sendable {
         /// Whether a new phone could set itself up from where it's asking:
         /// false away from home, which is the usual reason sharing can't start.
         let enrollAvailable: Bool?
+        /// The tables this server stores. Nil from servers that don't say,
+        /// which are from before the health records.
+        let tables: [String]?
 
         enum CodingKeys: String, CodingKey {
-            case ok, service, api, features, enroll
+            case ok, service, api, features, enroll, tables
             case serverID = "server_id"
             case enrollAvailable = "enroll_available"
         }
 
-        init(ok: Bool, service: String, api: Int?, serverID: String?, features: [String], enroll: String?, enrollAvailable: Bool?) {
+        init(ok: Bool, service: String, api: Int?, serverID: String?, features: [String], enroll: String?,
+             enrollAvailable: Bool?, tables: [String]? = nil) {
             self.ok = ok
             self.service = service
             self.api = api
@@ -163,6 +167,7 @@ struct SyncClient: Sendable {
             self.features = features
             self.enroll = enroll
             self.enrollAvailable = enrollAvailable
+            self.tables = tables
         }
 
         init(from decoder: Decoder) throws {
@@ -174,6 +179,7 @@ struct SyncClient: Sendable {
             features = try container.decodeIfPresent([String].self, forKey: .features) ?? []
             enroll = try container.decodeIfPresent(String.self, forKey: .enroll)
             enrollAvailable = try container.decodeIfPresent(Bool.self, forKey: .enrollAvailable)
+            tables = try container.decodeIfPresent([String].self, forKey: .tables)
         }
 
         func supports(_ feature: String) -> Bool { features.contains(feature) }
@@ -385,6 +391,10 @@ struct SyncClient: Sendable {
         let careNotes: [CareNoteDTO]
         let diapers: [DiaperDTO]
         let solidFoods: [SolidFoodDTO]
+        let concerns: [HealthConcernDTO]
+        let medications: [MedicationDTO]
+        let medicationDoses: [MedicationDoseDTO]
+        let doctorVisits: [DoctorVisitDTO]
         let members: [MemberDTO]
         let hasMore: Bool
         /// Exactly where the next page starts. Nil from servers that don't
@@ -392,9 +402,11 @@ struct SyncClient: Sendable {
         let nextSince: Date?
 
         enum CodingKeys: String, CodingKey {
-            case babies, feeds, weights, diapers, members
+            case babies, feeds, weights, diapers, members, concerns, medications
             case careNotes = "care_notes"
             case solidFoods = "solid_foods"
+            case medicationDoses = "medication_doses"
+            case doctorVisits = "doctor_visits"
             case hasMore = "has_more"
             case nextSince = "next_since"
         }
@@ -410,6 +422,10 @@ struct SyncClient: Sendable {
             careNotes = try container.decode([CareNoteDTO].self, forKey: .careNotes)
             diapers = try container.decodeIfPresent([DiaperDTO].self, forKey: .diapers) ?? []
             solidFoods = try container.decodeIfPresent([SolidFoodDTO].self, forKey: .solidFoods) ?? []
+            concerns = try container.decodeIfPresent([HealthConcernDTO].self, forKey: .concerns) ?? []
+            medications = try container.decodeIfPresent([MedicationDTO].self, forKey: .medications) ?? []
+            medicationDoses = try container.decodeIfPresent([MedicationDoseDTO].self, forKey: .medicationDoses) ?? []
+            doctorVisits = try container.decodeIfPresent([DoctorVisitDTO].self, forKey: .doctorVisits) ?? []
             members = try container.decode([MemberDTO].self, forKey: .members)
             hasMore = try container.decode(Bool.self, forKey: .hasMore)
             nextSince = try container.decodeIfPresent(Date.self, forKey: .nextSince)
@@ -417,14 +433,18 @@ struct SyncClient: Sendable {
 
         /// Every server timestamp in this response, for the next watermark.
         var serverStamps: [Date] {
-            babies.compactMap(\.serverUpdatedAt) + feeds.compactMap(\.serverUpdatedAt)
-                + weights.compactMap(\.serverUpdatedAt) + careNotes.compactMap(\.serverUpdatedAt)
-                + diapers.compactMap(\.serverUpdatedAt) + solidFoods.compactMap(\.serverUpdatedAt)
+            var stamps = babies.compactMap(\.serverUpdatedAt) + feeds.compactMap(\.serverUpdatedAt)
+            stamps += weights.compactMap(\.serverUpdatedAt) + careNotes.compactMap(\.serverUpdatedAt)
+            stamps += diapers.compactMap(\.serverUpdatedAt) + solidFoods.compactMap(\.serverUpdatedAt)
+            stamps += concerns.compactMap(\.serverUpdatedAt) + medications.compactMap(\.serverUpdatedAt)
+            stamps += medicationDoses.compactMap(\.serverUpdatedAt) + doctorVisits.compactMap(\.serverUpdatedAt)
+            return stamps
         }
 
         var isEmpty: Bool {
             babies.isEmpty && feeds.isEmpty && weights.isEmpty && careNotes.isEmpty
-                && diapers.isEmpty && solidFoods.isEmpty
+                && diapers.isEmpty && solidFoods.isEmpty && concerns.isEmpty && medications.isEmpty
+                && medicationDoses.isEmpty && doctorVisits.isEmpty
         }
     }
 
@@ -451,16 +471,24 @@ struct SyncPushPayload: Encodable {
     var careNotes: [CareNoteDTO]?
     var diapers: [DiaperDTO]?
     var solidFoods: [SolidFoodDTO]?
+    var concerns: [HealthConcernDTO]?
+    var medications: [MedicationDTO]?
+    var medicationDoses: [MedicationDoseDTO]?
+    var doctorVisits: [DoctorVisitDTO]?
 
     enum CodingKeys: String, CodingKey {
-        case babies, feeds, weights, diapers
+        case babies, feeds, weights, diapers, concerns, medications
         case careNotes = "care_notes"
         case solidFoods = "solid_foods"
+        case medicationDoses = "medication_doses"
+        case doctorVisits = "doctor_visits"
     }
 
     var isEmpty: Bool {
         (babies?.isEmpty ?? true) && (feeds?.isEmpty ?? true)
             && (weights?.isEmpty ?? true) && (careNotes?.isEmpty ?? true)
             && (diapers?.isEmpty ?? true) && (solidFoods?.isEmpty ?? true)
+            && (concerns?.isEmpty ?? true) && (medications?.isEmpty ?? true)
+            && (medicationDoses?.isEmpty ?? true) && (doctorVisits?.isEmpty ?? true)
     }
 }

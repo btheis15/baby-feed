@@ -149,6 +149,8 @@ struct HomeView: View {
                         }
                     }
 
+                    RightNowCard(babyID: currentBabyID, birthDate: profile.birthDate)
+
                     SyncSetupCard(babyName: profile.displayName,
                                   hasRealBaby: !babyName.isEmpty || !visible.isEmpty)
 
@@ -268,7 +270,8 @@ struct HomeView: View {
     private func addEntrySubtitle(now: Date) -> String {
         let months = profile.ageInDays(on: now, calendar: calendar).map(FoodGuidance.months(fromDays:))
         let offersFood = months.map { !FoodTexture.available(atMonths: $0).isEmpty } ?? false
-        return offersFood ? "Note, weight or food" : "A note or a weight"
+        return offersFood ? "Medicine, a note, a concern, a visit, weight or food"
+                          : "Medicine, a note, a concern, a visit or weight"
     }
 }
 

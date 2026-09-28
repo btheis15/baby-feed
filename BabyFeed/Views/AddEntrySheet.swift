@@ -6,6 +6,9 @@ import SwiftUI
 /// medicine, a concern and a doctor visit here.
 enum AddEntryKind: String, CaseIterable, Identifiable {
     case note
+    case medicine
+    case concern
+    case visit
     case weight
     case food
 
@@ -14,6 +17,9 @@ enum AddEntryKind: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .note: "Note"
+        case .medicine: "Medicine or vitamin"
+        case .concern: "Health concern"
+        case .visit: "Doctor visit"
         case .weight: "Weight"
         case .food: "Food"
         }
@@ -22,6 +28,9 @@ enum AddEntryKind: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .note: "Breathing, a rash, spit-up, a bad night: anything for the doctor"
+        case .medicine: "A dose given, so the other phone knows"
+        case .concern: "Something going on, like a red eye: tracked until it's better"
+        case .visit: "A checkup or sick visit, and what the doctor said"
         case .weight: "From the scale at home or a checkup"
         case .food: "Solids, one new food at a time"
         }
@@ -30,6 +39,9 @@ enum AddEntryKind: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .note: "note.text"
+        case .medicine: "pills.fill"
+        case .concern: "cross.case.fill"
+        case .visit: "stethoscope"
         case .weight: "scalemass.fill"
         case .food: "carrot.fill"
         }
@@ -38,6 +50,9 @@ enum AddEntryKind: String, CaseIterable, Identifiable {
     var tint: Color {
         switch self {
         case .note: .purple
+        case .medicine: .mint
+        case .concern: .orange
+        case .visit: .indigo
         case .weight: .blue
         case .food: .green
         }
@@ -120,6 +135,12 @@ struct NewEntrySheet: View {
         switch kind {
         case .note:
             LogCareNoteSheet(mode: .new)
+        case .medicine:
+            LogDoseSheet(mode: .new(nil))
+        case .concern:
+            LogConcernSheet(mode: .new(kind: nil, fromNote: nil))
+        case .visit:
+            DoctorVisitSheet(mode: .new)
         case .weight:
             AddWeightSheet(weightUnit: WeightUnit(rawValue: weightUnitRaw) ?? .poundsOunces)
         case .food:

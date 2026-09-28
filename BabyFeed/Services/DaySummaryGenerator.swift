@@ -28,6 +28,9 @@ enum DaySummaryGenerator {
             /// The same tally as numbers, for the table's columns.
             var wet = 0
             var dirty = 0
+            /// The raw amounts, for adding days up into weeks.
+            var volumeML: Double? = nil
+            var nursingMinutes: Int? = nil
 
             var hasDiapers: Bool { wet > 0 || dirty > 0 }
         }
@@ -72,10 +75,43 @@ enum DaySummaryGenerator {
             let flagged: Bool
         }
 
-        /// Every day in the window with feeds or diapers logged, newest first.
+        /// What the last visit asked to follow up on.
+        struct FollowUp: Equatable {
+            let visitText: String
+            let note: String
+            let dueText: String?
+        }
+
+        /// A concern that was going on at some point in the window.
+        struct Concern: Identifiable {
+            let id: UUID
+            let title: String
+            /// "started Sep 16 · 12 days ago"
+            let startedText: String
+            /// "ongoing · day 12", or "lasted 4 days"
+            let statusText: String
+            let updates: [String]
+        }
+
+        /// One medicine's doses in the window.
+        struct Medicine: Identifiable {
+            let id: String
+            let name: String
+            let count: Int
+            let firstText: String
+            let lastText: String
+        }
+
+        /// Every day in the window with feeds or diapers logged, newest first,
+        /// or every week of it for a window longer than two weeks.
         var days: [Day]
         var notes: [Note]
         var foods: [Food]
+        var followUp: FollowUp? = nil
+        var concerns: [Concern] = []
+        var medicines: [Medicine] = []
+        /// True when `days` holds weeks rather than days.
+        var byWeek = false
         /// How many days the feed averages divide by: the days with feeds.
         var feedDayCount = 0
         /// And the diaper averages: the days with diapers.
@@ -88,6 +124,7 @@ enum DaySummaryGenerator {
         var hasDiapers: Bool { diaperDayCount > 0 }
         var hasNotes: Bool { !notes.isEmpty }
         var hasFoods: Bool { !foods.isEmpty }
+        var hasHealth: Bool { followUp != nil || !concerns.isEmpty || !medicines.isEmpty }
 
         /// What the per-day numbers were averaged over, said plainly, since a
         /// day nobody logged is left out rather than counted as a zero.
@@ -114,14 +151,20 @@ enum DaySummaryGenerator {
         careNotes: [CareNote] = [],
         diapers: [DiaperEntry] = [],
         solidFoods: [SolidFoodEntry] = [],
-        days: Int,
+        concerns: [HealthConcern] = [],
+        doses: [MedicationDose] = [],
+        visits: [DoctorVisit] = [],
+        days: Int = 7,
+        window: ReportWindow? = nil,
         unit: VolumeUnit,
         weightUnit: WeightUnit,
         profile: BabyProfile,
         calendar: Calendar = .current,
         now: Date = .now
     ) -> Report {
-        let cutoff = calendar.date(byAdding: .day, value: -(days - 1), to: calendar.startOfDay(for: now)) ?? now
+        let window = window ?? .days(days)
+        let cutoff = window.start(now: now, calendar: calendar)
+        let windowDays = window.dayCount(now: now, calendar: calendar)
         let recent = entries.filter { $0.startTime >= cutoff }
         let groups = FeedStats.groupByDay(recent, calendar: calendar)
         let total = FeedSummary(recent)
@@ -246,7 +289,9 @@ enum DaySummaryGenerator {
                 nursingText: summary.nursingMinutes > 0 ? "\(summary.nursingMinutes) min" : nil,
                 diaperText: (tally?.isEmpty ?? true) ? nil : tally?.text,
                 wet: tally?.wet ?? 0,
-                dirty: tally?.dirty ?? 0
+                dirty: tally?.dirty ?? 0,
+                volumeML: summary.bottleCount > 0 ? summary.totalML : nil,
+                nursingMinutes: summary.nursingMinutes > 0 ? summary.nursingMinutes : nil
             )
         }
 
@@ -280,20 +325,113 @@ enum DaySummaryGenerator {
                 )
             }
 
+        var dateStyle = Date.FormatStyle.dateTime.month(.abbreviated).day()
+        dateStyle.timeZone = calendar.timeZone
+
+        // The last visit's follow-up, the thing the doctor asked to hear about.
+        let pastVisits = visits.active(for: nil).filter { $0.date <= now }.sorted { $0.date > $1.date }
+        let followUp = pastVisits.first(where: { !$0.followUpNote.isEmpty || $0.followUpDate != nil }).map { visit in
+            Report.FollowUp(
+                visitText: [visit.date.formatted(dateStyle), visit.kind.title, visit.provider]
+                    .filter { !$0.isEmpty }.joined(separator: " · "),
+                note: visit.followUpNote,
+                dueText: visit.followUpDate.map { "around \($0.formatted(dateStyle))" }
+            )
+        }
+
+        // Concerns going on at any point in the window, with their updates.
+        let concernLines = concerns.active(for: nil)
+            .filter { $0.startedAt <= now && ($0.resolvedAt ?? now) >= cutoff }
+            .sorted { $0.startedAt > $1.startedAt }
+            .map { concern in
+                Report.Concern(
+                    id: concern.uuid ?? UUID(),
+                    title: concern.title.isEmpty ? concern.kind.title : concern.title,
+                    startedText: "started " + ConcernStats.startedText(concern, now: now, calendar: calendar)
+                        .replacingOccurrences(of: "since ", with: ""),
+                    statusText: ConcernStats.statusText(concern, now: now, calendar: calendar),
+                    updates: ConcernStats.updates(for: concern, in: careNotes)
+                        .filter { $0.date >= cutoff && !$0.note.isEmpty }
+                        .map { "\(FeedStats.dayTitle(for: $0.date, calendar: calendar, now: now)): \($0.note)" }
+                )
+            }
+
+        // Medicines given, one line each: how many, first and last.
+        let windowDoses = doses.active(for: nil).filter { $0.time >= cutoff && $0.time <= now }
+        let byName = Dictionary(grouping: windowDoses) { $0.medicationName.trimmingCharacters(in: .whitespaces).lowercased() }
+        let medicineLines = byName.values.compactMap { group -> Report.Medicine? in
+            let sorted = group.sorted { $0.time < $1.time }
+            guard let first = sorted.first, let last = sorted.last else { return nil }
+            return Report.Medicine(
+                id: first.medicationName.lowercased(),
+                name: first.medicationName,
+                count: sorted.count,
+                firstText: ClockText.since(first.time, now: now, in: calendar.timeZone),
+                lastText: ClockText.since(last.time, now: now, in: calendar.timeZone)
+            )
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+        // A long window reads better by the week than by the day.
+        let byWeek = windowDays > 14
+        if byWeek {
+            dayRows = weeklyRows(dayRows, cutoff: cutoff, calendar: calendar, unit: unit, now: now)
+        }
+
         return Report(
             babyName: profile.displayName,
             ageText: profile.ageText(on: now, calendar: calendar),
-            windowText: "Last \(days) days",
+            windowText: window.title(now: now, calendar: calendar),
             weightItems: weightItems,
             averageItems: averageItems,
             totalItems: totalItems,
             days: dayRows,
             notes: notes,
             foods: foods,
+            followUp: followUp,
+            concerns: concernLines,
+            medicines: medicineLines,
+            byWeek: byWeek,
             feedDayCount: groups.count,
             diaperDayCount: diapersByDay.count,
             feedsAndDiapersShareDays: Set(feedsByDay.keys) == Set(diapersByDay.keys)
         )
+    }
+
+    /// Day rows added up into weeks, counted back from today, newest first.
+    private static func weeklyRows(_ days: [Report.Day], cutoff: Date, calendar: Calendar, unit: VolumeUnit, now: Date) -> [Report.Day] {
+        var style = Date.FormatStyle.dateTime.month(.abbreviated).day()
+        style.timeZone = calendar.timeZone
+        let today = calendar.startOfDay(for: now)
+        let buckets = Dictionary(grouping: days) { day in
+            RelativeAge.days(from: day.id, to: today, calendar: calendar) / 7
+        }
+        return buckets.keys.sorted().compactMap { weeksAgo -> Report.Day? in
+            guard let rows = buckets[weeksAgo] else { return nil }
+            let end = calendar.date(byAdding: .day, value: -7 * weeksAgo, to: today) ?? today
+            let start = max(calendar.date(byAdding: .day, value: -6, to: end) ?? end, cutoff)
+            let feedCount = rows.reduce(0) { $0 + $1.feedCount }
+            let volume = rows.reduce(0.0) { $0 + ($1.volumeML ?? 0) }
+            let nursing = rows.reduce(0) { $0 + ($1.nursingMinutes ?? 0) }
+            let wet = rows.reduce(0) { $0 + $1.wet }
+            let dirty = rows.reduce(0) { $0 + $1.dirty }
+            var tally: [String] = []
+            if wet > 0 { tally.append("\(wet) wet") }
+            if dirty > 0 { tally.append("\(dirty) dirty") }
+            return Report.Day(
+                id: start,
+                title: "\(start.formatted(style))–\(end.formatted(style))",
+                shortTitle: "\(start.formatted(style))–",
+                feedCount: feedCount,
+                volumeText: volume > 0 ? unit.format(milliliters: volume) : nil,
+                nursingText: nursing > 0 ? "\(nursing) min" : nil,
+                diaperText: tally.isEmpty ? nil : tally.joined(separator: " · "),
+                wet: wet,
+                dirty: dirty,
+                volumeML: volume > 0 ? volume : nil,
+                nursingMinutes: nursing > 0 ? nursing : nil
+            )
+        }
     }
 
     /// "Today", "Yesterday", or "Tue 15" – narrow enough for a table column.
@@ -343,7 +481,7 @@ enum DaySummaryGenerator {
 
         var header = report.babyName
         if let age = report.ageText { header += ", \(age)" }
-        header += " — feeding, \(report.windowText.lowercased())"
+        header += " — \(report.windowText.lowercased())"
         lines.append(header)
 
         if !report.weightItems.isEmpty {
@@ -368,9 +506,36 @@ enum DaySummaryGenerator {
             }
         }
 
+        lines.append(contentsOf: healthLines(report))
         lines.append(contentsOf: foodLines(report))
         lines.append(contentsOf: noteLines(report))
         return lines.joined(separator: "\n")
+    }
+
+    /// The last visit's follow-up, the concerns and the medicines: what a
+    /// doctor asks about after "how's feeding going?".
+    private static func healthLines(_ report: Report) -> [String] {
+        var lines: [String] = []
+        if let followUp = report.followUp {
+            lines += ["", "Follow-up from the last visit (\(followUp.visitText))"]
+            lines.append([followUp.note, followUp.dueText].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", "))
+        }
+        if !report.concerns.isEmpty {
+            lines += ["", "Concerns"]
+            for concern in report.concerns {
+                lines.append("\(concern.title) — \(concern.startedText), \(concern.statusText)")
+                lines += concern.updates.map { "  \($0)" }
+            }
+        }
+        if !report.medicines.isEmpty {
+            lines += ["", "Medicines given"]
+            for medicine in report.medicines {
+                lines.append(medicine.count == 1
+                             ? "\(medicine.name): once, \(medicine.lastText)"
+                             : "\(medicine.name): \(medicine.count) doses, first \(medicine.firstText), last \(medicine.lastText)")
+            }
+        }
+        return lines
     }
 
     /// "5 feeds · 16.9 oz · 17 min nursing · diapers 4 wet · 2 dirty". A day

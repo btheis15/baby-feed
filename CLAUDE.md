@@ -72,8 +72,14 @@ with newborn needs first.
 ## Syncing and the server
 
 - **A new synced type** follows ROADMAP.md Appendix A. On the app side that means the model, the DTO,
-  `SyncEngine`, `SyncClient`, `BabyStore.removeLocally` and `DebugSeed`. On the server side it means
-  `db.js`, `sync.js` and tests.
+  `SyncEngine` (push, merge, `queueEverything`, `table(of:)`, `pendingCount`), `SyncClient`,
+  `BabyStore.removeLocally`/`rowCount`, `DebugSeed`, and a `TimelineItem` case. On the server side it
+  means `db.js`, `sync.js` and tests.
+- **A new column on an existing synced table** goes through `COLUMN_ADDITIONS` + `LATE_COLUMNS` on the
+  server, and on the app a DTO that always sends the key (null included) and applies it only when it
+  was received (see `CareNoteDTO.concernID`).
+- **Medicines:** the app records what was given and never suggests a dose. `DoseDraft` only ever
+  offers the amount a parent entered, and notices never block Save.
 - **Deploy order:** the server goes out before any app build that needs it (ROADMAP.md Appendix B). The
   mini runs its own checkout at `~/baby-feed`.
 - **Connecting** goes through `SyncEngine.ensureConnected(_:)`, one operation at a time. Nothing

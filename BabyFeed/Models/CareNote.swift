@@ -21,8 +21,12 @@ final class CareNote {
     var note: String = ""
     /// Optional 1–3 severity, for the kinds where "how bad" is the question.
     var severityRaw: Int?
-    /// Set when it's still going on, so the report can say "ongoing".
+    /// Not used, and never read as "ongoing": a note is a moment, and
+    /// something that goes on is a `HealthConcern`. Kept, and still synced,
+    /// only so a value an older build wrote isn't lost on the way through.
     var resolvedAt: Date?
+    /// The concern this note is an update on ("less red today"), if any.
+    var concernID: UUID?
     var loggedByName: String = ""
     var updatedAt: Date = Date()
     var deletedAt: Date?
@@ -60,13 +64,6 @@ final class CareNote {
 
     var isActive: Bool { deletedAt == nil }
 
-    /// "Breathing · 2 days ago" style summary, without the note.
-    func summary(calendar: Calendar = .current, now: Date = .now) -> String {
-        var parts = [kind.title]
-        if let severity { parts.append(severity.title.lowercased()) }
-        return parts.joined(separator: " · ")
-    }
-
     func markChanged() {
         updatedAt = .now
         needsUpload = true
@@ -82,12 +79,19 @@ final class CareNote {
 /// sentence. `other` exists because a fixed list never covers everything.
 enum CareNoteKind: String, CaseIterable, Identifiable, Codable {
     case breathing
-    case crying
+    case cough
+    case eye
+    case jaundice
+    case cord
     case spitUp
+    case vomiting
     case stool
     case rash
     case temperature
+    case crying
     case sleep
+    case teething
+    case injury
     case other
 
     var id: String { rawValue }
@@ -95,25 +99,61 @@ enum CareNoteKind: String, CaseIterable, Identifiable, Codable {
     var title: String {
         switch self {
         case .breathing: "Breathing"
-        case .crying: "Crying"
+        case .cough: "Cough or congestion"
+        case .eye: "Eye — redness or discharge"
+        case .jaundice: "Yellow skin or eyes"
+        case .cord: "Umbilical cord"
         case .spitUp: "Spit up"
-        case .stool: "Stool"
+        case .vomiting: "Vomiting"
+        // Not "Stool": the Dirty button logs those. This is the worry.
+        case .stool: "Poop concern"
         case .rash: "Skin or rash"
         case .temperature: "Temperature"
+        case .crying: "Crying"
         case .sleep: "Sleep"
+        case .teething: "Teething"
+        case .injury: "Bump or injury"
         case .other: "Something else"
+        }
+    }
+
+    /// A short name for a concern's title: "Red eye", not the whole kind.
+    var concernTitle: String {
+        switch self {
+        case .breathing: "Breathing"
+        case .cough: "Cough"
+        case .eye: "Red eye"
+        case .jaundice: "Jaundice"
+        case .cord: "Umbilical cord"
+        case .spitUp: "Spitting up"
+        case .vomiting: "Vomiting"
+        case .stool: "Poop concern"
+        case .rash: "Rash"
+        case .temperature: "Temperature"
+        case .crying: "Crying"
+        case .sleep: "Sleep"
+        case .teething: "Teething"
+        case .injury: "Bump"
+        case .other: ""
         }
     }
 
     var systemImage: String {
         switch self {
         case .breathing: "lungs.fill"
-        case .crying: "face.dashed.fill"
+        case .cough: "wind"
+        case .eye: "eye.fill"
+        case .jaundice: "sun.max.fill"
+        case .cord: "circle.dotted"
         case .spitUp: "drop.triangle.fill"
+        case .vomiting: "exclamationmark.triangle.fill"
         case .stool: "toilet.fill"
         case .rash: "allergens.fill"
         case .temperature: "thermometer.medium"
+        case .crying: "face.dashed.fill"
         case .sleep: "moon.zzz.fill"
+        case .teething: "mouth.fill"
+        case .injury: "bandage.fill"
         case .other: "square.and.pencil"
         }
     }
@@ -123,12 +163,19 @@ enum CareNoteKind: String, CaseIterable, Identifiable, Codable {
     var placeholder: String {
         switch self {
         case .breathing: "Sounded snuffly for about 10 minutes after the feed…"
-        case .crying: "Inconsolable for an hour around 8pm, settled after a burp…"
+        case .cough: "Stuffy nose since yesterday, coughs after feeds…"
+        case .eye: "Left eye red and goopy in the morning, wiped clean…"
+        case .jaundice: "Face looks more yellow than yesterday…"
+        case .cord: "A little bleeding where it came off, smells fine…"
         case .spitUp: "Bigger than usual, right after a full bottle…"
+        case .vomiting: "Forceful, twice after the morning feed…"
         case .stool: "Very hard, seemed uncomfortable…"
         case .rash: "Red patches on both cheeks, not bothering her…"
         case .temperature: "37.9 °C under the arm, otherwise herself…"
+        case .crying: "Inconsolable for an hour around 8pm, settled after a burp…"
         case .sleep: "Woke every 40 minutes all night…"
+        case .teething: "Drooling a lot, chewing everything…"
+        case .injury: "Rolled off the changing mat, cried straight away…"
         case .other: "What happened, and anything that seemed to help…"
         }
     }
@@ -136,8 +183,8 @@ enum CareNoteKind: String, CaseIterable, Identifiable, Codable {
     /// Only some kinds have a meaningful "how bad was it".
     var usesSeverity: Bool {
         switch self {
-        case .breathing, .crying, .spitUp, .rash, .sleep: true
-        case .stool, .temperature, .other: false
+        case .breathing, .cough, .eye, .crying, .spitUp, .vomiting, .rash, .sleep, .teething, .injury: true
+        case .jaundice, .cord, .stool, .temperature, .other: false
         }
     }
 }

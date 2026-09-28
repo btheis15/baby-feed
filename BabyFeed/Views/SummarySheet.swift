@@ -18,26 +18,50 @@ struct SummarySheet: View {
     @Query(sort: \CareNote.date, order: .reverse) private var careNotes: [CareNote]
     @Query(sort: \DiaperEntry.time, order: .reverse) private var diapers: [DiaperEntry]
     @Query(sort: \SolidFoodEntry.time, order: .reverse) private var solidFoods: [SolidFoodEntry]
+    @Query(sort: \HealthConcern.startedAt, order: .reverse) private var concerns: [HealthConcern]
+    @Query(sort: \MedicationDose.time, order: .reverse) private var doses: [MedicationDose]
+    @Query(sort: \DoctorVisit.date, order: .reverse) private var visits: [DoctorVisit]
 
     @AppStorage(FeedDefaults.volumeUnit) private var unitRaw = VolumeUnit.ounces.rawValue
     @AppStorage(AppSettings.weightUnitKey) private var weightUnitRaw = WeightUnit.poundsOunces.rawValue
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
-    @State private var days = 7
+    /// Nil until a window is picked: then it's since the last visit.
+    @State private var chosenWindow: ReportWindow?
     @State private var friendly: String?
     @State private var isGenerating = false
 
     private var unit: VolumeUnit { VolumeUnit(rawValue: unitRaw) ?? .ounces }
     private var weightUnit: WeightUnit { WeightUnit(rawValue: weightUnitRaw) ?? .poundsOunces }
 
+    private var babyID: UUID? { UUID(uuidString: currentBabyIDRaw) }
+
+    /// Since the last visit, by default: what's happened since the doctor
+    /// last saw the baby is what the doctor wants to hear.
+    private var defaultWindow: ReportWindow {
+        ReportWindow.defaultWindow(visits: visits.active(for: babyID), now: .now, calendar: calendar)
+    }
+
+    private var window: ReportWindow { chosenWindow ?? defaultWindow }
+
+    private var windowChoices: [ReportWindow] {
+        var choices: [ReportWindow] = []
+        if case .since = defaultWindow { choices.append(defaultWindow) }
+        choices += [.days(3), .days(7), .days(14), .days(30)]
+        return choices
+    }
+
     private var report: DaySummaryGenerator.Report {
         DaySummaryGenerator.report(
-            entries: entries.active(for: UUID(uuidString: currentBabyIDRaw)),
-            weights: weights.active(for: UUID(uuidString: currentBabyIDRaw)),
-            careNotes: careNotes.active(for: UUID(uuidString: currentBabyIDRaw)),
-            diapers: diapers.active(for: UUID(uuidString: currentBabyIDRaw)),
-            solidFoods: solidFoods.active(for: UUID(uuidString: currentBabyIDRaw)),
-            days: days,
+            entries: entries.active(for: babyID),
+            weights: weights.active(for: babyID),
+            careNotes: careNotes.active(for: babyID),
+            diapers: diapers.active(for: babyID),
+            solidFoods: solidFoods.active(for: babyID),
+            concerns: concerns.active(for: babyID),
+            doses: doses.active(for: babyID),
+            visits: visits.active(for: babyID),
+            window: window,
             unit: unit,
             weightUnit: weightUnit,
             profile: BabyProfile.load(),
@@ -72,7 +96,11 @@ struct SummarySheet: View {
                     itemSection("Totals", items: report.totalItems)
                 }
                 if !report.days.isEmpty {
-                    dayTableSection(report.days)
+                    dayTableSection(report.days, byWeek: report.byWeek)
+                }
+
+                if report.hasHealth {
+                    healthSections(report)
                 }
 
                 if report.hasFoods {
@@ -104,7 +132,7 @@ struct SummarySheet: View {
                     }
                 }
             }
-            .onChange(of: days) { _, _ in friendly = nil }
+            .onChange(of: chosenWindow) { _, _ in friendly = nil }
         }
     }
 
@@ -112,20 +140,71 @@ struct SummarySheet: View {
 
     private func windowSection(_ report: DaySummaryGenerator.Report) -> some View {
         Section {
-            Picker("Days", selection: $days) {
-                Text("3 days").tag(3)
-                Text("7 days").tag(7)
-                Text("14 days").tag(14)
+            Picker("Period", selection: Binding(get: { window }, set: { chosenWindow = $0 })) {
+                ForEach(windowChoices, id: \.self) { choice in
+                    Text(choiceTitle(choice)).tag(choice)
+                }
             }
-            .pickerStyle(.segmented)
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets())
 
             LabeledContent("Baby", value: report.babyName)
             if let age = report.ageText {
                 LabeledContent("Age", value: age)
             }
             LabeledContent("Period", value: report.windowText)
+        }
+    }
+
+    private func choiceTitle(_ choice: ReportWindow) -> String {
+        switch choice {
+        case .days(let days): "Last \(days) days"
+        case .since: "Since the last visit"
+        }
+    }
+
+    /// Follow-up, concerns and medicines: after "how's feeding going?",
+    /// what the doctor asks about.
+    @ViewBuilder
+    private func healthSections(_ report: DaySummaryGenerator.Report) -> some View {
+        if let followUp = report.followUp {
+            Section {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(followUp.visitText).font(.subheadline.weight(.medium))
+                    Text([followUp.note, followUp.dueText].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", "))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Follow-up from the last visit")
+            }
+        }
+        if !report.concerns.isEmpty {
+            Section("Concerns") {
+                ForEach(report.concerns) { concern in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(concern.title).font(.subheadline.weight(.medium))
+                        Text("\(concern.startedText) · \(concern.statusText)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(concern.updates, id: \.self) { update in
+                            Text(update).font(.footnote)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        if !report.medicines.isEmpty {
+            Section("Medicines given") {
+                ForEach(report.medicines) { medicine in
+                    LabeledContent {
+                        Text(medicine.count == 1 ? medicine.lastText : "\(medicine.count)× · last \(medicine.lastText)")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } label: {
+                        Text(medicine.name)
+                    }
+                }
+            }
         }
     }
 
@@ -154,7 +233,7 @@ struct SummarySheet: View {
     /// they truncate to "Yest…" and "16.9…", so past that point each day
     /// becomes its own stacked row instead. Same numbers either way.
     @ViewBuilder
-    private func dayTableSection(_ days: [DaySummaryGenerator.Report.Day]) -> some View {
+    private func dayTableSection(_ days: [DaySummaryGenerator.Report.Day], byWeek: Bool) -> some View {
         Section {
             if dynamicTypeSize.isAccessibilitySize {
                 ForEach(days) { day in
@@ -170,7 +249,7 @@ struct SummarySheet: View {
                 dayGrid(days)
             }
         } header: {
-            Text("Day by day")
+            Text(byWeek ? "Week by week" : "Day by day")
         }
     }
 

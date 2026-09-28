@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Observation
 
 /// Navigation state that outside events (widget taps, notification actions,
@@ -7,7 +8,7 @@ import Observation
 @MainActor
 final class AppRouter {
     enum Tab: Hashable {
-        case today, timeline, baby, settings
+        case today, timeline, health, baby, settings
     }
 
     var tab: Tab = .today
@@ -46,6 +47,14 @@ final class AppRouter {
         case addEntry
         /// A new entry of one of those kinds, picked from `addEntry`.
         case newEntry(AddEntryKind)
+        /// A note that's an update on a concern ("less red today").
+        case newUpdate(PersistentIdentifier)
+        /// A dose, of a medicine if one's chosen.
+        case giveDose(PersistentIdentifier?)
+        /// Setting up a medicine; the vitamin D offer fills it in.
+        case newMedication(vitaminD: Bool)
+        /// Starting a concern from a note that turned out to be one.
+        case trackConcern(PersistentIdentifier)
 
         var id: String {
             switch self {
@@ -58,6 +67,10 @@ final class AppRouter {
             case .editEntry(let ref): "edit-\(ref.id)"
             case .addEntry: "addEntry"
             case .newEntry(let kind): "new-\(kind.rawValue)"
+            case .newUpdate(let id): "update-\(id.hashValue)"
+            case .giveDose(let id): "dose-\(id?.hashValue ?? 0)"
+            case .newMedication(let vitaminD): "medication-\(vitaminD)"
+            case .trackConcern(let id): "track-\(id.hashValue)"
             }
         }
     }

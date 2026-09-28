@@ -46,6 +46,22 @@ extension CareNote: CareEntry {
     var occurredAt: Date { date }
 }
 
+extension HealthConcern: CareEntry {
+    var occurredAt: Date { startedAt }
+}
+
+extension Medication: CareEntry {
+    var occurredAt: Date { startDate }
+}
+
+extension MedicationDose: CareEntry {
+    var occurredAt: Date { time }
+}
+
+extension DoctorVisit: CareEntry {
+    var occurredAt: Date { date }
+}
+
 extension Array where Element: CareEntry {
     /// Undeleted rows for one baby (or for every baby when `babyID` is nil).
     func active(for babyID: UUID?) -> [Element] {

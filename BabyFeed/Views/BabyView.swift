@@ -9,7 +9,6 @@ struct BabyView: View {
     @Environment(ToastCenter.self) private var toasts
     @Query(sort: \WeightEntry.date, order: .reverse) private var allWeights: [WeightEntry]
     @Query(sort: \FeedEntry.startTime, order: .reverse) private var allFeeds: [FeedEntry]
-    @Query(sort: \CareNote.date, order: .reverse) private var allCareNotes: [CareNote]
     @Query(sort: \DiaperEntry.time, order: .reverse) private var allDiapers: [DiaperEntry]
     @Query private var babies: [Baby]
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
@@ -500,25 +499,6 @@ struct BabyView: View {
 
         Section {
             NavigationLink {
-                CareNotesView(babyName: profile.displayName)
-            } label: {
-                Label {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Notes for the doctor")
-                        Text(notesSubtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "note.text")
-                }
-            }
-        } footer: {
-            Text("Breathing, crying, a rash, a bad night – anything you'd want to mention at the next appointment. It all goes into the pediatrician summary.")
-        }
-
-        Section {
-            NavigationLink {
                 FoodsView(
                     ageMonths: profile.ageInDays(calendar: calendar).map(FoodGuidance.months(fromDays:)),
                     babyName: profile.displayName,
@@ -539,12 +519,6 @@ struct BabyView: View {
         } footer: {
             Text("When solids, allergens and cow's milk can start, and what to keep away from \(profile.displayName) until when – from the AAP, CDC and WHO.")
         }
-    }
-
-    private var notesSubtitle: String {
-        let count = allCareNotes.active(for: UUID(uuidString: currentBabyIDRaw)).count
-        if count == 0 { return "Nothing logged yet" }
-        return count == 1 ? "1 note" : "\(count) notes"
     }
 
     private var foodsSubtitle: String {

@@ -21,6 +21,9 @@ struct RecentSection: View {
     @Query private var foods: [SolidFoodEntry]
     @Query private var weights: [WeightEntry]
     @Query private var notes: [CareNote]
+    @Query private var concerns: [HealthConcern]
+    @Query private var doses: [MedicationDose]
+    @Query private var visits: [DoctorVisit]
 
     init(babyID: UUID?, unit: VolumeUnit, weightUnit: WeightUnit) {
         self.babyID = babyID
@@ -38,10 +41,14 @@ struct RecentSection: View {
         _foods = newest(#Predicate<SolidFoodEntry> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.time, order: .reverse))
         _weights = newest(#Predicate<WeightEntry> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.date, order: .reverse))
         _notes = newest(#Predicate<CareNote> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.date, order: .reverse))
+        _concerns = newest(#Predicate<HealthConcern> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.startedAt, order: .reverse))
+        _doses = newest(#Predicate<MedicationDose> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.time, order: .reverse))
+        _visits = newest(#Predicate<DoctorVisit> { $0.babyID == id && $0.deletedAt == nil }, SortDescriptor(\.date, order: .reverse))
     }
 
     private var items: [TimelineItem] {
-        let sources = TimelineSources(feeds: feeds, diapers: diapers, foods: foods, weights: weights, notes: notes)
+        let sources = TimelineSources(feeds: feeds, diapers: diapers, foods: foods, weights: weights, notes: notes,
+                                      concerns: concerns, doses: doses, visits: visits)
         return TimelineBuilder.items(sources, babyID: babyID)
             .prefix(Self.count)
             // Three foods are too few to tell a first time from a repeat; the

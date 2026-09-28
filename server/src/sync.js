@@ -19,12 +19,30 @@ const COLUMNS = {
     'logged_by', 'logged_by_name', 'updated_at', 'deleted_at'],
   weights: ['id', 'baby_id', 'date', 'grams', 'note', 'logged_by', 'logged_by_name',
     'updated_at', 'deleted_at'],
-  care_notes: ['id', 'baby_id', 'date', 'kind', 'note', 'severity', 'resolved_at', 'logged_by',
-    'logged_by_name', 'updated_at', 'deleted_at'],
+  care_notes: ['id', 'baby_id', 'date', 'kind', 'note', 'severity', 'resolved_at', 'concern_id',
+    'logged_by', 'logged_by_name', 'updated_at', 'deleted_at'],
   diapers: ['id', 'baby_id', 'time', 'kind', 'note', 'logged_by', 'logged_by_name',
     'updated_at', 'deleted_at'],
   solid_foods: ['id', 'baby_id', 'time', 'name', 'texture', 'reaction', 'note',
     'logged_by', 'logged_by_name', 'updated_at', 'deleted_at'],
+  concerns: ['id', 'baby_id', 'title', 'kind', 'started_at', 'resolved_at', 'severity', 'note', 'outcome',
+    'logged_by', 'logged_by_name', 'updated_at', 'deleted_at'],
+  medications: ['id', 'baby_id', 'name', 'kind', 'dose_amount', 'dose_unit', 'schedule', 'times_per_day',
+    'interval_hours', 'min_hours_between', 'max_doses_per_24h', 'start_date', 'end_date', 'instructions',
+    'logged_by', 'logged_by_name', 'updated_at', 'deleted_at'],
+  medication_doses: ['id', 'baby_id', 'medication_id', 'medication_name', 'time', 'amount', 'unit', 'note',
+    'logged_by', 'logged_by_name', 'updated_at', 'deleted_at'],
+  doctor_visits: ['id', 'baby_id', 'date', 'kind', 'provider', 'reason', 'doctor_notes', 'follow_up_date',
+    'follow_up_note', 'vaccines', 'weight_entry_id', 'logged_by', 'logged_by_name', 'updated_at', 'deleted_at'],
+}
+
+/**
+ * Columns added to a table after phones already synced it. An older app
+ * doesn't send them, and writing every column on conflict would null what a
+ * newer app stored; so these are written only when the row carries the key.
+ */
+export const LATE_COLUMNS = {
+  care_notes: ['concern_id'],
 }
 
 const REQUIRED = {
@@ -34,6 +52,10 @@ const REQUIRED = {
   care_notes: ['id', 'baby_id', 'date', 'kind', 'updated_at'],
   diapers: ['id', 'baby_id', 'time', 'kind', 'updated_at'],
   solid_foods: ['id', 'baby_id', 'time', 'name', 'texture', 'updated_at'],
+  concerns: ['id', 'baby_id', 'title', 'kind', 'started_at', 'updated_at'],
+  medications: ['id', 'baby_id', 'name', 'start_date', 'updated_at'],
+  medication_doses: ['id', 'baby_id', 'medication_name', 'time', 'updated_at'],
+  doctor_visits: ['id', 'baby_id', 'date', 'updated_at'],
 }
 
 /** Mirrors DiaperKind on the phone; anything else is a malformed row. */
@@ -132,6 +154,61 @@ export function normalizeRow(table, raw, { userID }) {
     row.note = normalizeText(raw.note, 'note') ?? ''
     row.severity = normalizeNumber(raw.severity, 'severity', { min: 1, max: 3, integer: true })
     row.resolved_at = normalizeDate(raw.resolved_at, 'resolved_at')
+    // Late column: left undefined when an older app didn't send it, which
+    // upsertRow reads as "keep what's stored".
+    if ('concern_id' in raw) {
+      row.concern_id = raw.concern_id ? normalizeUUID(raw.concern_id, 'concern_id') : null
+    }
+  } else if (table === 'concerns') {
+    row.title = normalizeText(raw.title, 'title', 200)
+    if (!row.title || !row.title.trim()) throw new RowError('title is required')
+    // Free text: kinds are added in new app versions, and an older server
+    // refusing one would stop every sync from that phone.
+    row.kind = normalizeText(raw.kind, 'kind', 40)
+    row.started_at = normalizeDate(raw.started_at, 'started_at', { required: true })
+    row.resolved_at = normalizeDate(raw.resolved_at, 'resolved_at')
+    if (row.resolved_at && row.resolved_at < row.started_at) {
+      throw new RowError('resolved_at is before started_at')
+    }
+    row.severity = normalizeNumber(raw.severity, 'severity', { min: 1, max: 3, integer: true })
+    row.note = normalizeText(raw.note, 'note') ?? ''
+    row.outcome = normalizeText(raw.outcome, 'outcome', 1000) ?? ''
+  } else if (table === 'medications') {
+    row.name = normalizeText(raw.name, 'name', 200)
+    if (!row.name || !row.name.trim()) throw new RowError('name is required')
+    row.kind = normalizeText(raw.kind, 'kind', 40) ?? 'medicine'
+    // Bounds catch a unit mix-up or a typo, not a judgment about the dose:
+    // the app never suggests one, and neither does this.
+    row.dose_amount = normalizeNumber(raw.dose_amount, 'dose_amount', { min: 0, max: 100000 })
+    row.dose_unit = normalizeText(raw.dose_unit, 'dose_unit', 20) ?? 'ml'
+    row.schedule = normalizeText(raw.schedule, 'schedule', 40) ?? 'asNeeded'
+    row.times_per_day = normalizeNumber(raw.times_per_day, 'times_per_day', { min: 1, max: 24, integer: true })
+    row.interval_hours = normalizeNumber(raw.interval_hours, 'interval_hours', { min: 0.5, max: 168 })
+    row.min_hours_between = normalizeNumber(raw.min_hours_between, 'min_hours_between', { min: 0, max: 168 })
+    row.max_doses_per_24h = normalizeNumber(raw.max_doses_per_24h, 'max_doses_per_24h',
+      { min: 1, max: 48, integer: true })
+    row.start_date = normalizeDate(raw.start_date, 'start_date', { required: true })
+    row.end_date = normalizeDate(raw.end_date, 'end_date')
+    if (row.end_date && row.end_date < row.start_date) throw new RowError('end_date is before start_date')
+    row.instructions = normalizeText(raw.instructions, 'instructions') ?? ''
+  } else if (table === 'medication_doses') {
+    row.medication_id = raw.medication_id ? normalizeUUID(raw.medication_id, 'medication_id') : null
+    row.medication_name = normalizeText(raw.medication_name, 'medication_name', 200)
+    if (!row.medication_name || !row.medication_name.trim()) throw new RowError('medication_name is required')
+    row.time = normalizeDate(raw.time, 'time', { required: true })
+    row.amount = normalizeNumber(raw.amount, 'amount', { min: 0, max: 100000 })
+    row.unit = normalizeText(raw.unit, 'unit', 20)
+    row.note = normalizeText(raw.note, 'note') ?? ''
+  } else if (table === 'doctor_visits') {
+    row.date = normalizeDate(raw.date, 'date', { required: true })
+    row.kind = normalizeText(raw.kind, 'kind', 40) ?? 'checkup'
+    row.provider = normalizeText(raw.provider, 'provider', 200) ?? ''
+    row.reason = normalizeText(raw.reason, 'reason', 1000) ?? ''
+    row.doctor_notes = normalizeText(raw.doctor_notes, 'doctor_notes') ?? ''
+    row.follow_up_date = normalizeDate(raw.follow_up_date, 'follow_up_date')
+    row.follow_up_note = normalizeText(raw.follow_up_note, 'follow_up_note', 1000) ?? ''
+    row.vaccines = normalizeText(raw.vaccines, 'vaccines', 1000) ?? ''
+    row.weight_entry_id = raw.weight_entry_id ? normalizeUUID(raw.weight_entry_id, 'weight_entry_id') : null
   } else if (table === 'diapers') {
     row.time = normalizeDate(raw.time, 'time', { required: true })
     row.kind = normalizeText(raw.kind, 'kind', 40)
@@ -182,10 +259,14 @@ export function upsertRow(db, table, row, { userID, actorName }) {
   const columns = COLUMNS[table]
   const values = columns.map((c) => (row[c] === undefined ? null : row[c]))
   const placeholders = columns.map(() => '?').join(', ')
+  // A late column the row didn't carry keeps whatever is stored: an older app
+  // editing a note mustn't unlink it from its concern.
+  const late = new Set(LATE_COLUMNS[table] ?? [])
+  const updated = columns.filter((c) => c !== 'id' && !(late.has(c) && row[c] === undefined))
   db.prepare(
     `INSERT INTO ${table} (${columns.join(', ')}, server_updated_at, server_ms)
      VALUES (${placeholders}, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET ${columns.filter((c) => c !== 'id').map((c) => `${c} = excluded.${c}`).join(', ')},
+     ON CONFLICT(id) DO UPDATE SET ${updated.map((c) => `${c} = excluded.${c}`).join(', ')},
        server_updated_at = excluded.server_updated_at, server_ms = excluded.server_ms`
   ).run(...values, at.iso, at.ms)
 
