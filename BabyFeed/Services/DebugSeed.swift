@@ -259,7 +259,7 @@ enum DebugSeed {
 }
 
 /// Where to open, for screenshots taken from the command line:
-/// `--open-tab timeline|health|baby|settings`, `--open-sheet add|share`,
+/// `--open-tab timeline|charts|health|baby|settings`, `--open-sheet add|share`,
 /// `--debug-nursing <minutes ago>` and `--debug-open-url <babyfeed://…>`.
 /// Debug builds only, like the seed.
 @MainActor
@@ -272,6 +272,9 @@ enum DebugLaunch {
         }
         switch value(after: "--open-tab") {
         case "timeline": router.tab = .timeline
+        case "charts":
+            router.tab = .timeline
+            router.timelineShowsCharts = true
         case "health": router.tab = .health
         case "baby": router.tab = .baby
         case "settings": router.tab = .settings

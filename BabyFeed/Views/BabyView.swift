@@ -210,6 +210,12 @@ struct BabyView: View {
                 }
                 .padding(.vertical, 4)
 
+                // One weigh-in is worth a chart once there are curves to
+                // place it on; without them it's a single dot.
+                if weights.count >= 2 || profile.sex.known != nil {
+                    weightChart
+                }
+
                 if weights.count >= 2 {
                     weightTrend
                 }
@@ -252,6 +258,24 @@ struct BabyView: View {
         } footer: {
             Text("Newborns often lose up to 7–10% in the first days, regain birth weight by about two weeks, then gain roughly 5–7 oz (150–200 g) a week.")
         }
+    }
+
+    /// The weigh-ins against the WHO curves, under the number they lead to.
+    private var weightChart: some View {
+        let chart = WeightChartView(
+            chart: CareCharts.weight(weights: weights, profile: profile, now: .now, calendar: calendar),
+            weightUnit: weightUnit,
+            calendar: calendar
+        )
+        return VStack(alignment: .leading, spacing: 8) {
+            chart
+            if let caption = chart.caption {
+                Text(caption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 6)
     }
 
     /// The numbers the weight chart used to gesture at: the last step, the

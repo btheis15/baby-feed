@@ -17,8 +17,12 @@ final class AppRouter {
     /// Today — as well as by its own chips.
     var timelineFilter: TimelineFilter = .all
 
+    /// Whether the Timeline is on its charts rather than its list.
+    var timelineShowsCharts = false
+
     func openTimeline(filter: TimelineFilter = .all) {
         timelineFilter = filter
+        timelineShowsCharts = false
         tab = .timeline
     }
 
