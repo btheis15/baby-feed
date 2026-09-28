@@ -4,6 +4,8 @@ import SwiftUI
 /// so the common case is tap, then Save.
 struct QuickLogButtons: View {
     let unit: VolumeUnit
+    /// The side to start nursing on, when last time says which.
+    var nursingSide: NursingSide? = nil
     let onTap: (FeedKind) -> Void
 
     /// Pinned amounts, 0 when following the recommendation.
@@ -33,7 +35,10 @@ struct QuickLogButtons: View {
     }
 
     private func subtitle(for kind: FeedKind) -> String {
-        guard kind.usesVolume else { return "\(nursingMinutes > 0 ? nursingMinutes : 15) min" }
+        guard kind.usesVolume else {
+            if let nursingSide { return "start \(nursingSide.title)" }
+            return "\(nursingMinutes > 0 ? nursingMinutes : 15) min"
+        }
         return unit.format(milliliters: FeedDefaults.defaultAmountML(for: kind, unit: unit))
     }
 
@@ -92,6 +97,6 @@ struct QuickLogButtons: View {
 }
 
 #Preview {
-    QuickLogButtons(unit: .ounces) { _ in }
+    QuickLogButtons(unit: .ounces, nursingSide: .right) { _ in }
         .padding()
 }

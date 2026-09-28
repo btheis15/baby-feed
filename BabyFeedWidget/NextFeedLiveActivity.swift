@@ -20,14 +20,17 @@ struct NextFeedLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.leading) {
                     HStack(spacing: 6) {
                         icon(context)
-                        Text(isDue(context) ? "Feed is due" : "Next feed")
+                        Text(title(context))
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(isDue(context) ? Color.red : Color.primary)
                             .lineLimit(1)
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    if let due = context.state.dueTime {
+                    if let started = context.state.nursingStartedAt {
+                        nursingMinutes(since: started)
+                            .font(.headline)
+                    } else if let due = context.state.dueTime {
                         VStack(alignment: .trailing, spacing: 0) {
                             countdown(context, due: due)
                                 .font(.headline)
@@ -39,7 +42,8 @@ struct NextFeedLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack {
-                        Text("Last fed \(clock(context.state.lastFeedTime, context)) · \(context.state.lastFeedText)")
+                        Text(context.state.nursingStartedAt.map { "Started \(clock($0, context))" }
+                             ?? "Last fed \(clock(context.state.lastFeedTime, context)) · \(context.state.lastFeedText)")
                             .lineLimit(1)
                         Spacer()
                         Link(destination: DeepLink.log(kindRaw: nil)) {
@@ -52,9 +56,15 @@ struct NextFeedLiveActivity: Widget {
             } compactLeading: {
                 icon(context)
             } compactTrailing: {
-                compactCountdown(context)
-                    .frame(maxWidth: 56)
-                    .multilineTextAlignment(.trailing)
+                Group {
+                    if let started = context.state.nursingStartedAt {
+                        nursingMinutes(since: started)
+                    } else {
+                        compactCountdown(context)
+                    }
+                }
+                .frame(maxWidth: 56)
+                .multilineTextAlignment(.trailing)
             } minimal: {
                 icon(context)
             }
@@ -74,7 +84,23 @@ struct NextFeedLiveActivity: Widget {
     }
 
     private func isDue(_ context: ActivityViewContext<NextFeedActivityAttributes>) -> Bool {
-        context.isStale || context.state.dueTime == nil
+        guard context.state.nursingStartedAt == nil else { return false }
+        return context.isStale || context.state.dueTime == nil
+    }
+
+    private func title(_ context: ActivityViewContext<NextFeedActivityAttributes>) -> String {
+        if context.state.nursingStartedAt != nil {
+            return context.state.nursingSide.map { "Nursing · \($0.title)" } ?? "Nursing"
+        }
+        return isDue(context) ? "Feed is due" : "Next feed"
+    }
+
+    /// "12:00", counting up in whole minutes: the system updates it, the app
+    /// doesn't.
+    private func nursingMinutes(since start: Date) -> some View {
+        Text(.currentDate, format: .stopwatch(startingAt: start, showsHours: true, maxFieldCount: 2,
+                                              maxPrecision: .seconds(60)))
+            .monospacedDigit()
     }
 
     private func clock(_ date: Date, _ context: ActivityViewContext<NextFeedActivityAttributes>) -> String {
@@ -119,7 +145,13 @@ struct NextFeedLiveActivity: Widget {
                 .background(kind(context).color, in: Circle())
 
             VStack(alignment: .leading, spacing: 2) {
-                if let due = context.state.dueTime, !isDue(context) {
+                if let started = context.state.nursingStartedAt {
+                    Text(title(context))
+                        .font(.subheadline.weight(.semibold))
+                    Text("Started \(clock(started, context))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if let due = context.state.dueTime, !isDue(context) {
                     Text("Next feed · around \(clock(due, context))")
                         .font(.subheadline.weight(.semibold))
                 } else {
@@ -127,15 +159,21 @@ struct NextFeedLiveActivity: Widget {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.red)
                 }
-                Text("Last fed \(clock(context.state.lastFeedTime, context)) · \(context.state.lastFeedText)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if context.state.nursingStartedAt == nil {
+                    Text("Last fed \(clock(context.state.lastFeedTime, context)) · \(context.state.lastFeedText)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
 
             Spacer(minLength: 8)
 
-            if let due = context.state.dueTime {
+            if let started = context.state.nursingStartedAt {
+                nursingMinutes(since: started)
+                    .font(.title3.weight(.semibold))
+                    .multilineTextAlignment(.trailing)
+            } else if let due = context.state.dueTime {
                 countdown(context, due: due)
                     .font(.title3.weight(.semibold))
                     .multilineTextAlignment(.trailing)

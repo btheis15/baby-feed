@@ -16,10 +16,16 @@ struct NextFeedActivityAttributes: ActivityAttributes {
         var dueTime: Date?
         /// Pinned in Settings, or nil to follow the device.
         var timeZoneIdentifier: String? = nil
+        /// Set while a nursing timer runs: the activity shows "Nursing · Left"
+        /// and the minutes since this, instead of the countdown.
+        var nursingStartedAt: Date? = nil
+        var nursingSideRaw: String? = nil
 
         var timeZone: TimeZone {
             timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .current
         }
+
+        var nursingSide: NursingSide? { nursingSideRaw.flatMap(NursingSide.init(rawValue:)) }
     }
 
     var babyName: String
