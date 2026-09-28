@@ -1290,6 +1290,10 @@ The Phase 3a changes are on `main`, merged from `sync-server` in PR #2. The mini
 checkout at `~/baby-feed`, which is the path the launchd jobs expect, and until now that checkout
 followed `sync-server`. Moving it to `main` is what step 2 does.
 
+The command blocks below deliberately have no `#` comments. A stock macOS zsh doesn't treat `#` as
+a comment when you paste, and an apostrophe inside one opens a quote that swallows everything after
+it (you're left at a `quote>` prompt; press Ctrl‑C to get out).
+
 1. **On the MacBook:** nothing to do. The work was committed, pushed and merged on 2026-09-28, and
    the mini was updated the same day. Rerun the steps below whenever `server/` changes again.
 2. **On the mini:**
@@ -1297,17 +1301,21 @@ followed `sync-server`. Moving it to `main` is what step 2 does.
    ```sh
    cd ~/baby-feed
    git fetch && git checkout main && git pull --ff-only
-   node --version                   # needs 22.5 or newer
+   node --version
    (cd server && npm test)
-   # A named backup: backup.sh names files by date, so a same-day run would overwrite it.
    sqlite3 ~/baby-feed-data/babyfeed.db ".backup '$HOME/baby-feed-data/backups/pre-enroll-$(date +%Y%m%d-%H%M).db'"
    launchctl kickstart -k gui/$(id -u)/com.babyfeed.server
-   curl -s http://127.0.0.1:8791/v1/health     # expect "api":2 and "enroll":"lan"
-   tail -5 ~/baby-feed-data/logs/server.log    # "new phones: a phone on the home Wi-Fi sets itself up…"
+   curl -s http://127.0.0.1:8791/v1/health; echo
+   tail -5 ~/baby-feed-data/logs/server.log
    ```
 
-   The `.env` needs no change: `BABYFEED_ENROLL` defaults to `lan`, and the mini already listens on
-   the Wi‑Fi (`BABYFEED_BIND=0.0.0.0`).
+   - Node must be 22.5 or newer.
+   - The backup gets its own name because `backup.sh` names files by date only, so a second run on
+     the same day would overwrite it.
+   - Health should report `"api":2` and `"enroll":"lan"`, and the log should say "new phones: a phone
+     on the home Wi-Fi sets itself up".
+   - The `.env` needs no change: `BABYFEED_ENROLL` defaults to `lan`, and the mini already listens on
+     the Wi‑Fi (`BABYFEED_BIND=0.0.0.0`).
 3. **From the MacBook, on the same Wi‑Fi:** `curl -s http://brians-mac-mini.local:8791/v1/health`
    should show `"enroll_available":true`.
 4. **Look at what's there** (read-only):
@@ -1324,21 +1332,22 @@ followed `sync-server`. Moving it to `main` is what step 2 does.
 
    ```sh
    launchctl bootout gui/$(id -u)/com.babyfeed.server
-   # bootout returns before the old server has finished shutting down, so wait
-   # until launchd has really let go of the job.
-   while launchctl print gui/$(id -u)/com.babyfeed.server >/dev/null 2>&1; do sleep 1; done
+   for i in {1..30}; do launchctl print gui/$(id -u)/com.babyfeed.server >/dev/null 2>&1 || break; sleep 1; done
    ARCHIVE=~/baby-feed-data/archive/$(date +%Y%m%d-%H%M%S)
    mkdir -p "$ARCHIVE"
    find ~/baby-feed-data -maxdepth 1 -name 'babyfeed.db*' -exec mv {} "$ARCHIVE"/ \;
    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.babyfeed.server.plist
-   curl -s http://127.0.0.1:8791/v1/health     # paired_devices 0, babies 0, feeds 0, and a new server_id
+   curl -s http://127.0.0.1:8791/v1/health; echo
    ```
 
+   Health should then report `paired_devices` 0, `babies` 0, `feeds` 0, and a new `server_id`.
    - Use `bootout`, not `kickstart`: the job restarts itself, and would reopen the database halfway
      through the move.
-   - Don't skip the wait. Without it, the old server can still be closing the database during the
-     move. As it closes it deletes its `-wal` and `-shm` side files, so `mv` fails on them, and
-     `bootstrap` fails with "5: Input/output error" because launchd is still removing the job.
+   - The `for` loop is the wait. `bootout` returns before the old server has finished shutting down,
+     so the loop waits (up to 30 s) until launchd has let go of the job. Without it, the old server
+     can still be closing the database during the move. As it closes it deletes its `-wal` and
+     `-shm` side files, so `mv` fails on them, and `bootstrap` fails with "5: Input/output error"
+     because launchd is still removing the job.
    - Never start the server with a leftover `babyfeed.db-wal` or `-shm` in the folder and no matching
      `babyfeed.db`. SQLite would try to replay the old log into the new, empty database.
    - Phones paired to the old database will show "unpaired"; the new app reconnects by itself.
