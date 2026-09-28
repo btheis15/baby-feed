@@ -3,7 +3,7 @@ import Foundation
 import SwiftData
 
 /// Fills the store with a realistic first fortnight — feeds, diapers,
-/// weigh-ins and notes — so the trends, the pediatrician summary and the
+/// weigh-ins and notes — so the charts, the pediatrician summary and the
 /// guidance can be looked at with something that resembles real use.
 ///
 /// No solid foods: the seeded baby is two weeks old, and the Foods section

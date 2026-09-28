@@ -1,7 +1,8 @@
 # Baby Feed — notes for Claude
 
-An iPhone app (SwiftUI, iOS 26+, SwiftData) for logging a newborn's feeds, diapers, weights, foods and
-notes, plus a tiny self-hosted sync server on the family's Mac mini. **What to build next is in
+An iPhone app (SwiftUI, iOS 26+, SwiftData) for logging a newborn's feeds, diapers, weights, foods,
+notes and health (concerns, medicines, doctor visits), plus a tiny self-hosted sync server on the
+family's Mac mini. **What to build next is in
 [ROADMAP.md](ROADMAP.md)**: work one phase at a time, and update its status table when a phase is done.
 [PLAN.md](PLAN.md) explains the product and the sources behind the feeding guidance.
 

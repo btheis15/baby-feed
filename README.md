@@ -1,41 +1,49 @@
 # Baby Feed
 
-An iPhone app for logging newborn feeds so you always know **when the last feed was, how
-much it was, whether it was formula, breast milk or nursing, how much the baby should be
-getting, and when the next feed is due** — even when your mind is all over the place from
-lack of sleep and washing bottles.
+An iPhone app for the first year with a newborn: **when the next feed is due, what the
+last one was, how much the baby should be getting**, and the diapers, weigh-ins and worries
+around it. Logged in a tap or two, one-handed at 3 a.m., and shared with whoever else is
+up.
 
-- Time since last feed in huge type, live — in the app, on the Lock Screen widget, in the
-  Dynamic Island, and via Siri ("When did the baby last eat in Baby Feed?")
-- Log a feed in two taps: pick the kind, tap Save (amount and time are pre-filled)
-- Automatic reminder for the next feed, as a notification or a real alarm that rings
-  through silent mode (iOS 26 AlarmKit), set from the time of each feed you log
+- **The next feed, not a stopwatch.** A countdown in minutes ("Next feed in 1h 20m · around
+  5:10 PM"), with when the last feed was: in the app, on the Lock Screen and Home Screen
+  widget, in the Dynamic Island, and via Siri ("When did the baby last eat in Baby Feed?").
+  Nothing ticks by the second.
+- **Two taps to log a feed, one for a diaper.** Amounts and times are pre-filled, and
+  every log shows a toast with Undo and Edit.
+- **Reminders** for the next feed, as a notification or a real alarm that rings through
+  silent mode (iOS 26 AlarmKit), set from each feed you log
 - **How much to feed**: a daily target from the baby's weight using the American Academy
-  of Pediatrics rule (2½ oz per pound per day, up to 32 oz), with age-typical ranges,
-  updating as you log new weights
-- History by day with a 24-hour strip of feed times, trends as plain numbers with the
-  direction they moved, and a summary for the pediatrician (optionally rewritten
-  on-device by Apple Intelligence)
-- Weight log with the last change, the steadier whole-log rate, and gain since birth
-- **Growth percentiles** from the WHO Child Growth Standards, so the daily target keeps
-  up as the baby grows instead of sitting frozen at the last weigh-in — with corrected
-  age for babies born early
+  of Pediatrics rule (2½ oz per pound per day, up to 32 oz), carried forward along the
+  baby's WHO growth percentile so it keeps up as they grow, with corrected age for babies
+  born early
+- **The first weeks**: "Getting enough?" (wet and dirty diapers against what's expected at
+  that age, and back to birth weight), which side to start on, a nursing timer with its
+  own Live Activity, and a screen that goes dark at night
+- **One Timeline** of everything by day (feeds, diapers, food, weigh-ins, notes and
+  health), searchable ("eye"), with how long ago each day was. **Charts** of the same log
+  each open with a sentence stating the number, with the plain numbers underneath
+- **Health**: concerns tracked as episodes ("Red left eye · day 4"), medicines and the
+  doses given (the app never suggests a dose), doctor visits with the AAP checkup schedule,
+  and vitamin D for breastfed babies
+- **For the pediatrician**: a summary since the last visit (optionally rewritten on-device
+  by Apple Intelligence) and a CSV of everything
+- **Growth percentiles** from the WHO Child Growth Standards, on a weight chart with the
+  percentile bands
 - **Foods by age**: when solids, allergens and cow's milk can start, and what to keep
   away until when, sourced to the AAP, CDC and WHO
-- **Who logged what**: every feed, weight and note records the caregiver who entered it
-  ("Logged by Brian"), and that reaches the pediatrician summary too — so a shared log
-  reads clearly even when whoever fed the baby wasn't whoever had a free hand to log it
-- **Your data stays yours.** No account and no company holding it: the phone is the source
-  of truth, and sharing goes through a server in your own house. Works with no signal.
-  More than one baby per phone
-- **Two phones, one log**: sharing runs through a small server you host yourself on a Mac
-  mini at home — not an account with a company. A second caregiver joins by scanning a QR
-  code; every feed, weight and note then appears on both phones, offline-tolerant and
-  last-writer-wins
-- Ounces or milliliters, CSV export, no subscription, no ads, no sign-in
+- **Who logged what**: every entry records the caregiver who entered it ("Logged by
+  Brian"), and so does the pediatrician summary
+- **Two phones, one log, no account.** Sharing runs through a small server you host
+  yourself on a Mac mini at home. A second caregiver joins by scanning a QR code, and one
+  recovery phrase, written down once, brings every log back to a new phone. The phone
+  stays the source of truth and works with no signal
+- Ounces or milliliters, pounds or kilograms, a time zone you can pin while travelling.
+  No subscription, no ads, no sign-in
 
-See [PLAN.md](PLAN.md) for the research behind the features, the guidance sources, the
-iOS integration list, and what's planned next.
+See [PLAN.md](PLAN.md) for the research behind the features, the guidance sources and the
+iOS integration list, and [ROADMAP.md](ROADMAP.md) for what's been built, phase by phase,
+and what comes next.
 
 ## Running it
 
@@ -45,7 +53,11 @@ Requires **Xcode 26 or newer** and **iOS 26 or newer**.
 2. For both the `BabyFeed` and `BabyFeedWidget` targets: Signing & Capabilities → choose
    your team.
 3. Pick a simulator or your iPhone and press Run (`Cmd+R`).
-4. `Cmd+U` runs the unit tests.
+4. `Cmd+U` runs the unit tests, and `cd server && npm test` runs the server's.
+
+To sync, copy `Config/ServerConfig.example.plist` to `BabyFeed/ServerConfig.plist` and put
+your Mac mini's address in it. Git ignores that file, so an address never lands in this
+public repo. Without it the app works entirely on the phone.
 
 ## Sharing between phones
 
@@ -55,16 +67,25 @@ no third-party backend. See [server/README.md](server/README.md) to set it up; i
 Node and nothing else.
 
 The app stays local-first either way: each phone's own store is the source of truth, every
-screen reads it, and logging a feed never waits on the network. Syncing is what makes the
-*other* phone agree, afterwards. With no server configured — or no signal, or the mini
-switched off — the app behaves exactly as it did before.
+screen reads it, and logging never waits on the network. Syncing is what makes the
+*other* phone agree, afterwards. With no server configured, or no signal, or the mini
+switched off, the app works exactly as before.
 
-Pairing is a QR code, not a sign-up. The first phone connects with a setup code printed by
-the mini; every phone after that joins by pointing its Camera at a code on the first phone.
-Invites are six characters, good for an hour, and work once.
+Pairing is a QR code, not a sign-up:
+- **The first phone** sets itself up on your home Wi‑Fi with nothing to type (the mini
+  only lets a new phone in from its own network), then shows a recovery phrase to write
+  down once.
+- **Every phone after that** joins by pointing its Camera at the QR under Share, or by
+  opening a link you send. An invite shares only the baby on screen, and is good for a
+  day and ten phones.
+- **A new or wiped phone** comes back with the recovery phrase: every log you were on
+  returns.
+
+For now it syncs on the home network. Away from home, entries wait on the phone and catch
+up when you're back ([ROADMAP.md](ROADMAP.md), Later).
 
 Conflicts are last-writer-wins by `updatedAt`, with an un-pushed local edit kept on a tie.
-Deletes are soft, so a feed removed on one phone can't come back from the other. The rules
+Deletes are soft, so an entry removed on one phone can't come back from the other. The rules
 live in `SyncMerge` on the phone and are mirrored — and tested — on the server.
 
 **Free personal team?** Widgets/Live Activity use an App Group and reminders use the Time
@@ -75,14 +96,20 @@ from `BabyFeed/BabyFeed.entitlements` and `BabyFeedWidget/BabyFeedWidget.entitle
 ## Project layout
 
 ```
-BabyFeed/            SwiftUI app: Models, Services (reminders, alarm, live activity, sync), Intents (Siri), Views
+BabyFeed/            SwiftUI app: Models, Services (reminders, alarm, Live Activity, sync), Intents (Siri), Views
 Shared/              Types compiled into both the app and the widget
-BabyFeedWidget/      Lock Screen / Home Screen widget and the Live Activity
-BabyFeedTests/       Unit tests for guidance rules, units, stats, CSV, snapshot, sync merge rules
+BabyFeedWidget/      Lock Screen / Home Screen widget and the Live Activities
+BabyFeedTests/       Unit tests (Swift Testing): guidance, growth, stats, timeline, charts, health, CSV, sync
+Config/              Example config: the shape of BabyFeed/ServerConfig.plist
+server/              The self-hosted sync server (Node, SQLite, launchd)
 ```
+
+[CLAUDE.md](CLAUDE.md) has the conventions that keep it consistent, for anyone (or any
+Claude) changing the code.
 
 ## Medical note
 
 Feeding amounts shown by the app are published rules of thumb from the AAP, CDC and
 breastfeeding research (sources in PLAN.md). They are a starting point, not a
-prescription. Feed on demand and follow your pediatrician's advice.
+prescription. Feed on demand and follow your pediatrician's advice. The app records the
+medicine you give and never suggests a dose.
