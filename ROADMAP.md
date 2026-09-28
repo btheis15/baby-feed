@@ -50,7 +50,7 @@ after each.
 | 3b | Sharing without credentials: app | app | **Done** 2026-09-28: onboarding, Share → QR, join by scanning, one recovery phrase per parent, lazy connect with a calm "away"; checked end to end on two simulators against a local server; 251 tests. Needs the two-phone check below on real iPhones |
 | 4 | The first weeks: getting enough, nursing side and timer, dark at night | app, widget | **Done** 2026-09-28 (4.1–4.4; 4.5 pumping not built): "Getting enough?" on Today for 6 weeks, back to birth weight, next side and a minutes-only nursing timer with its Live Activity, dark at night; 276 tests |
 | 5 | Health for the first year: concerns, medicines, doctor visits | app, server | **Done** 2026-09-28: a Health tab; concerns with updates and "It's better"; medicines with notices that never block and never suggest a dose; visits and the AAP checkup schedule; "Right now" on Today; the summary since the last visit; 4 server tables and a column migration; 300 app and 69 server tests. **Deploy the server before the app** |
-| 6 | Charts, numbers first | app | Not started |
+| 6 | Charts, numbers first | app | **Done** 2026-09-28: Timeline \| Charts with feeds, diapers, feed rhythm and a care overview, each led by the sentence stating its number; the weight chart with the WHO bands on the Baby tab; the numbers stay underneath; 312 tests |
 | 7 | Copy and docs refresh | app, docs | Not started |
 | 8 | Rename to "Baby Care" | app | Optional (decided to keep "Baby Feed" for now) |
 | Later | Sync away from home, push notifications, sleep, more | | [Later](#later-directional) |
@@ -1200,6 +1200,37 @@ The Timeline's segmented control becomes **Timeline | Charts**. The range is 2 w
 - Missing days produce no zero bars.
 - Each day's target equals `currentTarget` at the end of that day.
 - The percentile bands equal `GrowthStandard`.
+
+**As built**
+- **Where.** Timeline → Charts. The mode lives on `AppRouter.timelineShowsCharts`, and typing a
+  search switches back to the list. `ChartsView` has its own queries, windowed to the range; feeds
+  reach back at least a month so "The numbers" still compare two full weeks, as Trends did. The
+  weight chart sits under the latest weight on the Baby tab once there are two weigh-ins, or one
+  and the sex is known.
+- **Each card** is the section header (the title), then the sentence, then the chart.
+- **The range** is kept in `@SceneStorage("charts.range")`, and nothing starts before the day of
+  birth. "Since the last visit" with no visit logged shows the last 2 weeks, and the footer says so.
+  With a visit, the footer names its day.
+- **Mixed feeding.** With nursing in the mix, the sentence says "12 oz from bottles and about 1 hr 5
+  min of nursing", and there's no target line. Nursing isn't measured, so bottles alone against the
+  whole day's target would draw two weeks of a shortfall that isn't there. A baby fed only at the
+  breast gets feeds a day on their own (`CareCharts.showsVolume`/`showsTarget`). Today's card is
+  unchanged.
+- **Diapers.** The 6-wet line is drawn from day 7. It's dashed in a neutral colour, because the wet
+  colour would vanish across the wet bars. The footer cites the AAP and says only logged changes are
+  counted.
+- **Feed rhythm.** Midnight is at the top, reading down the day. Kinds differ by shape (circle,
+  square, triangle) as well as colour.
+- **Care overview.**
+  - Concerns are bars at least 6 hours wide, so a short one still shows. Doses are diamonds, and
+    visits are crosses with a dashed rule. Feed and diaper cells deepen with the count.
+  - A tap picks a day and keeps it picked. It isn't the default drag gesture, which would fight the
+    list's scrolling. That day's entries list under the chart as Timeline rows, and each opens its
+    editor.
+- **VoiceOver.** Each chart's `accessibilityChartDescriptor` is built from the same series it draws.
+- **Screenshots:** `--open-tab charts`.
+- **Tests:** `CareChartsTests` (12), including mixed and nursing-only feeding, the no-visit fallback,
+  the birth-day clamp, and a weight axis whose curves reach both ends.
 
 **Prompt**
 

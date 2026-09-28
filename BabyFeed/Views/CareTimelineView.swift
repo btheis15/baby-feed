@@ -4,13 +4,14 @@ import SwiftUI
 
 /// Everything that happened, in one place: feeds, diapers, food, weigh-ins and
 /// notes, by day, newest first, searchable ("when was the eye thing?"), and
-/// with how long ago each day was, because that's how a doctor asks.
+/// with how long ago each day was, because that's how a doctor asks. Its
+/// other half is the charts of the same log (`ChartsView`).
 ///
 /// Named for what it is, not `TimelineView`, which SwiftUI already has.
 struct CareTimelineView: View {
     private enum Mode: String, CaseIterable, Identifiable {
         case timeline = "Timeline"
-        case trends = "Trends"
+        case charts = "Charts"
         var id: String { rawValue }
     }
 
@@ -23,7 +24,6 @@ struct CareTimelineView: View {
     @Environment(AppRouter.self) private var router
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
-    @State private var mode: Mode = .timeline
     @State private var query = ""
     @State private var windowDays = CareTimelineView.windowStepDays
     @State private var showSummary = false
@@ -37,22 +37,40 @@ struct CareTimelineView: View {
         calendar.date(byAdding: .day, value: -(windowDays - 1), to: calendar.startOfDay(for: .now)) ?? .distantPast
     }
 
+    /// Kept on the router, so something outside the Timeline can open it on
+    /// its charts.
+    private var mode: Binding<Mode> {
+        Binding(
+            get: { router.timelineShowsCharts ? .charts : .timeline },
+            set: { router.timelineShowsCharts = $0 == .charts }
+        )
+    }
+
+    private var modePicker: some View {
+        Picker("View", selection: mode) {
+            ForEach(Mode.allCases) { mode in
+                Text(mode.rawValue).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
     var body: some View {
         NavigationStack {
-            TimelineQueryView(
-                babyID: babyID,
-                since: query.isEmpty ? windowStart : nil,
-                showsTrends: mode == .trends,
-                query: query,
-                canShowEarlier: query.isEmpty && (earliest.map { $0 < windowStart } ?? false),
-                showEarlier: { windowDays += Self.windowStepDays }
-            ) {
-                Picker("View", selection: $mode) {
-                    ForEach(Mode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
+            Group {
+                if router.timelineShowsCharts {
+                    ChartsView(babyID: babyID) { modePicker }
+                } else {
+                    TimelineQueryView(
+                        babyID: babyID,
+                        since: query.isEmpty ? windowStart : nil,
+                        query: query,
+                        canShowEarlier: query.isEmpty && (earliest.map { $0 < windowStart } ?? false),
+                        showEarlier: { windowDays += Self.windowStepDays }
+                    ) {
+                        modePicker
                     }
                 }
-                .pickerStyle(.segmented)
             }
             .navigationTitle("Timeline")
             .searchable(text: $query, prompt: "Search notes, foods, names")
@@ -75,6 +93,10 @@ struct CareTimelineView: View {
             }
             .onChange(of: router.tab) { _, tab in
                 if tab == .timeline { earliest = earliestEntry() }
+            }
+            // A search is for finding an entry, which the list does.
+            .onChange(of: query) { _, query in
+                if !query.isEmpty { router.timelineShowsCharts = false }
             }
         }
     }
@@ -106,7 +128,6 @@ struct CareTimelineView: View {
 private struct TimelineQueryView<ModePicker: View>: View {
     let babyID: UUID?
     let since: Date?
-    let showsTrends: Bool
     let query: String
     let canShowEarlier: Bool
     let showEarlier: () -> Void
@@ -126,18 +147,9 @@ private struct TimelineQueryView<ModePicker: View>: View {
     @Query private var visits: [DoctorVisit]
     /// Not windowed: whether a food is a first time depends on the whole log.
     @Query private var foods: [SolidFoodEntry]
-    /// Not windowed either: the daily target in Trends needs the latest
-    /// weigh-in, however long ago it was.
-    @Query(sort: \WeightEntry.date, order: .reverse) private var allWeights: [WeightEntry]
 
     @AppStorage(FeedDefaults.volumeUnit) private var unitRaw = VolumeUnit.ounces.rawValue
     @AppStorage(AppSettings.weightUnitKey) private var weightUnitRaw = WeightUnit.poundsOunces.rawValue
-    @AppStorage(AppSettings.feedingStyleKey) private var feedingStyleRaw = FeedingStyle.formula.rawValue
-    @AppStorage(AppSettings.feedsPerDayKey) private var feedsPerDay = 0
-    @AppStorage(BabyProfile.birthDateKey) private var birthInterval: Double = 0
-    @AppStorage(BabyProfile.nameKey) private var babyName = ""
-    @AppStorage(BabyProfile.sexKey) private var sexRaw = BabySex.unspecified.rawValue
-    @AppStorage(BabyProfile.dueDateKey) private var dueInterval: Double = 0
 
     /// Older days the parent has tapped open.
     @State private var expandedDays: Set<Date> = []
@@ -152,7 +164,6 @@ private struct TimelineQueryView<ModePicker: View>: View {
     init(
         babyID: UUID?,
         since: Date?,
-        showsTrends: Bool,
         query: String,
         canShowEarlier: Bool,
         showEarlier: @escaping () -> Void,
@@ -160,7 +171,6 @@ private struct TimelineQueryView<ModePicker: View>: View {
     ) {
         self.babyID = babyID
         self.since = since
-        self.showsTrends = showsTrends
         self.query = query
         self.canShowEarlier = canShowEarlier
         self.showEarlier = showEarlier
@@ -207,57 +217,45 @@ private struct TimelineQueryView<ModePicker: View>: View {
                     .listRowInsets(EdgeInsets())
             }
 
-            if showsTrends {
+            if categories.count > 1 || router.timelineFilter != .all {
                 Section {
-                    TrendsView(
-                        groups: FeedStats.groupByDay(feeds, calendar: calendar),
-                        unit: unit,
-                        targetML: targetML,
-                        calendar: calendar
-                    )
-                    .padding(.vertical, 8)
+                    chips(categories)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
                 }
-            } else {
-                if categories.count > 1 || router.timelineFilter != .all {
-                    Section {
-                        chips(categories)
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets())
-                    }
-                }
+            }
 
-                ForEach(days) { day in
-                    if isExpanded(day, now: now) {
-                        Section {
-                            if !day.feeds.isEmpty || !day.diapers.isEmpty {
-                                DayStrip(feeds: day.feeds, diapers: day.diapers, day: day.day, calendar: calendar)
-                                    .padding(.vertical, 6)
-                            }
-                            ForEach(day.items) { item in
-                                row(item)
-                            }
-                        } header: {
-                            header(for: day, now: now)
+            ForEach(days) { day in
+                if isExpanded(day, now: now) {
+                    Section {
+                        if !day.feeds.isEmpty || !day.diapers.isEmpty {
+                            DayStrip(feeds: day.feeds, diapers: day.diapers, day: day.day, calendar: calendar)
+                                .padding(.vertical, 6)
                         }
-                    } else {
-                        Section {
-                            collapsedDay(day, now: now)
+                        ForEach(day.items) { item in
+                            row(item)
                         }
+                    } header: {
+                        header(for: day, now: now)
+                    }
+                } else {
+                    Section {
+                        collapsedDay(day, now: now)
                     }
                 }
+            }
 
-                if canShowEarlier {
-                    Section {
-                        Button("Show earlier (\(CareTimelineView.windowStepDays) days)", action: showEarlier)
-                            .frame(maxWidth: .infinity)
-                    }
+            if canShowEarlier {
+                Section {
+                    Button("Show earlier (\(CareTimelineView.windowStepDays) days)", action: showEarlier)
+                        .frame(maxWidth: .infinity)
                 }
             }
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
         .overlay {
-            if !showsTrends && days.isEmpty {
+            if days.isEmpty {
                 emptyState(hasAnything: !categories.isEmpty)
             }
         }
@@ -422,28 +420,7 @@ private struct TimelineQueryView<ModePicker: View>: View {
         }
     }
 
-    // MARK: Numbers and actions
-
-    private var profile: BabyProfile {
-        BabyProfile(
-            name: babyName,
-            birthDate: birthInterval > 0 ? Date(timeIntervalSince1970: birthInterval) : nil,
-            sex: BabySex(rawValue: sexRaw) ?? .unspecified,
-            dueDate: dueInterval > 0 ? Date(timeIntervalSince1970: dueInterval) : nil
-        )
-    }
-
-    /// The same target the Today tab shows, via the shared helper, so the
-    /// "% of target" in Trends can't contradict the Daily target card.
-    private var targetML: Double? {
-        FeedingGuidance.currentTarget(
-            weights: allWeights.active(for: babyID),
-            profile: profile,
-            style: FeedingStyle(rawValue: feedingStyleRaw) ?? .formula,
-            feedsPerDay: feedsPerDay,
-            calendar: calendar
-        ).target?.targetML
-    }
+    // MARK: Actions
 
     private func delete(_ item: TimelineItem) {
         toasts.delete(item, context: modelContext)

@@ -68,6 +68,10 @@ with newborn needs first.
   gives the Undo. A Delete button inside a sheet always confirms.
 - **The Timeline is built from `TimelineItem`.** A new kind of entry adds a case there, and the
   compiler then lists every screen that has to handle it (row, editor, search, CSV).
+- **A chart leads with its number.** Every chart (`ChartsView`, and the weight chart on the Baby tab)
+  opens with a sentence stating the value. That sentence comes from `CareCharts`, built from the same
+  series the chart draws. A day with nothing logged is a gap, never a zero bar. The plain numbers
+  (`TrendsView`) stay underneath.
 
 ## Syncing and the server
 
@@ -118,7 +122,7 @@ Changing them breaks existing installs, pairing or widgets:
 - In a List section header, `.foregroundStyle(.primary)` still comes out grey: it resolves against
   the header's own style. Use `Color.primary`.
 - **Screenshots and sync checks from the command line:** debug builds accept `--seed-demo-data`,
-  `--open-tab timeline|baby|settings`, `--open-sheet add|share`, `--debug-nursing <minutes ago>`,
+  `--open-tab timeline|charts|health|baby|settings`, `--open-sheet add|share`, `--debug-nursing <minutes ago>`,
   `--debug-open-url <babyfeed://…>`,
   `--debug-connect`, `--debug-invite`, `--debug-restore <phrase>`, `--debug-name <name>` and
   `--debug-log-diaper` (`xcrun simctl launch <device> com.babyfeed.BabyFeed …`; results in
