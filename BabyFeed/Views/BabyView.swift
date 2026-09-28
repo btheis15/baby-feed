@@ -535,15 +535,20 @@ struct BabyView: View {
 
     private var caregiversSection: some View {
         Section {
+            if SyncEngine.shared.hasServer, let babyID = UUID(uuidString: currentBabyIDRaw) {
+                Button {
+                    router.sheet = .share(babyID)
+                } label: {
+                    Label("Share \(profile.displayName)'s log", systemImage: "person.badge.plus")
+                }
+            }
             NavigationLink {
                 FamilyView()
             } label: {
                 Label("Caregivers", systemImage: "person.2.fill")
             }
         } footer: {
-            // Don't promise sharing here: it isn't built. What this screen
-            // does do is set the name that every entry is logged under.
-            Text("Your name, so each feed and note shows who logged it. \(profile.displayName)'s log stays on this iPhone.")
+            Text("Who else can see \(profile.displayName)'s log, and your name, so each entry shows who logged it.")
         }
     }
 

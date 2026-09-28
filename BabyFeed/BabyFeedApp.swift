@@ -32,7 +32,11 @@ struct BabyFeedApp: App {
             DebugSeed.run(in: AppModelContainer.shared.mainContext)
         }
         #endif
-        SyncEngine.shared.start(container: AppModelContainer.shared)
+        // Tests run inside the app. Its launch mustn't reach for a real server
+        // while they do, whatever this simulator was last asked to sync with.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            SyncEngine.shared.start(container: AppModelContainer.shared)
+        }
         // Re-derive everything that depends on the baby's age before the first
         // frame, so a day's growth is reflected even if nothing was logged.
         FeedCoordinator.settingsDidChange(in: AppModelContainer.shared.mainContext)

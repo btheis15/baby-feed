@@ -15,6 +15,8 @@ enum AppSettings {
     /// Set once the first-run sharing card has been shown, so it's offered
     /// once and then never nags again.
     static let hasSeenSharingIntroKey = "sync.hasSeenSharingIntro"
+    /// Set once the first-launch screen has been shown.
+    static let hasSeenOnboardingKey = "onboarding.seen"
     /// A TimeZone identifier, or empty for "follow the device".
     static let timeZoneKey = "timeZone.identifier"
 

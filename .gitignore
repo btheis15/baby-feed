@@ -11,6 +11,10 @@ build/
 *.dSYM.zip
 *.dSYM
 
+# The sync server's address for this build (see Config/ServerConfig.example.plist).
+# Ignored so a hostname never lands in this public repo.
+BabyFeed/ServerConfig.plist
+
 # Swift Package Manager
 .swiftpm/
 Package.resolved

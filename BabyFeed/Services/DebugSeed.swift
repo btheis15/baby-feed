@@ -197,8 +197,8 @@ enum DebugSeed {
 }
 
 /// Where to open, for screenshots taken from the command line:
-/// `--open-tab timeline|baby|settings` and `--open-sheet add`. Debug builds
-/// only, like the seed.
+/// `--open-tab timeline|baby|settings`, `--open-sheet add|share` and
+/// `--debug-open-url <babyfeed://…>`. Debug builds only, like the seed.
 @MainActor
 enum DebugLaunch {
     static func apply(to router: AppRouter) {
@@ -213,8 +213,56 @@ enum DebugLaunch {
         case "settings": router.tab = .settings
         default: break
         }
-        if value(after: "--open-sheet") == "add" {
-            router.sheet = .addEntry
+        switch value(after: "--open-sheet") {
+        case "add": router.sheet = .addEntry
+        case "share": if let id = AppSettings.currentBabyID { router.sheet = .share(id) }
+        default: break
+        }
+        // The same path a tapped link or a scanned QR takes, minus the
+        // simulator's "Open in Baby Feed?" prompt.
+        if let link = value(after: "--debug-open-url"), let url = URL(string: link) {
+            router.handle(url: url)
+        }
+        runSyncChecks(restorePhrase: value(after: "--debug-restore"))
+    }
+
+    /// Sharing, end to end, without tapping: `--debug-connect` backs up the
+    /// current baby, `--debug-invite` logs a join link for it (open it on a
+    /// second simulator with `--debug-open-url`), `--debug-restore <phrase>`
+    /// restores, `--debug-name <name>` and `--debug-log-diaper` log something
+    /// to sync. Results go to the log: `simctl spawn <device> log show`.
+    private static func runSyncChecks(restorePhrase: String?) {
+        let arguments = CommandLine.arguments
+        let context = AppModelContainer.shared.mainContext
+        let engine = SyncEngine.shared
+        Task { @MainActor in
+            do {
+                if let restorePhrase {
+                    try await engine.recover(key: restorePhrase)
+                    NSLog("%@", "[DebugLaunch] restored: babies \(BabyStore.allBabies(in: context).map(\.displayName)), status \(engine.status)")
+                }
+                if arguments.contains("--debug-connect") {
+                    try await engine.ensureConnected(.backUp)
+                    NSLog("%@", "[DebugLaunch] connected: status \(engine.status), phrase \(engine.recoveryPhrase ?? "none"), pending \(engine.pendingCount(in: context))")
+                }
+                if let index = arguments.firstIndex(of: "--debug-name"), arguments.indices.contains(index + 1) {
+                    await engine.updateDisplayName(arguments[index + 1])
+                }
+                if arguments.contains("--debug-log-diaper"), let baby = BabyStore.currentBaby(in: context) {
+                    context.insert(DiaperEntry(babyID: baby.uuid, kind: .both, loggedByName: AppSettings.displayName))
+                    FeedCoordinator.feedsDidChange(in: context, triggerSync: false)
+                    await engine.syncNow()
+                    NSLog("%@", "[DebugLaunch] logged a diaper: status \(engine.status), pending \(engine.pendingCount(in: context))")
+                }
+                if arguments.contains("--debug-invite"), let baby = BabyStore.currentBaby(in: context) {
+                    let invite = try await engine.invite(for: baby)
+                    if let server = SyncCredentials.serverURL, let link = SyncLink.url(code: invite.code, server: server) {
+                        NSLog("%@", "[DebugLaunch] invite: \(link.absoluteString)")
+                    }
+                }
+            } catch {
+                NSLog("%@", "[DebugLaunch] failed: \(error)")
+            }
         }
     }
 }

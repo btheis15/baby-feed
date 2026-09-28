@@ -125,6 +125,80 @@ enum BabyStore {
         return baby
     }
 
+    // MARK: Placeholders
+
+    /// How many rows of any kind this baby has, deleted or not.
+    static func rowCount(for id: UUID, in context: ModelContext) -> Int {
+        let feeds = (try? context.fetchCount(FetchDescriptor<FeedEntry>(predicate: #Predicate { $0.babyID == id }))) ?? 0
+        let diapers = (try? context.fetchCount(FetchDescriptor<DiaperEntry>(predicate: #Predicate { $0.babyID == id }))) ?? 0
+        let weights = (try? context.fetchCount(FetchDescriptor<WeightEntry>(predicate: #Predicate { $0.babyID == id }))) ?? 0
+        let notes = (try? context.fetchCount(FetchDescriptor<CareNote>(predicate: #Predicate { $0.babyID == id }))) ?? 0
+        let foods = (try? context.fetchCount(FetchDescriptor<SolidFoodEntry>(predicate: #Predicate { $0.babyID == id }))) ?? 0
+        return feeds + diapers + weights + notes + foods
+    }
+
+    /// The nameless, empty baby a fresh install starts with. It's never
+    /// uploaded, and joining or restoring a log replaces it.
+    static func isPlaceholder(_ baby: Baby, in context: ModelContext) -> Bool {
+        SyncPlan.isPlaceholder(name: baby.name, birthDate: baby.birthDate, isShared: baby.isShared,
+                               rowCount: rowCount(for: baby.uuid, in: context))
+    }
+
+    /// Every baby worth backing up: not deleted, and not the placeholder.
+    static func realBabies(in context: ModelContext) -> [Baby] {
+        allBabies(in: context).filter { !isPlaceholder($0, in: context) }
+    }
+
+    /// Adding the baby from onboarding. Fills in the placeholder when that's
+    /// the only baby, rather than leaving an empty one beside it. A birth
+    /// weight becomes the first weigh-in, dated the birthday, which is what
+    /// "back to birth weight" is measured from.
+    @discardableResult
+    static func createBaby(
+        name: String,
+        birthDate: Date?,
+        sex: BabySex = .unspecified,
+        dueDate: Date? = nil,
+        birthWeightGrams: Double? = nil,
+        in context: ModelContext
+    ) -> Baby {
+        let existing = allBabies(in: context)
+        let baby: Baby
+        if existing.count == 1, let only = existing.first, isPlaceholder(only, in: context) {
+            baby = only
+        } else {
+            baby = Baby(name: name, birthDate: birthDate)
+            context.insert(baby)
+        }
+        baby.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        baby.birthDate = birthDate
+        baby.sex = sex
+        baby.dueDate = dueDate
+        baby.markChanged()
+
+        if let birthWeightGrams, birthWeightGrams > 0 {
+            context.insert(WeightEntry(
+                babyID: baby.uuid,
+                date: birthDate ?? .now,
+                grams: birthWeightGrams,
+                note: "Birth weight",
+                loggedByName: AppSettings.displayName
+            ))
+        }
+        try? context.save()
+        setCurrent(baby, in: context)
+        return baby
+    }
+
+    /// Drops untouched placeholders once a real log has arrived, so the baby
+    /// switcher doesn't offer an empty "Baby" next to the one just joined.
+    static func removePlaceholders(keeping keep: UUID?, in context: ModelContext) {
+        for baby in allBabies(in: context) where baby.uuid != keep && isPlaceholder(baby, in: context) {
+            context.delete(baby)
+        }
+        try? context.save()
+    }
+
     /// Removes a baby and every row it has from this phone only. Nothing is
     /// sent to the server, and nobody else's copy changes.
     static func removeLocally(_ baby: Baby, in context: ModelContext) {

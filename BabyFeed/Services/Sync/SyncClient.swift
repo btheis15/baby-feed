@@ -69,6 +69,16 @@ struct SyncClient: Sendable {
         return URLSession(configuration: config)
     }()
 
+    /// For "is the Mac mini there?". Away from home the answer is no, and it
+    /// should come back in seconds, not after the usual twenty.
+    private static let probeSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 4
+        config.timeoutIntervalForResource = 6
+        config.waitsForConnectivity = false
+        return URLSession(configuration: config)
+    }()
+
     // MARK: Requests
 
     private func request(_ method: String, _ path: String, query: [URLQueryItem] = [], body: Data? = nil) throws -> URLRequest {
@@ -85,18 +95,27 @@ struct SyncClient: Sendable {
         return request
     }
 
-    private func send<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
+    /// - Parameter authenticated: whether a 401 means this phone's token is no
+    ///   good. On the pairing routes it doesn't: a wrong invite code or setup
+    ///   code is a 401 too, and "this phone isn't paired" is the wrong thing to
+    ///   say about a typo.
+    private func send<T: Decodable>(
+        _ request: URLRequest,
+        as type: T.Type,
+        authenticated: Bool = true,
+        session: URLSession = SyncClient.session
+    ) async throws -> T {
         let (data, response): (Data, URLResponse)
         do {
-            (data, response) = try await Self.session.data(for: request)
+            (data, response) = try await session.data(for: request)
         } catch {
-            throw SyncError.unreachable(error.localizedDescription)
+            throw SyncError.classify(error)
         }
         guard let http = response as? HTTPURLResponse else { throw SyncError.unreachable("No response") }
 
         guard (200..<300).contains(http.statusCode) else {
             let failure = try? Self.decoder.decode(ServerError.self, from: data)
-            if http.statusCode == 401 { throw SyncError.unpaired }
+            if http.statusCode == 401, authenticated { throw SyncError.unpaired }
             throw SyncError.server(status: http.statusCode,
                                    message: failure?.error ?? "The server returned \(http.statusCode).",
                                    code: failure?.code)
@@ -118,44 +137,119 @@ struct SyncClient: Sendable {
     struct Health: Decodable {
         let ok: Bool
         let service: String
+        /// 2 and up: enrolment, joining as the caregiver you already are, and
+        /// one recovery phrase per person. Nil on servers from before that.
+        let api: Int?
+        /// A random id the server keeps in its database. A different one means
+        /// the database was reset, and everything has to be sent again.
+        let serverID: String?
+        let features: [String]
+        let enroll: String?
+        /// Whether a new phone could set itself up from where it's asking:
+        /// false away from home, which is the usual reason sharing can't start.
+        let enrollAvailable: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case ok, service, api, features, enroll
+            case serverID = "server_id"
+            case enrollAvailable = "enroll_available"
+        }
+
+        init(ok: Bool, service: String, api: Int?, serverID: String?, features: [String], enroll: String?, enrollAvailable: Bool?) {
+            self.ok = ok
+            self.service = service
+            self.api = api
+            self.serverID = serverID
+            self.features = features
+            self.enroll = enroll
+            self.enrollAvailable = enrollAvailable
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            ok = try container.decode(Bool.self, forKey: .ok)
+            service = try container.decode(String.self, forKey: .service)
+            api = try container.decodeIfPresent(Int.self, forKey: .api)
+            serverID = try container.decodeIfPresent(String.self, forKey: .serverID)
+            features = try container.decodeIfPresent([String].self, forKey: .features) ?? []
+            enroll = try container.decodeIfPresent(String.self, forKey: .enroll)
+            enrollAvailable = try container.decodeIfPresent(Bool.self, forKey: .enrollAvailable)
+        }
+
+        func supports(_ feature: String) -> Bool { features.contains(feature) }
     }
 
     /// Checks an address is a Baby Feed server before saving it, so a typo
     /// fails on the setup screen rather than silently never syncing.
     func health() async throws -> Health {
-        try await send(try request("GET", "/v1/health"), as: Health.self)
+        try await send(try request("GET", "/v1/health"), as: Health.self, authenticated: false)
+    }
+
+    /// The same, but quick to give up: for deciding whether we're at home.
+    func probe() async throws -> Health {
+        try await send(try request("GET", "/v1/health"), as: Health.self, authenticated: false,
+                       session: Self.probeSession)
     }
 
     struct Pairing: Decodable {
-        let token: String
+        /// Nil when the phone keeps the token it already has: joining or
+        /// restoring as the caregiver this phone already is.
+        let token: String?
         let userID: UUID
         let displayName: String
+        /// The log just joined, for a join.
         let baby: BabyDTO?
+        /// Every log this caregiver is on now.
+        let babies: [MembershipDTO]
+        let serverID: String?
+        /// Only in the answer to a personal recovery phrase (as opposed to an
+        /// older per-baby key): whether this phone's previous identity was
+        /// folded into the person whose phrase it was.
+        let merged: Bool?
+
+        var wasPersonalPhrase: Bool { merged != nil }
 
         enum CodingKeys: String, CodingKey {
-            case token, baby
+            case token, baby, babies, merged
             case userID = "user_id"
             case displayName = "display_name"
+            case serverID = "server_id"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            token = try container.decodeIfPresent(String.self, forKey: .token)
+            userID = try container.decode(UUID.self, forKey: .userID)
+            displayName = try container.decodeIfPresent(String.self, forKey: .displayName) ?? ""
+            baby = try container.decodeIfPresent(BabyDTO.self, forKey: .baby)
+            babies = try container.decodeIfPresent([MembershipDTO].self, forKey: .babies) ?? []
+            serverID = try container.decodeIfPresent(String.self, forKey: .serverID)
+            merged = try container.decodeIfPresent(Bool.self, forKey: .merged)
         }
     }
 
-    /// The first phone, with the setup code from the Mac mini.
-    func claim(secret: String, displayName: String, deviceName: String) async throws -> Pairing {
-        let body = try Self.encoder.encode([
-            "secret": secret, "display_name": displayName, "device_name": deviceName,
-        ])
-        return try await send(try request("POST", "/v1/pair/claim", body: body), as: Pairing.self)
+    /// A new phone on the home Wi‑Fi, setting itself up with nothing typed.
+    /// The recovery phrase's hash rides along, so a phone is never set up
+    /// without one.
+    func enroll(displayName: String, deviceName: String, keyHash: String?) async throws -> Pairing {
+        var fields = ["display_name": displayName, "device_name": deviceName]
+        if let keyHash { fields["key_hash"] = keyHash }
+        let body = try Self.encoder.encode(fields)
+        return try await send(try request("POST", "/v1/pair/enroll", body: body), as: Pairing.self,
+                              authenticated: false)
     }
 
-    /// Every phone after the first, with a code from the first one.
+    /// Joins a log from an invite. Sent with this phone's token (when the
+    /// client has one), it joins as the caregiver this phone already is.
     func join(code: String, displayName: String, deviceName: String) async throws -> Pairing {
         let body = try Self.encoder.encode([
             "code": code, "display_name": displayName, "device_name": deviceName,
         ])
-        return try await send(try request("POST", "/v1/pair/invite", body: body), as: Pairing.self)
+        return try await send(try request("POST", "/v1/pair/invite", body: body), as: Pairing.self,
+                              authenticated: false)
     }
 
-    struct RecoveryStatus: Decodable {
+    struct RecoveryStatus: Decodable, Equatable {
         let exists: Bool
         let createdAt: Date?
 
@@ -165,40 +259,55 @@ struct SyncClient: Sendable {
         }
     }
 
-    /// Registers the hash of a key this phone made. The key itself never
-    /// leaves the phone, which is the whole point of the arrangement.
-    func setRecoveryKeyHash(_ hash: String, babyID: UUID) async throws {
-        struct Response: Decodable { let babyID: UUID; enum CodingKeys: String, CodingKey { case babyID = "baby_id" } }
+    struct PhraseCheck: Decodable, Equatable {
+        let exists: Bool
+        let matches: Bool
+    }
+
+    /// Registers this person's recovery phrase, by its hash; the phrase itself
+    /// never leaves the phone. Refused (409 `key_exists`) when a different one
+    /// is already set, unless `replace` says to retire it.
+    func setRecoveryPhraseHash(_ hash: String, replace: Bool = false) async throws {
+        struct Body: Encodable {
+            let key_hash: String
+            let replace: Bool
+        }
+        _ = try await send(try request("POST", "/v1/me/recovery", body: try Self.encoder.encode(Body(key_hash: hash, replace: replace))),
+                           as: RecoveryStatus.self)
+    }
+
+    /// Whether the phrase on this phone is the one the server knows.
+    func checkRecoveryPhrase(_ hash: String) async throws -> PhraseCheck {
         let body = try Self.encoder.encode(["key_hash": hash])
-        _ = try await send(try request("POST", "/v1/babies/\(babyID.uuidString)/recovery", body: body),
-                           as: Response.self)
+        return try await send(try request("POST", "/v1/me/recovery/check", body: body), as: PhraseCheck.self)
     }
 
-    func recoveryStatus(babyID: UUID) async throws -> RecoveryStatus {
-        try await send(try request("GET", "/v1/babies/\(babyID.uuidString)/recovery"), as: RecoveryStatus.self)
-    }
-
-    /// Redeems a key. Sent without a token on a phone that has nothing, and
-    /// with one when adding a recovered log to the caregiver this phone
-    /// already is — the server decides which from the header.
+    /// Redeems a phrase (or an older per-baby key). Sent without a token on a
+    /// phone that has nothing, and with one on a phone that's already paired,
+    /// which the server folds into the person the phrase belongs to.
     func recover(key: String, displayName: String, deviceName: String) async throws -> Pairing {
         let body = try Self.encoder.encode([
             "key": RecoveryKey.normalized(key),
             "display_name": displayName,
             "device_name": deviceName,
         ])
-        return try await send(try request("POST", "/v1/recover", body: body), as: Pairing.self)
+        return try await send(try request("POST", "/v1/recover", body: body), as: Pairing.self,
+                              authenticated: false)
     }
 
     struct Account: Decodable {
         let userID: UUID
         let displayName: String
         let babies: [MembershipDTO]
+        let recoveryKey: RecoveryStatus?
+        let serverID: String?
 
         enum CodingKeys: String, CodingKey {
             case babies
             case userID = "user_id"
             case displayName = "display_name"
+            case recoveryKey = "recovery_key"
+            case serverID = "server_id"
         }
     }
 
@@ -223,8 +332,10 @@ struct SyncClient: Sendable {
         }
     }
 
-    func createInvite(babyID: UUID, expiresInMinutes: Int = 60) async throws -> Invite {
-        let body = try Self.encoder.encode(["expires_in_minutes": expiresInMinutes])
+    /// A day and ten phones by default: long enough to hand round the family
+    /// that evening, short enough that an old screenshot stops working.
+    func createInvite(babyID: UUID, expiresInMinutes: Int = 1440, maxUses: Int = 10) async throws -> Invite {
+        let body = try Self.encoder.encode(["expires_in_minutes": expiresInMinutes, "max_uses": maxUses])
         return try await send(try request("POST", "/v1/babies/\(babyID.uuidString)/invites", body: body),
                               as: Invite.self)
     }
@@ -254,6 +365,9 @@ struct SyncClient: Sendable {
             let table: String
             let id: UUID?
             let reason: String
+            /// `malformed`, or `not_a_member` for a log this caregiver was
+            /// taken off. Nil from servers that don't say.
+            let code: String?
         }
         let applied: [Applied]
         let rejected: [Rejected]

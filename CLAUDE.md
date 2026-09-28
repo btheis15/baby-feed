@@ -20,8 +20,8 @@ with newborn needs first.
 - `server/`: Node 22.5+, no dependencies, SQLite via `node:sqlite`. **Not part of the Xcode project**, so
   if you're Claude in Xcode and can't see it, say so rather than guessing.
 - `BabyFeed/`, `Shared/`, `BabyFeedWidget/` and `BabyFeedTests/` are file-system-synchronized groups: any
-  file added there joins the target automatically. Keep docs and config (e.g. `Config/*.xcconfig`) at the
-  repo root.
+  file added there joins the target automatically. Keep docs and example config (`Config/`) at the
+  repo root. The one config file inside `BabyFeed/` on purpose is the gitignored `ServerConfig.plist`.
 
 ## Build and test
 
@@ -75,6 +75,10 @@ with newborn needs first.
   `db.js`, `sync.js` and tests.
 - **Deploy order:** the server goes out before any app build that needs it (ROADMAP.md Appendix B). The
   mini runs its own checkout at `~/baby-feed`.
+- **Connecting** goes through `SyncEngine.ensureConnected(_:)`, one operation at a time. Nothing
+  reaches for the network on a cold launch unless the parent asked for it before (so the Local
+  Network prompt never appears unexplained). A phone that joined by QR never makes an identity of
+  its own, and a recovery phrase is never replaced without the parent asking.
 - **New server tests** go in their own files and use `server/test/support.js` (`startServer`,
   `withServer`). The older files each share one rate limiter.
 
@@ -95,7 +99,8 @@ Changing them breaks existing installs, pairing or widgets:
 ## Gotchas
 
 - **The GitHub repo is public.** Never commit an internet-reachable hostname (DuckDNS), a token or a key.
-  `Config/Server.local.xcconfig` (ROADMAP Phase 3b) is gitignored for that reason.
+  `BabyFeed/ServerConfig.plist`, the server this build syncs with, is gitignored for that reason
+  (`Config/ServerConfig.example.plist` shows the shape).
 - `project.pbxproj` has an uncommitted `MARKETING_VERSION = 1.2`. Keep it when editing the project.
   The widget target is still at 1.0, and an extension's version must match its app's, so bump both
   together.
@@ -105,6 +110,10 @@ Changing them breaks existing installs, pairing or widgets:
 - SwiftUI already has a `TimelineView`, so our timeline screen is `CareTimelineView`.
 - In a List section header, `.foregroundStyle(.primary)` still comes out grey: it resolves against
   the header's own style. Use `Color.primary`.
-- **Screenshots from the command line:** debug builds accept `--seed-demo-data`, `--open-tab
-  timeline|baby|settings` and `--open-sheet add` (`xcrun simctl launch <device> com.babyfeed.BabyFeed …`).
+- **Screenshots and sync checks from the command line:** debug builds accept `--seed-demo-data`,
+  `--open-tab timeline|baby|settings`, `--open-sheet add|share`, `--debug-open-url <babyfeed://…>`,
+  `--debug-connect`, `--debug-invite`, `--debug-restore <phrase>`, `--debug-name <name>` and
+  `--debug-log-diaper` (`xcrun simctl launch <device> com.babyfeed.BabyFeed …`; results in
+  `xcrun simctl spawn <device> log show`). Point `ServerConfig.plist` at a local server started with
+  `BABYFEED_ENROLL=lan+loopback` to test sharing between two simulators.
 - **Commit messages** here explain *why* in plain prose, the way `git log` shows. Match that style.

@@ -30,11 +30,16 @@ struct SyncMergeTests {
         #expect(!SyncMerge.isPlausibleInviteCode(""))
     }
 
-    @Test func inviteMessageCarriesCodeAndLink() {
-        let message = SyncMerge.inviteMessage(babyName: "Nora", code: "ABC123")
+    /// The whole link, server and all, and no "sign in": the older text sent
+    /// the server-less babyfeed://join/CODE, which dead-ended on a new phone.
+    @Test func inviteMessageCarriesTheWholeLink() throws {
+        let link = try #require(SyncLink.url(code: "ABC123", server: URL(string: "http://mini.local:8791")!))
+        let message = SyncMerge.inviteMessage(babyName: "Nora", link: link)
         #expect(message.contains("Nora"))
-        #expect(message.contains("ABC123"))
-        #expect(message.contains("babyfeed://join/ABC123"))
+        #expect(message.contains(link.absoluteString))
+        #expect(message.contains("code=ABC123"))
+        #expect(message.contains("server="))
+        #expect(!message.localizedCaseInsensitiveContains("sign in"))
     }
 
     @Test func watermarkAdvancesWithOverlap() {
@@ -50,12 +55,6 @@ struct SyncMergeTests {
         #expect(SyncMerge.nextWatermark(previous: nil, seen: []) == nil)
     }
 
-    @Test func displayNameFallsBackSensibly() {
-        #expect(SyncMerge.suggestedDisplayName(givenName: "Brian", familyName: "T", email: "b@x.com") == "Brian")
-        #expect(SyncMerge.suggestedDisplayName(givenName: " ", familyName: "Theis", email: nil) == "Theis")
-        #expect(SyncMerge.suggestedDisplayName(givenName: nil, familyName: nil, email: "brian@example.com") == "brian")
-        #expect(SyncMerge.suggestedDisplayName(givenName: nil, familyName: nil, email: nil) == "")
-    }
 }
 
 struct SyncDTOTests {

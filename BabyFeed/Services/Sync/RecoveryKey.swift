@@ -102,3 +102,99 @@ enum RecoveryKey {
         SecItemDelete(query(for: babyID) as CFDictionary)
     }
 }
+
+/// One recovery phrase per parent, covering every log they're on: the way
+/// back when every phone that had the log is gone.
+///
+/// Same format and Keychain service as the older per-baby keys, but stored
+/// under `person:<user id>`, so two parents who share an Apple ID (and so one
+/// iCloud Keychain) don't overwrite each other. A phrase made before this
+/// phone knows who it is (a baby added away from home) waits as
+/// `person:pending` until the server says.
+enum RecoveryPhrase {
+    static let pendingAccount = "person:pending"
+
+    static func account(for userID: UUID) -> String { "person:\(userID.uuidString)" }
+
+    private static let service = "com.babyfeed.BabyFeed.recovery"
+
+    private static func query(account: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: kCFBooleanTrue as Any,
+        ]
+    }
+
+    static func stored(account: String) -> String? {
+        var lookup = query(account: account)
+        lookup[kSecReturnData as String] = true
+        lookup[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(lookup as CFDictionary, &item) == errSecSuccess,
+              let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    @discardableResult
+    static func store(_ phrase: String, account: String) -> Bool {
+        SecItemDelete(query(account: account) as CFDictionary)
+        var add = query(account: account)
+        add[kSecValueData as String] = Data(RecoveryKey.normalized(phrase).utf8)
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+    }
+
+    static func forget(account: String) {
+        SecItemDelete(query(account: account) as CFDictionary)
+    }
+
+    /// This person's phrase, or the one waiting to be registered.
+    static func current(userID: UUID?) -> String? {
+        if let userID, let phrase = stored(account: account(for: userID)) { return phrase }
+        return stored(account: pendingAccount)
+    }
+
+    /// The phrase to set up with: the one waiting, or a new one.
+    static func pendingOrNew() -> String {
+        if let pending = stored(account: pendingAccount) { return pending }
+        let phrase = RecoveryKey.generate()
+        store(phrase, account: pendingAccount)
+        return phrase
+    }
+
+    /// Once the server has said who this is, the waiting phrase is theirs.
+    static func promotePending(to userID: UUID) {
+        guard let pending = stored(account: pendingAccount) else { return }
+        if store(pending, account: account(for: userID)) {
+            forget(account: pendingAccount)
+        }
+    }
+
+    /// Every person's phrase in this Keychain, for a fresh install that finds
+    /// one left by a previous install or brought over by iCloud Keychain. It's
+    /// offered to restore with; it's never used without asking.
+    static func allStored() -> [String] {
+        let lookup: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
+            kSecReturnAttributes as String: true,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+        ]
+        var items: CFTypeRef?
+        guard SecItemCopyMatching(lookup as CFDictionary, &items) == errSecSuccess,
+              let rows = items as? [[String: Any]] else { return [] }
+        return rows.compactMap { row in
+            guard let account = row[kSecAttrAccount as String] as? String,
+                  account.hasPrefix("person:"), account != pendingAccount,
+                  let data = row[kSecValueData as String] as? Data,
+                  let phrase = String(data: data, encoding: .utf8),
+                  RecoveryKey.isPlausible(phrase)
+            else { return nil }
+            return phrase
+        }
+    }
+}

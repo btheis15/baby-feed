@@ -27,12 +27,19 @@ final class AppRouter {
     /// from outside the app, so it should win.
     enum Sheet: Identifiable {
         case log(FeedKind)
-        /// From a QR code or a sent link. Opens over whatever is on screen,
-        /// because the person didn't come here through the app and shouldn't be
-        /// left on a tab to go hunting from.
-        case pairing(SyncLink.Invitation?)
-        /// The one-time first-run card explaining sharing.
-        case sharingIntro
+        /// A scanned QR or a sent link: joins straight away. Opens over
+        /// whatever is on screen, because the person didn't come here through
+        /// the app and shouldn't be left on a tab to go hunting from.
+        case join(SyncLink.Invitation)
+        /// Typing an address, a code or a phrase by hand (Caregivers →
+        /// Advanced), or a link that didn't say which server.
+        case pairing(code: String?)
+        /// First launch: add your baby, join a log, or restore.
+        case onboarding
+        /// The QR for the current baby.
+        case share(UUID)
+        /// "Your recovery phrase", shown once right after backing up.
+        case recoverySetup
         /// Editing one entry — from a timeline row, or the Edit on a toast.
         case editEntry(EntryRef)
         /// "+ Log something else": everything that isn't a feed or a diaper.
@@ -43,8 +50,11 @@ final class AppRouter {
         var id: String {
             switch self {
             case .log: "log"
+            case .join: "join"
             case .pairing: "pairing"
-            case .sharingIntro: "sharingIntro"
+            case .onboarding: "onboarding"
+            case .share: "share"
+            case .recoverySetup: "recoverySetup"
             case .editEntry(let ref): "edit-\(ref.id)"
             case .addEntry: "addEntry"
             case .newEntry(let kind): "new-\(kind.rawValue)"
@@ -75,18 +85,17 @@ final class AppRouter {
     }
 
     private func openJoin(url: URL) {
-        let invitation: SyncLink.Invitation?
         if let complete = SyncLink.invitation(from: url) {
-            invitation = complete
-        } else if let code = SyncLink.code(from: url), let server = SyncCredentials.serverURL {
-            // A link with no server in it: only usable because this phone is
-            // already paired with one.
-            invitation = SyncLink.Invitation(code: code, server: server)
+            sheet = .join(complete)
+        } else if let code = SyncLink.code(from: url),
+                  let server = SyncCredentials.serverURL ?? ServerConfig.current {
+            // A link with no server in it (an older one): usable because this
+            // phone, or this build, already knows one.
+            sheet = .join(SyncLink.Invitation(code: code, server: server))
         } else {
-            // Nothing usable in the link — send them to the setup screen rather
-            // than doing nothing visible.
-            invitation = nil
+            // Nothing usable in the link: the typed setup screen rather than
+            // nothing visible.
+            sheet = .pairing(code: SyncLink.code(from: url))
         }
-        sheet = .pairing(invitation)
     }
 }

@@ -1,13 +1,13 @@
 import SwiftUI
 
 struct RootView: View {
+    @Environment(\.modelContext) private var modelContext
     @Environment(AppRouter.self) private var router
     @Environment(ToastCenter.self) private var toasts
     @AppStorage(BabyProfile.nameKey) private var babyName = ""
     /// Read so the whole tree re-renders when the time zone setting changes.
     @AppStorage(AppSettings.timeZoneKey) private var timeZoneIdentifier = ""
-    @AppStorage(AppSettings.hasSeenSharingIntroKey) private var hasSeenSharingIntro = false
-    @State private var wantsSharingSetup = false
+    @AppStorage(AppSettings.hasSeenOnboardingKey) private var hasSeenOnboarding = false
 
     var body: some View {
         @Bindable var router = router
@@ -44,10 +44,20 @@ struct RootView: View {
             switch sheet {
             case .log(let kind):
                 LogFeedSheet(mode: .new(kind))
-            case .pairing(let invitation):
-                PairServerView(invitation: invitation)
-            case .sharingIntro:
-                SharingIntroView(wantsToSetUpSharing: $wantsSharingSetup)
+            case .join(let invitation):
+                JoinView(invitation: invitation)
+            case .pairing(let code):
+                PairServerView(code: code)
+            case .onboarding:
+                OnboardingView()
+            case .share(let babyID):
+                ShareBabySheet(babyID: babyID)
+            case .recoverySetup:
+                if let phrase = SyncEngine.shared.recoveryPhrase {
+                    RecoveryKeySetupView(phrase: phrase, babyName: babyName.isEmpty ? "your baby" : babyName) {
+                        router.sheet = nil
+                    }
+                }
             case .editEntry(let ref):
                 EntryEditor(ref: ref)
             case .addEntry:
@@ -68,19 +78,16 @@ struct RootView: View {
             }
         }
         .sensoryFeedback(.success, trigger: toasts.current?.id) { _, new in new != nil }
-        // Once, on the very first launch. Skipped entirely if something more
-        // urgent already claimed the sheet — an invite tapped from Messages
-        // right after installing shouldn't queue behind an explainer.
+        // Once, on the very first launch, and only on a phone with nothing on
+        // it yet. Skipped entirely if something more urgent already claimed
+        // the sheet: an invite tapped from Messages right after installing
+        // shouldn't queue behind a welcome.
         .task {
-            guard !hasSeenSharingIntro else { return }
-            hasSeenSharingIntro = true
-            guard router.sheet == nil, !SyncCredentials.isPaired else { return }
-            router.sheet = .sharingIntro
-        }
-        .onChange(of: wantsSharingSetup) { _, wants in
-            guard wants else { return }
-            wantsSharingSetup = false
-            router.sheet = .pairing(nil)
+            guard !hasSeenOnboarding else { return }
+            hasSeenOnboarding = true
+            guard router.sheet == nil, !SyncCredentials.isPaired,
+                  BabyStore.realBabies(in: modelContext).isEmpty else { return }
+            router.sheet = .onboarding
         }
     }
 }

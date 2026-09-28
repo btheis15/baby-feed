@@ -47,7 +47,7 @@ after each.
 | 1 | Today: a countdown, minutes not seconds, less battery | app, widget | **Done** 2026-09-28: `FeedCountdown` everywhere; minute-only hero, strip, widget and Live Activity; the battery fixes |
 | 2 | Logging that visibly lands, and one Timeline | app | **Done** 2026-09-28: toast with Undo/Edit on every log; Timeline of every kind with search, chips and folded older days; Today reordered; pediatrician summary and CSV cover diapers; 231 tests |
 | 3a | Sharing without credentials: server | server | **Done.** Merged to `main` in PR #2 and running on the mini since 2026-09-28 (`/v1/health` reports `"api":2`, `"enroll":"lan"`) |
-| 3b | Sharing without credentials: app | app | Not started (3a is live, so nothing blocks it) |
+| 3b | Sharing without credentials: app | app | **Done** 2026-09-28: onboarding, Share → QR, join by scanning, one recovery phrase per parent, lazy connect with a calm "away"; checked end to end on two simulators against a local server; 251 tests. Needs the two-phone check below on real iPhones |
 | 4 | The first weeks: getting enough, nursing side and timer, dark at night | app, widget | Not started |
 | 5 | Health for the first year: concerns, medicines, doctor visits | app, server | Not started |
 | 6 | Charts, numbers first | app | Not started |
@@ -554,7 +554,42 @@ Deploy it before shipping 3b: [Appendix B](#appendix-b--deploying-the-server-to-
 
 ### 3b — App
 
-**A. The server address comes from the build.**
+**As built** (read this first; it's what the code does where it differs from the plan below)
+- **The server address** comes from `BabyFeed/ServerConfig.plist` (keys `Scheme` and `Host`), which
+  git ignores. `Config/ServerConfig.example.plist` shows the shape; copy it and fill in the mini.
+  That replaced the xcconfig plan in A: it needs no edits to `project.pbxproj`, and the file is just
+  another resource in the synchronized `BabyFeed/` folder. No ATS change was needed either: iOS
+  already allows plain http to `.local` names and IP addresses. Without the file, the app works on
+  its own and Caregivers → Advanced takes a typed address.
+- **A phone that loses its token** (the mini's database reset, or it was removed) sets itself up
+  again only if it holds its parent's phrase, and then registers **the same phrase**, so the copy
+  on paper keeps working. A phone that only ever joined by QR never makes an identity by itself; it
+  says "tap Share on the other phone and scan again".
+- **"Restore from iCloud Keychain"** is on the Restore screen of onboarding, offered only when a
+  phrase from an earlier install is found.
+- **Today** gets a Share button in the toolbar, and at most one card: "Back up Nora to your Mac
+  mini" for installs from before sharing, or "Write down your recovery phrase" after "Remind me
+  later". Either can be put off for three days.
+- **Checked end to end**, on two simulators against a local server (`BABYFEED_ENROLL=lan+loopback`),
+  using debug-only launch arguments (`--debug-connect`, `--debug-invite`, `--debug-open-url`,
+  `--debug-restore`, `--debug-log-diaper`): onboarding on a fresh install; backing up 121 feeds;
+  the invite (24 h, 10 phones) and its QR, decoded; joining by link with nothing typed; the other
+  phone's log arriving; a diaper logged on B showing on A as "Logged by Annette"; a server reset
+  (A healed with the same phrase hash; B waited to be re-invited; no duplicates); restoring a wiped
+  phone with the phrase; and "away" queuing changes until the server came back.
+
+**Two-phone check on real iPhones** (both on the home Wi‑Fi, the mini on `api: 2`)
+1. Phone A, fresh install: Add my baby → Continue → allow Local Network → the phrase shows → Today.
+   Caregivers says "Backed up to your Mac mini".
+2. A: tap Share (top right on Today). The QR shows within a couple of seconds.
+3. Phone B: Camera → point at the QR → tap the banner. Baby Feed opens, says "You're in", offers
+   Mom/Dad/…; pick one → Done → Today shows the baby.
+4. A's Share sheet shows "✓ … joined". Log a diaper on each phone; each appears on the other after
+   bringing the app to the front, with who logged it.
+5. A on cellular: Caregivers reads "Will sync when you're home"; back on Wi‑Fi it catches up.
+6. Delete and reinstall A → Restore with recovery phrase → the log comes back.
+
+**A. The server address comes from the build.** *(Superseded by `ServerConfig.plist`; see As built.)*
 
 - **`Config/Base.xcconfig`** (committed). It lives at the repo root, **outside** the synchronized
   folders `BabyFeed/`, `Shared/`, `BabyFeedWidget/` and `BabyFeedTests/`; anything inside those
@@ -1416,7 +1451,7 @@ it (you're left at a `quote>` prompt; press Ctrl‑C to get out).
 ## Appendix D — Gotchas
 
 - **The GitHub repo is public.** Never commit an internet-reachable hostname (DuckDNS), a token or a
-  key. `Config/Server.local.xcconfig` is gitignored, and a `.local` name only resolves at home.
+  key. `BabyFeed/ServerConfig.plist` is gitignored, and a `.local` name only resolves at home.
 - **xcconfig.** `//` starts a comment anywhere on a line. `#include?` doesn't fail when the file is
   missing. Later lines win. Don't quote values.
 - **Synchronized folders.** Any file in `BabyFeed/`, `Shared/`, `BabyFeedWidget/` or
