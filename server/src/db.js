@@ -12,6 +12,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { randomUUID } from 'node:crypto'
 
 /** Every synced table, and the DTO field order the API speaks. */
 export const ROW_TABLES = ['babies', 'feeds', 'weights', 'care_notes', 'diapers', 'solid_foods']
@@ -21,16 +22,36 @@ PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000;
 
+-- Facts about this server itself. server_id is random per database, so a phone
+-- can tell "the server was reset" (a new id) from "my token was revoked" (the
+-- same id, and a 401).
+CREATE TABLE IF NOT EXISTS meta (
+  key           TEXT PRIMARY KEY,
+  value         TEXT NOT NULL
+);
+
 -- A caregiver. There is no email and no password: a user exists because a
--- device was paired, either with the setup secret or with an invite code.
+-- device was paired — enrolled from the home network, invited, recovered, or
+-- (on older builds) claimed with the setup secret.
 CREATE TABLE IF NOT EXISTS users (
   id            TEXT PRIMARY KEY,
   display_name  TEXT NOT NULL DEFAULT '',
   created_at    TEXT NOT NULL
 );
 
--- One per baby: the last way back in when every phone that had the log is
--- gone. The phone generates the key and keeps it; the server is told only its
+-- One recovery phrase per person, covering every log they're on — owned or
+-- shared with them. Like the per-baby keys below, the phone makes the phrase
+-- and keeps it; the server is told only its hash.
+CREATE TABLE IF NOT EXISTS account_keys (
+  user_id       TEXT PRIMARY KEY REFERENCES users(id),
+  key_hash      TEXT NOT NULL UNIQUE,
+  created_at    TEXT NOT NULL,
+  last_used_at  TEXT
+);
+
+-- One per baby: the older way back in when every phone that had the log is
+-- gone, kept because builds from before personal phrases hold these. The
+-- phone generates the key and keeps it; the server is told only its
 -- hash, so a stolen database file yields no way into anything — the same
 -- reasoning as device tokens, and the reason the key can be shown on a phone
 -- but never re-sent by the server.
@@ -206,6 +227,13 @@ export function openDatabase(path) {
   const db = new DatabaseSync(path)
   db.exec(SCHEMA)
   return db
+}
+
+/** This database's id, made on first use and never changed after. */
+export function serverID(db) {
+  db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('server_id', ?)")
+    .run(randomUUID().toUpperCase())
+  return db.prepare("SELECT value FROM meta WHERE key = 'server_id'").get().value
 }
 
 // A server timestamp that never repeats and never goes backwards.

@@ -1,9 +1,10 @@
 #!/bin/bash
-# One-time setup on the Mac mini. Safe to re-run: it never overwrites an
-# existing secret or database.
+# One-time setup on the Mac mini. Safe to re-run: it never overwrites existing
+# settings or the database.
 #
-# Creates ~/baby-feed-data (config, database, backups, logs), generates the
-# setup secret the first iPhone pairs with, and prints it once.
+# Creates ~/baby-feed-data (config, database, backups, logs) and writes the
+# settings. There is no code to print: a phone on the same Wi-Fi sets itself
+# up, and every phone after that joins by scanning a QR on one that has the log.
 
 set -euo pipefail
 
@@ -16,26 +17,24 @@ chmod 700 "$DATA_DIR"
 if [ -f "$ENV_FILE" ]; then
   echo "Settings already exist at $ENV_FILE — leaving them alone."
 else
-  # openssl rather than tr < /dev/urandom | head: that pipeline dies of SIGPIPE
-  # under `set -o pipefail`, which is a silent failure in a setup script.
-  SECRET=$(openssl rand -base64 24 | LC_ALL=C tr -dc 'A-HJ-NP-Za-km-z2-9' | cut -c1-10)
-  cat > "$ENV_FILE" <<SETTINGS
+  cat > "$ENV_FILE" <<'SETTINGS'
 # Baby Feed server settings. Never in git — this file lives outside the repo.
 
-# The code the FIRST iPhone types in to pair. Every phone after that joins with
-# a six-character invite code from that phone, so this is used once.
-BABYFEED_SETUP_SECRET=$SECRET
-
-# Loopback only: Caddy in front of this terminates TLS. Set 0.0.0.0 to reach it
-# directly over the home network while trying it out.
-BABYFEED_BIND=127.0.0.1
+# Listen on the home network, because the phones talk to it directly over the
+# Wi-Fi. Set 127.0.0.1 only if every phone reaches it through Caddy instead.
+BABYFEED_BIND=0.0.0.0
 BABYFEED_PORT=8791
+
+# How a brand-new phone gets on. "lan": a phone on this Wi-Fi sets itself up
+# with nothing typed (never through Caddy, never from the internet). "off":
+# only by invite or recovery phrase.
+BABYFEED_ENROLL=lan
 SETTINGS
   chmod 600 "$ENV_FILE"
   echo
-  echo "  Setup code for the first iPhone:  $SECRET"
+  echo "  No code to type. Open Baby Feed on an iPhone on this Wi-Fi and add your baby;"
+  echo "  it sets itself up and shows the recovery phrase to write down."
   echo
-  echo "  It's saved in $ENV_FILE. You only need it once."
 fi
 
 echo "Data directory: $DATA_DIR"

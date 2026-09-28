@@ -294,6 +294,53 @@ test('the change feed says who did what', async () => {
   assert.ok(byAnnette.some((c) => c.actor_name === 'Annette'))
 })
 
+test('a caregiver editing the baby does not become the one who started the log', async () => {
+  // Every phone sends its own id as created_by, so whoever pushed the baby
+  // row last used to become its creator.
+  const annetteID = (await call('GET', '/v1/me', { token: annette })).body.user_id
+  const brianID = (await call('GET', '/v1/me', { token: brian })).body.user_id
+  const push = await call('POST', '/v1/sync/push', {
+    token: annette,
+    body: { babies: [{ id: babyID, name: 'Nora Jane', created_by: annetteID, updated_at: iso() }] },
+  })
+  assert.equal(push.body.applied.length, 1)
+  const pull = await call('GET', `/v1/sync/pull?baby_id=${babyID}`, { token: brian })
+  assert.equal(pull.body.babies[0].name, 'Nora Jane', 'the edit itself lands')
+  assert.equal(pull.body.babies[0].created_by, brianID)
+})
+
+test("a caregiver on one log cannot move another log's row into theirs", async () => {
+  const privateID = uuid()
+  const feedID = uuid()
+  await call('POST', '/v1/sync/push', {
+    token: brian,
+    body: {
+      babies: [{ id: privateID, name: 'Private', updated_at: iso() }],
+      feeds: [{ id: feedID, baby_id: privateID, start_time: iso(), kind: 'formula', amount_ml: 60, updated_at: iso() }],
+    },
+  })
+  // Annette is on Nora, not on Private. Pushing Private's feed under Nora's id
+  // with a newer timestamp must not relabel it.
+  const moved = await call('POST', '/v1/sync/push', {
+    token: annette,
+    body: { feeds: [{ id: feedID, baby_id: babyID, start_time: iso(), kind: 'formula', amount_ml: 1, updated_at: iso(60000) }] },
+  })
+  assert.equal(moved.body.applied.length, 0)
+  assert.equal(moved.body.rejected[0].code, 'not_a_member')
+
+  const pull = await call('GET', `/v1/sync/pull?baby_id=${privateID}`, { token: brian })
+  const feed = pull.body.feeds.find((f) => f.id === feedID)
+  assert.equal(feed.baby_id, privateID)
+  assert.equal(feed.amount_ml, 60)
+
+  // And a malformed row says it's malformed, so the phone can tell the two apart.
+  const junk = await call('POST', '/v1/sync/push', {
+    token: annette,
+    body: { feeds: [{ id: 'not-a-uuid', baby_id: babyID, start_time: iso(), kind: 'formula', updated_at: iso() }] },
+  })
+  assert.equal(junk.body.rejected[0].code, 'malformed')
+})
+
 test('a caregiver can leave, and then sees nothing', async () => {
   const me = await call('GET', '/v1/me', { token: annette })
   const res = await call('DELETE', `/v1/babies/${babyID}/members/${me.body.user_id}`, { token: annette })

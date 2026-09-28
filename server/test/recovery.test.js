@@ -145,6 +145,11 @@ test('recovering restores the owner seat, so invites can be issued again', async
     const recovered = await call('POST', '/v1/recover', { body: { key, display_name: 'Recovered' } })
     const invite = await call('POST', `/v1/babies/${babyID}/invites`, { token: recovered.body.token })
     assert.equal(invite.status, 200, 'a recovered caregiver must be able to re-share the log')
+    // Any caregiver can invite now, so the invite alone no longer proves the
+    // seat: check it. The owner seat is still what sets a per-baby key and
+    // removes other caregivers.
+    const me = await call('GET', '/v1/me', { token: recovered.body.token })
+    assert.equal(me.body.babies.find((b) => b.id === babyID).role, 'owner')
   })
 })
 

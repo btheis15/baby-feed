@@ -24,49 +24,62 @@ cd ~/baby-feed/server
 ./scripts/install-launchd.sh
 ```
 
-That creates `~/baby-feed-data`, prints the **setup code** for the first
-iPhone, installs two launchd jobs (`com.babyfeed.server`, the nightly
-`com.babyfeed.backup`), starts the server and checks it answers.
+That creates `~/baby-feed-data` and its settings, installs two launchd jobs
+(`com.babyfeed.server`, the nightly `com.babyfeed.backup`), starts the server
+and checks it answers. There is no code to write down.
 
-The setup code is also in `~/baby-feed-data/.env`. You need it once.
+The launchd jobs expect this checkout at `~/baby-feed` on the mini.
 
 ## Getting the phones on it
 
-1. **First phone** — Settings → Caregivers & sync → Set up sharing → *This is
-   the first phone*. Enter the server address and the setup code.
-2. **Second phone** — on the first phone, *Invite another caregiver*. Point the
-   second phone's Camera at the QR code and tap the banner, or send the link,
-   or read the six characters out. Either way it lands on the join screen with
-   everything filled in.
-
-Nothing else pairs. There is no open sign-up endpoint to defend.
+1. **First phone**, on the home Wi-Fi: open the app and add the baby. The
+   phone sets itself up with the server (`POST /v1/pair/enroll`), backs the log
+   up, and shows your **recovery phrase** to write down.
+2. **Every other phone**: on a phone that has the log, tap **Share**. Point the
+   other phone's Camera at the QR and tap the banner, or send the link, or read
+   the six characters out. It joins on its own. Any caregiver can share, not
+   only whoever started the log.
+3. **A replacement phone, when every phone is gone**: *Restore with recovery
+   phrase*.
 
 **There are no user accounts.** The thing that exists on the server is a
 baby's log, and the only question it ever asks is who may see it. A caregiver
-is an id, a name the phone chose, and a list of babies they were invited to —
-no email, no password, nothing to manage or recover on its own. The name next
-to a feed is stored on the feed, written by the phone that logged it.
+is an id, a name the phone chose, and a list of babies they're on — no email,
+no password. The name next to a feed is stored on the feed, written by the
+phone that logged it.
 
-Which means an identity can only come into being two ways, both of them
-attached to a baby:
+A phone gets its token one of four ways:
 
-- **the setup code**, once, for the phone that sets the server up. It is spent
-  on first use and refused after that.
-- **an invite**, issued by that baby's owner, good for an hour and for one
-  phone.
-
-Signing in with Apple creates nothing by itself. It attaches a log you already
-have to your Apple Account so a replacement phone can be handed it back — and
-if your Apple Account isn't on any log yet, the answer is "ask for an invite",
-not "here's an empty account".
+- **Enrolling from the home network.** Nothing typed. It's refused unless the
+  connection comes straight from a private address on the Wi-Fi — not through
+  Caddy, not from loopback, not with a proxy header — so opening the server to
+  the internet later doesn't open sign-up to it. What it creates is an empty
+  caregiver who can see nothing until they push a baby of their own or are
+  invited to one. `BABYFEED_ENROLL=off` turns it off.
+- **An invite**, from anyone already on that baby's log. A phone that's already
+  paired joins as the caregiver it already is, so joining a second child never
+  costs it the first.
+- **A recovery phrase.** One per person, covering every log they're on. The
+  server holds only its hash. Older builds made one key per baby instead; those
+  still work.
+- **The setup secret**, for builds from before enrolment. Spent on first use.
 
 ## Reaching it from outside the house
 
 **Home Wi-Fi only** (this is how it's set up now). `BABYFEED_BIND=0.0.0.0` in
-`~/baby-feed-data/.env`, and the server address in the app is
-`http://<the mini's LAN address>:8791`. The app allows plain `http` for private
-addresses only, so a token can never go unencrypted across the internet. Feeds
-logged away from home sync when you get back. Nothing else to set up.
+`~/baby-feed-data/.env`, and the app reaches the mini by its Bonjour name,
+`http://<the mini's local hostname>.local:8791` (System Settings → General →
+Sharing shows it). Use the `.local` name rather than an IP address: it
+survives the router handing the mini a new address, and it's what App
+Transport Security's local-networking exception (`NSAllowsLocalNetworking`) is
+written for, whereas plain http to a bare IP isn't reliably allowed. A DHCP
+reservation for the mini doesn't hurt either. The app allows plain `http` for private addresses only, so a token can
+never go unencrypted across the internet. Feeds logged away from home sync
+when you get back.
+
+**Never forward a router port to 8791.** That is the plain-http server itself.
+If it's ever reachable from outside, it's only through Caddy on 9444, which
+terminates TLS — and enrolment refuses anything that comes through Caddy.
 
 **Anywhere**, with HTTPS and a hostname of its own:
 
@@ -130,10 +143,12 @@ kept, taken with SQLite's `.backup` so a copy is never torn mid-write.
 
 ## What it stores
 
-Babies, feeds, weights and care notes — the same shapes the app already had in
-`Services/Sync/SyncDTOs.swift`, which is why the JSON goes straight into a table
-with no translation. Plus caregivers, the phones they've paired, invite codes,
-and a change feed recording who did what.
+Babies, feeds, weights, care notes, diapers and solid foods — the same shapes
+the app has in `Services/Sync/SyncDTOs.swift`, which is why the JSON goes
+straight into a table with no translation. Plus caregivers, the phones they've
+paired (token hashes only), invite codes, recovery phrase hashes, a random
+`server_id` (so a phone can tell a reset server from a revoked token), and a
+change feed recording who did what.
 
 It does **not** store: reminder settings, units, time zone, learned bottle
 amounts, or anything else that is a preference of one phone rather than a fact
@@ -161,22 +176,26 @@ meeting point, not an authority.
 ## API
 
 Everything is under `/v1`. All of it needs `Authorization: Bearer <token>`
-except `/v1/health` and the two pairing routes.
+except `/v1/health`, the three pairing routes and `/v1/recover`.
 
 | Route | What it does |
 |---|---|
-| `GET /v1/health` | Liveness, and row counts. No token. |
-| `POST /v1/pair/claim` | First phone, with the setup secret. Single use. |
-| `POST /v1/pair/invite` | Any later phone, with an invite code. |
-| `POST /v1/auth/apple` | Sign in with Apple. Recovers a log, or attaches one to your Apple Account. Needs an invite if neither applies. |
-| `GET /v1/me` | This caregiver and the babies they're on. |
+| `GET /v1/health` | Liveness, row counts, `api`, `server_id`, `features`, and whether a new phone could enrol from where you're asking (`enroll_available`). No token. |
+| `POST /v1/pair/enroll` | A new phone on the home Wi-Fi, nothing typed. JSON only. Optional `key_hash` registers the person's recovery phrase in the same step. With a token, returns the same caregiver (`token: null`). |
+| `POST /v1/pair/invite` | Join with an invite code. With a token, joins as the caregiver this phone already is (`token: null`); re-scanning a code for a log you're on spends nothing. |
+| `POST /v1/pair/claim` | Builds from before enrolment: the first phone, with the setup secret. Single use. |
+| `POST /v1/recover` | Redeem a recovery phrase (person) or an older per-baby key. Returns every log the phrase covers. |
+| `GET /v1/me` | This caregiver, the babies they're on, whether they have a recovery phrase, and the `server_id`. |
 | `POST /v1/me` | Change the display name (reaches the other phone). |
+| `POST /v1/me/recovery` | Register this person's phrase hash. Replacing an existing one needs `replace: true`. |
+| `POST /v1/me/recovery/check` | Does the phrase on this phone match the one the server knows? |
 | `GET /v1/devices`, `DELETE /v1/devices/:id` | List and revoke paired phones. |
-| `POST /v1/babies/:id/invites` | Owner creates a code. |
-| `GET /v1/babies/:id/invites`, `DELETE …/:code` | List and revoke codes. |
+| `POST /v1/babies/:id/invites` | Any caregiver on the log creates a code. |
+| `GET /v1/babies/:id/invites`, `DELETE …/:code` | List and revoke codes: all of them for the owner, your own for anyone else. |
+| `POST /v1/babies/:id/recovery`, `GET …` | Older per-baby keys: the owner registers one; any member can see whether one exists. |
 | `GET /v1/babies/:id/members` | Who's on this log. |
 | `DELETE /v1/babies/:id/members/:userID` | Remove someone, or leave. |
-| `POST /v1/sync/push` | Rows up. Per-row applied/rejected. |
+| `POST /v1/sync/push` | Rows up. Per-row applied/rejected, with a `code` on each rejection (`malformed`, `not_a_member`). |
 | `GET /v1/sync/pull?baby_id=&since=` | Rows down, since a watermark. |
 | `GET /v1/changes?baby_id=&since_seq=` | Who changed what. |
 
