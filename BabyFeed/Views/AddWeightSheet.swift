@@ -109,5 +109,5 @@ struct AddWeightSheet: View {
 
 #Preview {
     AddWeightSheet(weightUnit: .poundsOunces)
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self], inMemory: true)
+        .modelContainer(.preview)
 }

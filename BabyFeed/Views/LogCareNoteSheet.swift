@@ -148,5 +148,5 @@ struct LogCareNoteSheet: View {
 
 #Preview {
     LogCareNoteSheet(mode: .new)
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self, CareNote.self], inMemory: true)
+        .modelContainer(.preview)
 }

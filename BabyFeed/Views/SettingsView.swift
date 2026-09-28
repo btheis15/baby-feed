@@ -330,5 +330,5 @@ struct SettingsView: View {
 #Preview {
     SettingsView()
         .environment(AppRouter())
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self], inMemory: true)
+        .modelContainer(.preview)
 }

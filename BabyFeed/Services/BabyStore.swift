@@ -125,20 +125,15 @@ enum BabyStore {
         return baby
     }
 
-    /// Removes a baby and its data from this phone only.
+    /// Removes a baby and every row it has from this phone only. Nothing is
+    /// sent to the server, and nobody else's copy changes.
     static func removeLocally(_ baby: Baby, in context: ModelContext) {
         let id = baby.uuid
-        let feeds = (try? context.fetch(FetchDescriptor<FeedEntry>(predicate: #Predicate { $0.babyID == id }))) ?? []
-        feeds.forEach(context.delete)
-        let weights = (try? context.fetch(FetchDescriptor<WeightEntry>(predicate: #Predicate { $0.babyID == id }))) ?? []
-        weights.forEach(context.delete)
-        let careNotes = (try? context.fetch(FetchDescriptor<CareNote>(predicate: #Predicate { $0.babyID == id }))) ?? []
-        careNotes.forEach(context.delete)
-        context.delete(baby)
-        try? context.save()
 
+        // Switch away first, so nothing on screen is left reading a baby
+        // that's about to stop existing.
         if AppSettings.currentBabyID == id {
-            if let next = allBabies(in: context).first {
+            if let next = allBabies(in: context).first(where: { $0.uuid != id }) {
                 setCurrent(next, in: context)
             } else {
                 let fresh = Baby(name: "", birthDate: nil)
@@ -147,5 +142,20 @@ enum BabyStore {
                 setCurrent(fresh, in: context)
             }
         }
+
+        // Every table that carries a babyID. Diapers and solid foods were
+        // missing here once, and lingered as rows nothing could show or delete.
+        let feeds = (try? context.fetch(FetchDescriptor<FeedEntry>(predicate: #Predicate { $0.babyID == id }))) ?? []
+        feeds.forEach(context.delete)
+        let weights = (try? context.fetch(FetchDescriptor<WeightEntry>(predicate: #Predicate { $0.babyID == id }))) ?? []
+        weights.forEach(context.delete)
+        let careNotes = (try? context.fetch(FetchDescriptor<CareNote>(predicate: #Predicate { $0.babyID == id }))) ?? []
+        careNotes.forEach(context.delete)
+        let diapers = (try? context.fetch(FetchDescriptor<DiaperEntry>(predicate: #Predicate { $0.babyID == id }))) ?? []
+        diapers.forEach(context.delete)
+        let foods = (try? context.fetch(FetchDescriptor<SolidFoodEntry>(predicate: #Predicate { $0.babyID == id }))) ?? []
+        foods.forEach(context.delete)
+        context.delete(baby)
+        try? context.save()
     }
 }

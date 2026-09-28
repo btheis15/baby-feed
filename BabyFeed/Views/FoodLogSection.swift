@@ -364,6 +364,5 @@ struct LogFoodSheet: View {
             Section("Foods") { FoodLogSection(ageMonths: 7) }
         }
     }
-    .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self, CareNote.self,
-                          DiaperEntry.self, SolidFoodEntry.self], inMemory: true)
+    .modelContainer(.preview)
 }

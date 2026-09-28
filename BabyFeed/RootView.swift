@@ -69,5 +69,5 @@ struct RootView: View {
 #Preview {
     RootView()
         .environment(AppRouter())
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self], inMemory: true)
+        .modelContainer(.preview)
 }

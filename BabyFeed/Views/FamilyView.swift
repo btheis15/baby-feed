@@ -262,5 +262,5 @@ extension SyncClient.Invite: Identifiable {
     NavigationStack {
         FamilyView()
     }
-    .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self, CareNote.self], inMemory: true)
+    .modelContainer(.preview)
 }

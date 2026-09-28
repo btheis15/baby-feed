@@ -368,10 +368,10 @@ struct LogFeedSheet: View {
 
 #Preview("New formula") {
     LogFeedSheet(mode: .new(.formula))
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self], inMemory: true)
+        .modelContainer(.preview)
 }
 
 #Preview("New nursing") {
     LogFeedSheet(mode: .new(.nursing))
-        .modelContainer(for: [FeedEntry.self, WeightEntry.self, Baby.self], inMemory: true)
+        .modelContainer(.preview)
 }
