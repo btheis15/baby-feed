@@ -1324,13 +1324,24 @@ followed `sync-server`. Moving it to `main` is what step 2 does.
 
    ```sh
    launchctl bootout gui/$(id -u)/com.babyfeed.server
-   mkdir -p ~/baby-feed-data/archive && mv ~/baby-feed-data/babyfeed.db* ~/baby-feed-data/archive/
+   # bootout returns before the old server has finished shutting down, so wait
+   # until launchd has really let go of the job.
+   while launchctl print gui/$(id -u)/com.babyfeed.server >/dev/null 2>&1; do sleep 1; done
+   ARCHIVE=~/baby-feed-data/archive/$(date +%Y%m%d-%H%M%S)
+   mkdir -p "$ARCHIVE"
+   find ~/baby-feed-data -maxdepth 1 -name 'babyfeed.db*' -exec mv {} "$ARCHIVE"/ \;
    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.babyfeed.server.plist
+   curl -s http://127.0.0.1:8791/v1/health     # paired_devices 0, babies 0, feeds 0, and a new server_id
    ```
 
-   Use `bootout`, not `kickstart`: the job restarts itself, and would reopen the database halfway
-   through the move. Phones paired to the old database will show "unpaired"; the new app reconnects
-   by itself.
+   - Use `bootout`, not `kickstart`: the job restarts itself, and would reopen the database halfway
+     through the move.
+   - Don't skip the wait. Without it, the old server can still be closing the database during the
+     move. As it closes it deletes its `-wal` and `-shm` side files, so `mv` fails on them, and
+     `bootstrap` fails with "5: Input/output error" because launchd is still removing the job.
+   - Never start the server with a leftover `babyfeed.db-wal` or `-shm` in the folder and no matching
+     `babyfeed.db`. SQLite would try to replay the old log into the new, empty database.
+   - Phones paired to the old database will show "unpaired"; the new app reconnects by itself.
 6. **Optional:** give the mini a DHCP reservation on the router. The app uses its `.local` name, so
    this is just belt and braces.
 7. **Rollback:** check out the previous server commit and `kickstart`. The old code ignores the new
