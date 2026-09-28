@@ -1,170 +1,6 @@
 import SwiftData
 import SwiftUI
 
-/// Logging what the baby actually ate, once they're old enough that anything
-/// beyond milk is on the table.
-///
-/// The whole section is age-gated: it doesn't exist before four months, and
-/// the textures it offers unlock on the same AAP boundaries the Foods-by-age
-/// screen cites — purées in the readiness window, mashed food from six months,
-/// finger foods from nine, family food from twelve. The caller passes the age;
-/// this view never re-derives it, so the two screens can't disagree.
-struct FoodLogSection: View {
-    let ageMonths: Int
-
-    @Query(sort: \SolidFoodEntry.time, order: .reverse) private var foods: [SolidFoodEntry]
-    @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
-
-    @State private var showLogSheet = false
-
-    private var currentBabyID: UUID? { UUID(uuidString: currentBabyIDRaw) }
-
-    var body: some View {
-        let visible = foods.active(for: currentBabyID)
-        let today = visible.filter { Calendar.current.isDateInToday($0.time) }
-
-        VStack(spacing: 12) {
-            Button {
-                showLogSheet = true
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "carrot.fill")
-                        .font(.system(size: 22))
-                    Text("Log a food")
-                        .font(.headline)
-                    Spacer()
-                    Text(ageMonths < 6 ? "From 4 months, if ready" : "\(visible.distinctNames.count) tried")
-                        .font(.subheadline)
-                        .opacity(0.75)
-                }
-                .padding(.horizontal, 20)
-                .frame(maxWidth: .infinity, minHeight: 64)
-                .background(Color.green.opacity(0.15), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .foregroundStyle(.green)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Log a food")
-
-            HStack {
-                Text(today.isEmpty
-                     ? "Nothing solid today"
-                     : "Today: \(today.map(\.name).joined(separator: ", "))")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer()
-                if !visible.isEmpty {
-                    NavigationLink {
-                        FoodListView(ageMonths: ageMonths)
-                    } label: {
-                        Text("All foods")
-                            .font(.footnote)
-                    }
-                }
-            }
-            .padding(.horizontal, 4)
-        }
-        .sheet(isPresented: $showLogSheet) {
-            LogFoodSheet(mode: .new, ageMonths: ageMonths)
-        }
-    }
-}
-
-/// Everything the baby has eaten, newest first — the record that answers
-/// "has she had egg before?" when it suddenly matters.
-struct FoodListView: View {
-    let ageMonths: Int
-
-    @Environment(\.modelContext) private var modelContext
-    @Environment(\.calendar) private var calendar
-    @Query(sort: \SolidFoodEntry.time, order: .reverse) private var foods: [SolidFoodEntry]
-    @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
-
-    @State private var editing: SolidFoodEntry?
-
-    private var currentBabyID: UUID? { UUID(uuidString: currentBabyIDRaw) }
-
-    var body: some View {
-        let visible = foods.active(for: currentBabyID)
-        let groups = Dictionary(grouping: visible) { calendar.startOfDay(for: $0.time) }
-            .sorted { $0.key > $1.key }
-
-        List {
-            ForEach(groups, id: \.key) { day, entries in
-                Section(FeedStats.dayTitle(for: day, calendar: calendar)) {
-                    ForEach(entries) { entry in
-                        row(entry, isFirst: visible.isFirstTime(entry))
-                            .contentShape(Rectangle())
-                            .onTapGesture { editing = entry }
-                    }
-                    .onDelete { offsets in
-                        delete(offsets.map { entries[$0] })
-                    }
-                }
-            }
-        }
-        .listStyle(.insetGrouped)
-        .navigationTitle("Foods")
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $editing) { entry in
-            LogFoodSheet(mode: .edit(entry), ageMonths: ageMonths)
-        }
-        .overlay {
-            if visible.isEmpty {
-                ContentUnavailableView(
-                    "No foods yet",
-                    systemImage: "carrot.fill",
-                    description: Text("Log the first taste from the Today screen.")
-                )
-            }
-        }
-    }
-
-    private func row(_ entry: SolidFoodEntry, isFirst: Bool) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: entry.reaction.systemImage)
-                .foregroundStyle(entry.reaction.color)
-                .frame(width: 26)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(entry.name)
-                        .font(.body)
-                    if isFirst {
-                        Text("First time")
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.green.opacity(0.15), in: Capsule())
-                            .foregroundStyle(.green)
-                    }
-                }
-                Text(detailText(entry))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Text(entry.time.formatted(date: .omitted, time: .shortened))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-        }
-    }
-
-    private func detailText(_ entry: SolidFoodEntry) -> String {
-        var parts = [entry.texture.title, entry.reaction.title]
-        if !entry.loggedByName.isEmpty { parts.append("by \(entry.loggedByName)") }
-        return parts.joined(separator: " · ")
-    }
-
-    private func delete(_ toDelete: [SolidFoodEntry]) {
-        withAnimation {
-            for entry in toDelete { entry.softDelete() }
-        }
-        try? modelContext.save()
-        SyncEngine.shared.requestSync()
-    }
-}
-
 /// One food, one sheet. The texture options are the age-gate: only what the
 /// AAP stages open up at this baby's age is offered at all.
 struct LogFoodSheet: View {
@@ -178,6 +14,8 @@ struct LogFoodSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(AppRouter.self) private var router
+    @Environment(ToastCenter.self) private var toasts
     @Query(sort: \SolidFoodEntry.time, order: .reverse) private var foods: [SolidFoodEntry]
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
@@ -186,6 +24,7 @@ struct LogFoodSheet: View {
     @State private var reaction: FoodReaction = .ate
     @State private var time: Date = .now
     @State private var note = ""
+    @State private var showDeleteConfirmation = false
 
     private var currentBabyID: UUID? { UUID(uuidString: currentBabyIDRaw) }
     private var availableTextures: [FoodTexture] { FoodTexture.available(atMonths: ageMonths) }
@@ -269,16 +108,6 @@ struct LogFoodSheet: View {
                     TextField("Optional – how much, mixed with what…", text: $note)
                 }
 
-                if case .edit(let entry) = mode {
-                    Section {
-                        Button("Delete", role: .destructive) {
-                            entry.softDelete()
-                            try? modelContext.save()
-                            SyncEngine.shared.requestSync()
-                            dismiss()
-                        }
-                    }
-                }
             }
             .navigationTitle(isEditing ? "Edit food" : "Log a food")
             .navigationBarTitleDisplayMode(.inline)
@@ -290,6 +119,14 @@ struct LogFoodSheet: View {
                     Button("Save") { save() }
                         .disabled(trimmedName.isEmpty)
                 }
+                if isEditing {
+                    ToolbarItem(placement: .destructiveAction) {
+                        Button("Delete", role: .destructive) { showDeleteConfirmation = true }
+                    }
+                }
+            }
+            .confirmationDialog("Delete this food?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+                Button("Delete Food", role: .destructive) { deleteEntry() }
             }
             .onAppear(perform: prefill)
         }
@@ -332,37 +169,47 @@ struct LogFoodSheet: View {
     }
 
     private func save() {
+        let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
         switch mode {
         case .new:
+            let wasFirstTime = isFirstTime
             let entry = SolidFoodEntry(
                 babyID: currentBabyID,
                 time: time,
                 name: trimmedName,
                 texture: texture,
                 reaction: reaction,
-                note: note,
+                note: trimmedNote,
                 loggedByName: AppSettings.displayName
             )
             modelContext.insert(entry)
+            FeedCoordinator.feedsDidChange(in: modelContext)
+            toasts.logged(.food(entry, isFirstTime: wasFirstTime), detail: wasFirstTime ? "first time" : nil,
+                          context: modelContext, router: router)
         case .edit(let entry):
             entry.name = trimmedName
             entry.texture = texture
             entry.reaction = reaction
             entry.time = time
-            entry.note = note
+            entry.note = trimmedNote
             entry.markChanged()
+            FeedCoordinator.feedsDidChange(in: modelContext)
         }
-        try? modelContext.save()
-        SyncEngine.shared.requestSync()
+        dismiss()
+    }
+
+    private func deleteEntry() {
+        if case .edit(let entry) = mode {
+            entry.softDelete()
+            FeedCoordinator.feedsDidChange(in: modelContext)
+        }
         dismiss()
     }
 }
 
-#Preview {
-    NavigationStack {
-        List {
-            Section("Foods") { FoodLogSection(ageMonths: 7) }
-        }
-    }
-    .modelContainer(.preview)
+#Preview("New") {
+    LogFoodSheet(mode: .new, ageMonths: 7)
+        .environment(AppRouter())
+        .environment(ToastCenter())
+        .modelContainer(.preview)
 }

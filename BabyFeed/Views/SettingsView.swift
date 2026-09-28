@@ -3,7 +3,6 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query private var entries: [FeedEntry]
 
     @AppStorage(FeedDefaults.volumeUnit) private var unitRaw = VolumeUnit.ounces.rawValue
     @AppStorage(AppSettings.weightUnitKey) private var weightUnitRaw = WeightUnit.poundsOunces.rawValue
@@ -28,7 +27,6 @@ struct SettingsView: View {
     @State private var permissionMessage: String?
 
     private var unit: VolumeUnit { VolumeUnit(rawValue: unitRaw) ?? .ounces }
-    private var activeEntries: [FeedEntry] { entries.active(for: UUID(uuidString: currentBabyIDRaw)) }
 
     var body: some View {
         NavigationStack {
@@ -245,16 +243,15 @@ struct SettingsView: View {
 
     private var exportSection: some View {
         Section {
-            ShareLink(item: FeedStats.csv(activeEntries, unit: unit), subject: Text("Baby Feed log")) {
+            NavigationLink {
+                ExportView()
+            } label: {
                 Label("Export as CSV", systemImage: "square.and.arrow.up")
             }
-            .disabled(activeEntries.isEmpty)
         } header: {
             Text("Export")
         } footer: {
-            Text(activeEntries.isEmpty
-                 ? "Log a feed first, then you can export your history."
-                 : "\(activeEntries.count) feeds. The History tab also has a plain-text summary for the pediatrician.")
+            Text("Everything logged, or just the feeds, as a spreadsheet.")
         }
     }
 

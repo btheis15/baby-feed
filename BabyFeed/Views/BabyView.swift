@@ -5,6 +5,8 @@ import SwiftUI
 struct BabyView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.calendar) private var calendar
+    @Environment(AppRouter.self) private var router
+    @Environment(ToastCenter.self) private var toasts
     @Query(sort: \WeightEntry.date, order: .reverse) private var allWeights: [WeightEntry]
     @Query(sort: \FeedEntry.startTime, order: .reverse) private var allFeeds: [FeedEntry]
     @Query(sort: \CareNote.date, order: .reverse) private var allCareNotes: [CareNote]
@@ -199,28 +201,29 @@ struct BabyView: View {
                 }
 
                 ForEach(weights) { entry in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(entry.date.formatted(date: .abbreviated, time: .omitted))
-                            // "Logged by", not "weighed by" – whoever entered
-                            // it isn't necessarily whoever held the scale.
-                            let detail = [
-                                entry.loggedByName.isEmpty ? "" : "Logged by \(entry.loggedByName)",
-                                entry.note,
-                            ]
-                                .filter { !$0.isEmpty }
-                                .joined(separator: " · ")
-                            if !detail.isEmpty {
-                                Text(detail)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                    Button {
+                        router.sheet = .editEntry(.weight(entry.persistentModelID))
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(entry.date.formatted(date: .abbreviated, time: .omitted))
+                                // "Logged by", not "weighed by": whoever entered
+                                // it isn't necessarily whoever held the scale.
+                                let detail = EntryRow.joined([LoggedBy.text(entry.loggedByName), entry.note])
+                                if !detail.isEmpty {
+                                    Text(detail)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
                             }
+                            Spacer()
+                            Text(weightUnit.format(grams: entry.grams))
+                                .monospacedDigit()
                         }
-                        Spacer()
-                        Text(weightUnit.format(grams: entry.grams))
-                            .monospacedDigit()
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
                 .onDelete(perform: deleteWeights)
             } else {
@@ -551,14 +554,14 @@ struct BabyView: View {
     private func deleteWeights(at offsets: IndexSet) {
         let visible = weights
         for index in offsets {
-            visible[index].softDelete()
+            toasts.delete(.weight(visible[index]), context: modelContext)
         }
-        FeedCoordinator.settingsDidChange(in: modelContext)
     }
 }
 
 #Preview {
     BabyView()
         .environment(AppRouter())
+        .environment(ToastCenter())
         .modelContainer(.preview)
 }

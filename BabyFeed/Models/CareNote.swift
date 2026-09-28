@@ -157,9 +157,3 @@ enum CareNoteSeverity: Int, CaseIterable, Identifiable, Codable {
         }
     }
 }
-
-extension Array where Element == CareNote {
-    func active(for babyID: UUID?) -> [CareNote] {
-        filter { $0.deletedAt == nil && (babyID == nil || $0.babyID == babyID) }
-    }
-}

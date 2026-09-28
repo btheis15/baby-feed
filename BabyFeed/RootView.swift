@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(AppRouter.self) private var router
+    @Environment(ToastCenter.self) private var toasts
     @AppStorage(BabyProfile.nameKey) private var babyName = ""
     /// Read so the whole tree re-renders when the time zone setting changes.
     @AppStorage(AppSettings.timeZoneKey) private var timeZoneIdentifier = ""
@@ -15,8 +16,8 @@ struct RootView: View {
             Tab("Today", systemImage: "clock.fill", value: AppRouter.Tab.today) {
                 HomeView()
             }
-            Tab("History", systemImage: "calendar", value: AppRouter.Tab.history) {
-                HistoryView()
+            Tab("Timeline", systemImage: "calendar.day.timeline.left", value: AppRouter.Tab.timeline) {
+                CareTimelineView()
             }
             Tab(babyName.isEmpty ? "Baby" : babyName, systemImage: "figure.child", value: AppRouter.Tab.baby) {
                 BabyView()
@@ -47,8 +48,26 @@ struct RootView: View {
                 PairServerView(invitation: invitation)
             case .sharingIntro:
                 SharingIntroView(wantsToSetUpSharing: $wantsSharingSetup)
+            case .editEntry(let ref):
+                EntryEditor(ref: ref)
+            case .addEntry:
+                AddEntrySheet()
+            case .newEntry(let kind):
+                NewEntrySheet(kind: kind)
             }
         }
+        // Above the tab bar and its accessory, over whichever tab is showing:
+        // a diaper logged on Today and a feed saved from its sheet both land
+        // here, and so does the haptic that says it worked.
+        .overlay(alignment: .bottom) {
+            if let toast = toasts.current {
+                LogToastView(toast: toast) { toasts.dismiss() }
+                    .padding(.bottom, 150)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .id(toast.id)
+            }
+        }
+        .sensoryFeedback(.success, trigger: toasts.current?.id) { _, new in new != nil }
         // Once, on the very first launch. Skipped entirely if something more
         // urgent already claimed the sheet — an invite tapped from Messages
         // right after installing shouldn't queue behind an explainer.
@@ -69,5 +88,6 @@ struct RootView: View {
 #Preview {
     RootView()
         .environment(AppRouter())
+        .environment(ToastCenter())
         .modelContainer(.preview)
 }

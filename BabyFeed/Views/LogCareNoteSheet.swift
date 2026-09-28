@@ -13,6 +13,8 @@ struct LogCareNoteSheet: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppRouter.self) private var router
+    @Environment(ToastCenter.self) private var toasts
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
     @State private var kind: CareNoteKind
@@ -124,23 +126,23 @@ struct LogCareNoteSheet: View {
                 loggedByName: AppSettings.displayName
             )
             modelContext.insert(careNote)
+            FeedCoordinator.feedsDidChange(in: modelContext)
+            toasts.logged(.note(careNote), context: modelContext, router: router)
         case .edit(let careNote):
             careNote.date = date
             careNote.kind = kind
             careNote.note = trimmedNote
             careNote.severity = kind.usesSeverity ? severity : nil
             careNote.markChanged()
+            FeedCoordinator.feedsDidChange(in: modelContext)
         }
-        try? modelContext.save()
-        SyncEngine.shared.requestSync()
         dismiss()
     }
 
     private func deleteCareNote() {
         if case .edit(let careNote) = mode {
             careNote.softDelete()
-            try? modelContext.save()
-            SyncEngine.shared.requestSync()
+            FeedCoordinator.feedsDidChange(in: modelContext)
         }
         dismiss()
     }
@@ -148,5 +150,7 @@ struct LogCareNoteSheet: View {
 
 #Preview {
     LogCareNoteSheet(mode: .new)
+        .environment(AppRouter())
+        .environment(ToastCenter())
         .modelContainer(.preview)
 }

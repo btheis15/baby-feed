@@ -168,10 +168,6 @@ enum FoodReaction: String, CaseIterable, Identifiable, Codable {
 }
 
 extension Array where Element == SolidFoodEntry {
-    func active(for babyID: UUID?) -> [SolidFoodEntry] {
-        filter { $0.deletedAt == nil && (babyID == nil || $0.babyID == babyID) }
-    }
-
     /// Whether this exact food has never been logged before `entry` — the
     /// "first time" badge, and the reason tracing a reaction is possible.
     func isFirstTime(_ entry: SolidFoodEntry) -> Bool {

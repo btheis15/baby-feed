@@ -19,6 +19,7 @@ struct BabyFeedApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
     @State private var router = AppRouter()
+    @State private var toasts = ToastCenter()
 
     init() {
         // Before anything reads a default amount: drop the amounts the old
@@ -41,11 +42,15 @@ struct BabyFeedApp: App {
         WindowGroup {
             RootView()
                 .environment(router)
+                .environment(toasts)
                 .onOpenURL { url in
                     router.handle(url: url)
                 }
                 .onAppear {
                     appDelegate.router = router
+                    #if DEBUG
+                    DebugLaunch.apply(to: router)
+                    #endif
                 }
         }
         .modelContainer(AppModelContainer.shared)

@@ -262,10 +262,8 @@ enum FeedStats {
 
     /// Groups entries by calendar day, newest day first, newest entry first within a day.
     static func groupByDay(_ entries: [FeedEntry], calendar: Calendar = .current) -> [DayGroup] {
-        let buckets = Dictionary(grouping: entries) { calendar.startOfDay(for: $0.startTime) }
-        return buckets.keys.sorted(by: >).map { day in
-            DayGroup(day: day, entries: buckets[day]!.sorted { $0.startTime > $1.startTime })
-        }
+        DayGrouping.group(entries, calendar: calendar) { $0.startTime }
+            .map { DayGroup(day: $0.day, entries: $0.items) }
     }
 
     /// "Today", "Yesterday", or "Mon, Sep 15".
@@ -276,9 +274,13 @@ enum FeedStats {
             return "Yesterday"
         }
         let sameYear = calendar.component(.year, from: day) == calendar.component(.year, from: now)
-        let style: Date.FormatStyle = sameYear
+        var style: Date.FormatStyle = sameYear
             ? .dateTime.weekday(.abbreviated).month(.abbreviated).day()
             : .dateTime.weekday(.abbreviated).month(.abbreviated).day().year()
+        // In the log's time zone, which a pinned setting can make different
+        // from the phone's: midnight in New York is still the day before in
+        // California, and the title has to name the day the rows are from.
+        style.timeZone = calendar.timeZone
         return day.formatted(style)
     }
 

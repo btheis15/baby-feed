@@ -37,9 +37,3 @@ final class WeightEntry {
         markChanged()
     }
 }
-
-extension Array where Element == WeightEntry {
-    func active(for babyID: UUID?) -> [WeightEntry] {
-        filter { $0.deletedAt == nil && (babyID == nil || $0.babyID == babyID) }
-    }
-}

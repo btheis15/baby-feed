@@ -8,10 +8,10 @@ import SwiftUI
 /// so they can't disagree.
 struct SummarySheet: View {
     @Environment(\.dismiss) private var dismiss
-    /// So the summary groups days the same way History does, including a
+    /// So the summary groups days the same way the Timeline does, including a
     /// pinned time zone.
     @Environment(\.calendar) private var calendar
-    /// Four columns stop fitting at accessibility sizes; see dayTableSection.
+    /// The columns stop fitting at accessibility sizes; see dayTableSection.
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Query(sort: \FeedEntry.startTime, order: .reverse) private var entries: [FeedEntry]
     @Query(sort: \WeightEntry.date, order: .reverse) private var weights: [WeightEntry]
@@ -59,15 +59,20 @@ struct SummarySheet: View {
                 if !report.weightItems.isEmpty {
                     itemSection("Weight", items: report.weightItems)
                 }
-                if report.hasFeeds {
-                    itemSection("Per day", items: report.averageItems, footer: "Averaged over the \(report.days.count) day\(report.days.count == 1 ? "" : "s") with feeds logged.")
-                    itemSection("Totals", items: report.totalItems)
-                    dayTableSection(report.days)
-                } else {
+                if !report.hasFeeds {
                     Section {
                         Text("No feeds logged in this period.")
                             .foregroundStyle(.secondary)
                     }
+                }
+                if !report.averageItems.isEmpty {
+                    itemSection("Per day", items: report.averageItems, footer: report.averagesFootnote)
+                }
+                if !report.totalItems.isEmpty {
+                    itemSection("Totals", items: report.totalItems)
+                }
+                if !report.days.isEmpty {
+                    dayTableSection(report.days)
                 }
 
                 if report.hasFoods {
@@ -145,7 +150,7 @@ struct SummarySheet: View {
 
     /// The day-by-day figures.
     ///
-    /// Four columns only work at ordinary text sizes – at accessibility sizes
+    /// The columns only work at ordinary text sizes – at accessibility sizes
     /// they truncate to "Yest…" and "16.9…", so past that point each day
     /// becomes its own stacked row instead. Same numbers either way.
     @ViewBuilder
@@ -171,48 +176,58 @@ struct SummarySheet: View {
 
     /// "5 feeds · 16.9 oz · 17 min nursing · diapers 4 wet · 2 dirty"
     private func stackedDetail(for day: DaySummaryGenerator.Report.Day) -> String {
-        var parts = ["\(day.feedCount) feed\(day.feedCount == 1 ? "" : "s")"]
-        if let volume = day.volumeText { parts.append(volume) }
-        if let nursing = day.nursingText { parts.append("\(nursing) nursing") }
-        if let diapers = day.diaperText { parts.append("diapers \(diapers)") }
-        return parts.joined(separator: " · ")
+        DaySummaryGenerator.dayDetail(day)
     }
 
+    /// Only the columns something was logged in: a family that only nurses
+    /// has no use for a Bottle column, and five columns is already a squeeze.
     private func dayGrid(_ days: [DaySummaryGenerator.Report.Day]) -> some View {
-        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+        let showsBottle = days.contains { $0.volumeText != nil }
+        let showsNursing = days.contains { $0.nursingText != nil }
+        let showsDiapers = days.contains(where: \.hasDiapers)
+        let columns = 2 + (showsBottle ? 1 : 0) + (showsNursing ? 1 : 0) + (showsDiapers ? 1 : 0)
+
+        return Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 10) {
             GridRow {
                 // The day column absorbs the slack so the numbers sit at the
                 // right edge instead of the table hugging the left.
                 Text("Day")
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text("Feeds").gridColumnAlignment(.trailing)
-                Text("Bottle").gridColumnAlignment(.trailing)
-                Text("Nursing").gridColumnAlignment(.trailing)
+                if showsBottle { Text("Bottle").gridColumnAlignment(.trailing) }
+                if showsNursing { Text("Nursing").gridColumnAlignment(.trailing) }
+                if showsDiapers { Text("Wet · dirty").gridColumnAlignment(.trailing) }
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
 
             Divider()
-                .gridCellColumns(4)
+                .gridCellColumns(columns)
 
             ForEach(days) { day in
                 GridRow {
                     Text(day.shortTitle)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("\(day.feedCount)")
-                        .monospacedDigit()
-                    Text(day.volumeText ?? "–")
-                        .monospacedDigit()
-                        .foregroundStyle(day.volumeText == nil ? .secondary : .primary)
-                    Text(day.nursingText ?? "–")
-                        .monospacedDigit()
-                        .foregroundStyle(day.nursingText == nil ? .secondary : .primary)
+                    // A dash, not a 0, on a day with only diapers logged: it
+                    // wasn't a day without feeds, just one nobody logged.
+                    cell(day.feedCount > 0 ? "\(day.feedCount)" : nil)
+                    if showsBottle { cell(day.volumeText) }
+                    if showsNursing { cell(day.nursingText) }
+                    if showsDiapers { cell(day.hasDiapers ? "\(day.wet) · \(day.dirty)" : nil) }
                 }
                 .font(.subheadline)
             }
         }
         .padding(.vertical, 2)
+    }
+
+    private func cell(_ text: String?) -> some View {
+        Text(text ?? "–")
+            .monospacedDigit()
+            .lineLimit(1)
+            .foregroundStyle(text == nil ? .secondary : .primary)
     }
 
     /// The foods, with first-times and reactions marked — "what are they
@@ -271,7 +286,7 @@ struct SummarySheet: View {
         } header: {
             Text("Notes")
         } footer: {
-            Text("Anything logged outside feeds in this period.")
+            Text("Everything written down in this period.")
         }
     }
 

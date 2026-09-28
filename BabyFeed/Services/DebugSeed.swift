@@ -195,4 +195,27 @@ enum DebugSeed {
         print("[DebugSeed] \(feedCount) feeds and \(diaperCount) diapers over 15 days, \(weighIns.count) weigh-ins, \(notes.count) notes, born \(birth)")
     }
 }
+
+/// Where to open, for screenshots taken from the command line:
+/// `--open-tab timeline|baby|settings` and `--open-sheet add`. Debug builds
+/// only, like the seed.
+@MainActor
+enum DebugLaunch {
+    static func apply(to router: AppRouter) {
+        let arguments = CommandLine.arguments
+        func value(after flag: String) -> String? {
+            guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else { return nil }
+            return arguments[index + 1]
+        }
+        switch value(after: "--open-tab") {
+        case "timeline": router.tab = .timeline
+        case "baby": router.tab = .baby
+        case "settings": router.tab = .settings
+        default: break
+        }
+        if value(after: "--open-sheet") == "add" {
+            router.sheet = .addEntry
+        }
+    }
+}
 #endif

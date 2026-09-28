@@ -4,24 +4,34 @@ import SwiftUI
 /// Diapers on the Today screen: three one-tap buttons and the day's tally.
 ///
 /// A diaper change is the highest-frequency event in the house and carries no
-/// amount, so unlike a feed it doesn't open a sheet — the tap is the log. A
-/// wrong tap is fixed from the list behind "All diapers", not prevented with a
-/// confirmation that would slow down the other hundred taps that were right.
+/// amount, so unlike a feed it doesn't open a sheet: the tap is the log. The
+/// toast that follows has Undo for a wrong tap, rather than a confirmation
+/// that would slow down the other hundred taps that were right.
 struct DiaperSection: View {
+    /// The newest change for this baby, if any.
+    let last: DiaperEntry?
+    /// The last 24 hours, worked out by Today so that it and the Last 24
+    /// hours card show the same numbers.
+    let tally: DiaperTally
+
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \DiaperEntry.time, order: .reverse) private var diapers: [DiaperEntry]
+    @Environment(\.timeZone) private var timeZone
+    @Environment(AppRouter.self) private var router
+    @Environment(ToastCenter.self) private var toasts
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
     /// Flashes the tapped kind briefly, so a tap visibly landed.
     @State private var justLogged: DiaperKind?
+    /// The last tap, so a double tap doesn't log two changes.
+    @State private var lastTap: (kind: DiaperKind, at: Date)?
+
+    /// A second tap on the same button inside this is taken as a bounce, not
+    /// a second diaper. A real second change is never this quick.
+    static let repeatTapWindow: TimeInterval = 1.5
 
     private var currentBabyID: UUID? { UUID(uuidString: currentBabyIDRaw) }
 
     var body: some View {
-        let visible = diapers.active(for: currentBabyID)
-        let last24h = visible.within(24 * 60 * 60)
-        let tally = DiaperTally(last24h)
-
         VStack(spacing: 12) {
             HStack(spacing: 12) {
                 ForEach(DiaperKind.allCases) { kind in
@@ -29,22 +39,29 @@ struct DiaperSection: View {
                 }
             }
 
-            HStack {
-                Text(tally.isEmpty ? "No diapers in the last 24 h" : "Last 24 h: \(tally.text)")
+            HStack(alignment: .firstTextBaseline) {
+                Text(EntryRow.wrappingAtDots(statusText))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                Spacer()
-                if !visible.isEmpty {
-                    NavigationLink {
-                        DiaperListView()
-                    } label: {
-                        Text("All diapers")
-                            .font(.footnote)
+                Spacer(minLength: 8)
+                if last != nil {
+                    Button("All diapers") {
+                        router.openTimeline(filter: .only(.diapers))
                     }
+                    .font(.footnote)
                 }
             }
-            .padding(.horizontal, 4)
+            // Clear of the section's rounded corners, which clip anything
+            // sitting right at the row's edge.
+            .padding(.horizontal, 14)
         }
+    }
+
+    /// "Last diaper 1:55 PM · 24 h: 5 wet · 2 dirty".
+    private var statusText: String {
+        guard let last else { return "No diapers logged yet" }
+        let lastText = "Last diaper \(ClockText.since(last.time, now: .now, in: timeZone))"
+        return tally.isEmpty ? "\(lastText) · none in 24 h" : "\(lastText) · 24 h: \(tally.text)"
     }
 
     private func diaperButton(_ kind: DiaperKind) -> some View {
@@ -63,105 +80,31 @@ struct DiaperSection: View {
             .foregroundStyle(kind.color)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Log \(kind.title.lowercased()) diaper")
+        .accessibilityLabel("Log \(kind.entryTitle.lowercased())")
     }
 
     private func log(_ kind: DiaperKind) {
+        let tappedAt = Date.now
+        if let lastTap, lastTap.kind == kind, tappedAt.timeIntervalSince(lastTap.at) < Self.repeatTapWindow {
+            return
+        }
+        lastTap = (kind, tappedAt)
+
         let entry = DiaperEntry(
             babyID: currentBabyID,
+            time: tappedAt,
             kind: kind,
             loggedByName: AppSettings.displayName
         )
         modelContext.insert(entry)
-        try? modelContext.save()
-        SyncEngine.shared.requestSync()
+        FeedCoordinator.feedsDidChange(in: modelContext)
+        toasts.logged(.diaper(entry), context: modelContext, router: router)
 
         withAnimation { justLogged = kind }
         Task {
             try? await Task.sleep(for: .seconds(1.2))
             withAnimation { if justLogged == kind { justLogged = nil } }
         }
-    }
-}
-
-/// Every diaper, newest first — where a stray tap gets fixed and where you
-/// check whether anyone changed one during the night.
-struct DiaperListView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Environment(\.calendar) private var calendar
-    @Query(sort: \DiaperEntry.time, order: .reverse) private var diapers: [DiaperEntry]
-    @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
-
-    @State private var editing: DiaperEntry?
-
-    private var currentBabyID: UUID? { UUID(uuidString: currentBabyIDRaw) }
-
-    var body: some View {
-        let visible = diapers.active(for: currentBabyID)
-        let groups = Dictionary(grouping: visible) { calendar.startOfDay(for: $0.time) }
-            .sorted { $0.key > $1.key }
-
-        List {
-            ForEach(groups, id: \.key) { day, entries in
-                Section {
-                    ForEach(entries) { entry in
-                        row(entry)
-                            .contentShape(Rectangle())
-                            .onTapGesture { editing = entry }
-                    }
-                    .onDelete { offsets in
-                        delete(offsets.map { entries[$0] })
-                    }
-                } header: {
-                    Text("\(FeedStats.dayTitle(for: day, calendar: calendar)) — \(DiaperTally(entries).text)")
-                }
-            }
-        }
-        .listStyle(.insetGrouped)
-        .navigationTitle("Diapers")
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $editing) { entry in
-            EditDiaperSheet(entry: entry)
-        }
-        .overlay {
-            if visible.isEmpty {
-                ContentUnavailableView(
-                    "No diapers yet",
-                    systemImage: "drop.halffull",
-                    description: Text("Log one from the Today screen — a single tap.")
-                )
-            }
-        }
-    }
-
-    private func row(_ entry: DiaperEntry) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: entry.kind.systemImage)
-                .foregroundStyle(entry.kind.color)
-                .frame(width: 26)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.kind.title)
-                    .font(.body)
-                if !entry.loggedByName.isEmpty {
-                    Text("Logged by \(entry.loggedByName)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            Text(entry.time.formatted(date: .omitted, time: .shortened))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-        }
-    }
-
-    private func delete(_ toDelete: [DiaperEntry]) {
-        withAnimation {
-            for entry in toDelete { entry.softDelete() }
-        }
-        try? modelContext.save()
-        SyncEngine.shared.requestSync()
     }
 }
 
@@ -173,6 +116,7 @@ struct EditDiaperSheet: View {
 
     @State private var kind: DiaperKind = .wet
     @State private var time: Date = .now
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -187,15 +131,6 @@ struct EditDiaperSheet: View {
 
                     DatePicker("When", selection: $time, in: ...Date.now)
                 }
-
-                Section {
-                    Button("Delete", role: .destructive) {
-                        entry.softDelete()
-                        try? modelContext.save()
-                        SyncEngine.shared.requestSync()
-                        dismiss()
-                    }
-                }
             }
             .navigationTitle("Edit diaper")
             .navigationBarTitleDisplayMode(.inline)
@@ -205,6 +140,16 @@ struct EditDiaperSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
+                }
+                ToolbarItem(placement: .destructiveAction) {
+                    Button("Delete", role: .destructive) { showDeleteConfirmation = true }
+                }
+            }
+            .confirmationDialog("Delete this diaper?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+                Button("Delete Diaper", role: .destructive) {
+                    entry.softDelete()
+                    FeedCoordinator.feedsDidChange(in: modelContext)
+                    dismiss()
                 }
             }
             .onAppear {
@@ -219,8 +164,7 @@ struct EditDiaperSheet: View {
         entry.kind = kind
         entry.time = time
         entry.markChanged()
-        try? modelContext.save()
-        SyncEngine.shared.requestSync()
+        FeedCoordinator.feedsDidChange(in: modelContext)
         dismiss()
     }
 }
@@ -228,8 +172,10 @@ struct EditDiaperSheet: View {
 #Preview {
     NavigationStack {
         List {
-            Section("Diapers") { DiaperSection() }
+            Section("Diapers") { DiaperSection(last: nil, tally: DiaperTally([])) }
         }
     }
+    .environment(AppRouter())
+    .environment(ToastCenter())
     .modelContainer(.preview)
 }

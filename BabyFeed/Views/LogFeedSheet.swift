@@ -13,6 +13,8 @@ struct LogFeedSheet: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppRouter.self) private var router
+    @Environment(ToastCenter.self) private var toasts
     @AppStorage(FeedDefaults.volumeUnit) private var unitRaw = VolumeUnit.ounces.rawValue
     @AppStorage(FeedDefaults.recommendedPerFeedKey) private var recommendedPerFeedML: Double = 0
     @AppStorage(BabyProfile.nameKey) private var babyName = ""
@@ -324,6 +326,7 @@ struct LogFeedSheet: View {
         let nursingSide: NursingSide? = kind.usesVolume ? nil : side
         let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        var logged: FeedEntry?
         switch mode {
         case .new:
             let entry = FeedEntry(
@@ -337,6 +340,7 @@ struct LogFeedSheet: View {
                 loggedByName: AppSettings.displayName
             )
             modelContext.insert(entry)
+            logged = entry
         case .edit(let entry):
             entry.startTime = time
             entry.kind = kind
@@ -355,6 +359,9 @@ struct LogFeedSheet: View {
         }
 
         FeedCoordinator.feedsDidChange(in: modelContext)
+        if let logged {
+            toasts.logged(.feed(logged), detail: logged.detailText(unit: unit), context: modelContext, router: router)
+        }
         dismiss()
     }
 
@@ -368,10 +375,14 @@ struct LogFeedSheet: View {
 
 #Preview("New formula") {
     LogFeedSheet(mode: .new(.formula))
+        .environment(AppRouter())
+        .environment(ToastCenter())
         .modelContainer(.preview)
 }
 
 #Preview("New nursing") {
     LogFeedSheet(mode: .new(.nursing))
+        .environment(AppRouter())
+        .environment(ToastCenter())
         .modelContainer(.preview)
 }

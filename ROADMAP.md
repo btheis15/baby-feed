@@ -45,7 +45,7 @@ after each.
 |---|---|---|---|
 | 0 | Safety net: tests green, previews render | app | **Done** 2026-09-28: 190 tests pass; one shared model list; `removeLocally` and the debug seed cover every type |
 | 1 | Today: a countdown, minutes not seconds, less battery | app, widget | **Done** 2026-09-28: `FeedCountdown` everywhere; minute-only hero, strip, widget and Live Activity; the battery fixes |
-| 2 | Logging that visibly lands, and one Timeline | app | Not started |
+| 2 | Logging that visibly lands, and one Timeline | app | **Done** 2026-09-28: toast with Undo/Edit on every log; Timeline of every kind with search, chips and folded older days; Today reordered; pediatrician summary and CSV cover diapers; 231 tests |
 | 3a | Sharing without credentials: server | server | **Done.** Merged to `main` in PR #2 and running on the mini since 2026-09-28 (`/v1/health` reports `"api":2`, `"enroll":"lan"`) |
 | 3b | Sharing without credentials: app | app | Not started (3a is live, so nothing blocks it) |
 | 4 | The first weeks: getting enough, nursing side and timer, dark at night | app, widget | Not started |
@@ -485,6 +485,20 @@ it.
 - `DayGroupingTests`: a daylight-saving day and a pinned time zone.
 - `RelativeAgeTests`: 0, 1, 2, 30, 31, 111 and 112 days, and across a DST change.
 - A CSV escaping test.
+
+**As built** (where it differs from the above, and why)
+- Today's summary card is **Last 24 hours**, not "Today so far": the daily target is a rolling
+  24-hour number, and a calendar day read against it looks thin every morning. Its volume bar is
+  hidden when every feed in the window was nursing, where "0 oz of ~25 oz" would read as not eating.
+- Older days (two or more days back) fold into one summary line until tapped, unless you're
+  searching or filtering. Thirty days of every diaper is a long scroll to find a Monday.
+- Export is its own screen (Settings → Export as CSV) with two real `.csv` files, "Everything" and
+  "Feeds only", built when opened rather than on every redraw of Settings.
+- The summary's day table shows only the columns something was logged in, with diapers as
+  "Wet · dirty".
+- `FeedStats.dayTitle` now formats in the log's time zone; with a pinned zone it used to name the
+  day before.
+- Measured: a month of a busy newborn's log (570 entries) builds in about 3 ms in a debug build.
 
 **Prompt**
 
