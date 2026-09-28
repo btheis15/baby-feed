@@ -25,6 +25,11 @@ enum DaySummaryGenerator {
             let nursingText: String?
             /// "4 wet · 2 dirty" — nil when no diapers were logged that day.
             let diaperText: String?
+            /// The same tally as numbers, for the table's columns.
+            var wet = 0
+            var dirty = 0
+
+            var hasDiapers: Bool { wet > 0 || dirty > 0 }
         }
 
         /// One label/value pair, which is all most of this report is.
@@ -67,13 +72,40 @@ enum DaySummaryGenerator {
             let flagged: Bool
         }
 
+        /// Every day in the window with feeds or diapers logged, newest first.
         var days: [Day]
         var notes: [Note]
         var foods: [Food]
+        /// How many days the feed averages divide by: the days with feeds.
+        var feedDayCount = 0
+        /// And the diaper averages: the days with diapers.
+        var diaperDayCount = 0
+        /// True when feeds and diapers were logged on exactly the same days,
+        /// so one "averaged over" covers both.
+        var feedsAndDiapersShareDays = false
 
-        var hasFeeds: Bool { !days.isEmpty }
+        var hasFeeds: Bool { feedDayCount > 0 }
+        var hasDiapers: Bool { diaperDayCount > 0 }
         var hasNotes: Bool { !notes.isEmpty }
         var hasFoods: Bool { !foods.isEmpty }
+
+        /// What the per-day numbers were averaged over, said plainly, since a
+        /// day nobody logged is left out rather than counted as a zero.
+        var averagesFootnote: String? {
+            func days(_ count: Int) -> String { count == 1 ? "the 1 day" : "the \(count) days" }
+            switch (hasFeeds, hasDiapers) {
+            case (true, true) where feedsAndDiapersShareDays:
+                return "Averaged over \(days(feedDayCount)) with feeds and diapers logged."
+            case (true, true):
+                return "Feeds averaged over \(days(feedDayCount)) with feeds logged, diapers over \(days(diaperDayCount)) with diapers logged."
+            case (true, false):
+                return "Averaged over \(days(feedDayCount)) with feeds logged."
+            case (false, true):
+                return "Averaged over \(days(diaperDayCount)) with diapers logged."
+            case (false, false):
+                return nil
+            }
+        }
     }
 
     static func report(
@@ -97,8 +129,10 @@ enum DaySummaryGenerator {
         // Diapers, tallied per calendar day. Wet count per day is the question
         // a pediatrician actually asks, so it belongs in this report.
         let recentDiapers = diapers.filter { $0.time >= cutoff && $0.deletedAt == nil }
-        let diapersByDay = Dictionary(grouping: recentDiapers) { calendar.startOfDay(for: $0.time) }
-            .mapValues(DiaperTally.init)
+        let diapersByDay = Dictionary(
+            uniqueKeysWithValues: DayGrouping.group(recentDiapers, calendar: calendar) { $0.time }
+                .map { ($0.day, DiaperTally($0.items)) }
+        )
 
         var weightItems: [Report.Item] = []
         if let latest = weights.first {
@@ -110,7 +144,7 @@ enum DaySummaryGenerator {
             weightItems.append(.init(
                 id: "weighed",
                 label: "Weighed",
-                value: latest.date.formatted(date: .abbreviated, time: .omitted)
+                value: latest.date.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted, timeZone: calendar.timeZone))
             ))
             if let rate = WeightStats.overallGramsPerWeek(weights) {
                 weightItems.append(.init(
@@ -153,27 +187,6 @@ enum DaySummaryGenerator {
                     value: FeedStats.durationText(hours: gap)
                 ))
             }
-            if !diapersByDay.isEmpty {
-                // Averaged over days with diapers logged, same reasoning as
-                // feeds: a day nobody logged shouldn't read as a dry day.
-                let diaperDayCount = Double(diapersByDay.count)
-                let totalWet = diapersByDay.values.reduce(0) { $0 + $1.wet }
-                let totalDirty = diapersByDay.values.reduce(0) { $0 + $1.dirty }
-                if totalWet > 0 {
-                    averageItems.append(.init(
-                        id: "wetDiapers",
-                        label: "Wet diapers",
-                        value: (Double(totalWet) / diaperDayCount).formatted(.number.precision(.fractionLength(1)))
-                    ))
-                }
-                if totalDirty > 0 {
-                    averageItems.append(.init(
-                        id: "dirtyDiapers",
-                        label: "Dirty diapers",
-                        value: (Double(totalDirty) / diaperDayCount).formatted(.number.precision(.fractionLength(1)))
-                    ))
-                }
-            }
 
             let formulaML = recent.filter { $0.kind == .formula }.reduce(0) { $0 + ($1.amountML ?? 0) }
             let breastMilkML = recent.filter { $0.kind == .breastMilk }.reduce(0) { $0 + ($1.amountML ?? 0) }
@@ -191,19 +204,50 @@ enum DaySummaryGenerator {
                 ))
             }
 
-            dayRows = groups.map { group in
-                let summary = group.summary
-                let tally = diapersByDay[group.day]
-                return Report.Day(
-                    id: group.day,
-                    title: FeedStats.dayTitle(for: group.day, calendar: calendar, now: now),
-                    shortTitle: shortDayTitle(for: group.day, calendar: calendar, now: now),
-                    feedCount: summary.feedCount,
-                    volumeText: summary.bottleCount > 0 ? unit.format(milliliters: summary.totalML) : nil,
-                    nursingText: summary.nursingMinutes > 0 ? "\(summary.nursingMinutes) min" : nil,
-                    diaperText: (tally?.isEmpty ?? true) ? nil : tally?.text
-                )
+        }
+
+        // Outside the feeds check: a stretch where only diapers got logged
+        // still has diaper numbers worth showing.
+        if !diapersByDay.isEmpty {
+            // Averaged over days with diapers logged, same reasoning as
+            // feeds: a day nobody logged shouldn't read as a dry day.
+            let diaperDayCount = Double(diapersByDay.count)
+            let totalWet = diapersByDay.values.reduce(0) { $0 + $1.wet }
+            let totalDirty = diapersByDay.values.reduce(0) { $0 + $1.dirty }
+            if totalWet > 0 {
+                averageItems.append(.init(
+                    id: "wetDiapers",
+                    label: "Wet diapers",
+                    value: (Double(totalWet) / diaperDayCount).formatted(.number.precision(.fractionLength(1)))
+                ))
             }
+            if totalDirty > 0 {
+                averageItems.append(.init(
+                    id: "dirtyDiapers",
+                    label: "Dirty diapers",
+                    value: (Double(totalDirty) / diaperDayCount).formatted(.number.precision(.fractionLength(1)))
+                ))
+            }
+        }
+
+        // A row for every day with feeds or diapers, so a day where only
+        // diapers were logged isn't missing from the table.
+        let feedsByDay = Dictionary(uniqueKeysWithValues: groups.map { ($0.day, $0.summary) })
+        let allDays = Set(feedsByDay.keys).union(diapersByDay.keys).sorted(by: >)
+        dayRows = allDays.map { day in
+            let summary = feedsByDay[day] ?? FeedSummary()
+            let tally = diapersByDay[day]
+            return Report.Day(
+                id: day,
+                title: FeedStats.dayTitle(for: day, calendar: calendar, now: now),
+                shortTitle: shortDayTitle(for: day, calendar: calendar, now: now),
+                feedCount: summary.feedCount,
+                volumeText: summary.bottleCount > 0 ? unit.format(milliliters: summary.totalML) : nil,
+                nursingText: summary.nursingMinutes > 0 ? "\(summary.nursingMinutes) min" : nil,
+                diaperText: (tally?.isEmpty ?? true) ? nil : tally?.text,
+                wet: tally?.wet ?? 0,
+                dirty: tally?.dirty ?? 0
+            )
         }
 
         let notes = careNotes
@@ -245,7 +289,10 @@ enum DaySummaryGenerator {
             totalItems: totalItems,
             days: dayRows,
             notes: notes,
-            foods: foods
+            foods: foods,
+            feedDayCount: groups.count,
+            diaperDayCount: diapersByDay.count,
+            feedsAndDiapersShareDays: Set(feedsByDay.keys) == Set(diapersByDay.keys)
         )
     }
 
@@ -256,7 +303,9 @@ enum DaySummaryGenerator {
            calendar.isDate(day, inSameDayAs: yesterday) {
             return "Yesterday"
         }
-        return day.formatted(.dateTime.weekday(.abbreviated).day())
+        var style = Date.FormatStyle.dateTime.weekday(.abbreviated).day()
+        style.timeZone = calendar.timeZone
+        return day.formatted(style)
     }
 
     /// The shareable plain text, assembled from the same report the screen
@@ -303,9 +352,6 @@ enum DaySummaryGenerator {
 
         if !report.hasFeeds {
             lines.append("No feeds logged in this period.")
-            lines.append(contentsOf: foodLines(report))
-            lines.append(contentsOf: noteLines(report))
-            return lines.joined(separator: "\n")
         }
 
         if !report.averageItems.isEmpty {
@@ -315,18 +361,30 @@ enum DaySummaryGenerator {
             lines.append("Totals — " + report.totalItems.map { "\($0.label.lowercased()) \($0.value)" }.joined(separator: ", "))
         }
 
-        lines.append("")
-        for day in report.days {
-            var parts = ["\(day.feedCount) feed\(day.feedCount == 1 ? "" : "s")"]
-            if let volume = day.volumeText { parts.append(volume) }
-            if let nursing = day.nursingText { parts.append("\(nursing) nursing") }
-            if let diapers = day.diaperText { parts.append("diapers \(diapers)") }
-            lines.append("\(day.title): " + parts.joined(separator: " · "))
+        if !report.days.isEmpty {
+            lines.append("")
+            for day in report.days {
+                lines.append("\(day.title): " + dayDetail(day))
+            }
         }
 
         lines.append(contentsOf: foodLines(report))
         lines.append(contentsOf: noteLines(report))
         return lines.joined(separator: "\n")
+    }
+
+    /// "5 feeds · 16.9 oz · 17 min nursing · diapers 4 wet · 2 dirty". A day
+    /// with only diapers logged says nothing about feeds rather than "0
+    /// feeds": nobody logging a bottle isn't the baby not eating.
+    static func dayDetail(_ day: Report.Day) -> String {
+        var parts: [String] = []
+        if day.feedCount > 0 {
+            parts.append("\(day.feedCount) feed\(day.feedCount == 1 ? "" : "s")")
+        }
+        if let volume = day.volumeText { parts.append(volume) }
+        if let nursing = day.nursingText { parts.append("\(nursing) nursing") }
+        if let diapers = day.diaperText { parts.append("diapers \(diapers)") }
+        return parts.joined(separator: " · ")
     }
 
     /// The foods, first-times and reactions marked, because "what's she eating

@@ -7,10 +7,19 @@ import Observation
 @MainActor
 final class AppRouter {
     enum Tab: Hashable {
-        case today, history, baby, settings
+        case today, timeline, baby, settings
     }
 
     var tab: Tab = .today
+
+    /// What the Timeline is showing. Set from outside it — "All diapers" on
+    /// Today — as well as by its own chips.
+    var timelineFilter: TimelineFilter = .all
+
+    func openTimeline(filter: TimelineFilter = .all) {
+        timelineFilter = filter
+        tab = .timeline
+    }
 
     /// Which sheet is up — one value rather than a flag each, because only one
     /// sheet can be presented at a time. An invite arriving while the log sheet
@@ -24,12 +33,21 @@ final class AppRouter {
         case pairing(SyncLink.Invitation?)
         /// The one-time first-run card explaining sharing.
         case sharingIntro
+        /// Editing one entry — from a timeline row, or the Edit on a toast.
+        case editEntry(EntryRef)
+        /// "+ Log something else": everything that isn't a feed or a diaper.
+        case addEntry
+        /// A new entry of one of those kinds, picked from `addEntry`.
+        case newEntry(AddEntryKind)
 
         var id: String {
             switch self {
             case .log: "log"
             case .pairing: "pairing"
             case .sharingIntro: "sharingIntro"
+            case .editEntry(let ref): "edit-\(ref.id)"
+            case .addEntry: "addEntry"
+            case .newEntry(let kind): "new-\(kind.rawValue)"
             }
         }
     }

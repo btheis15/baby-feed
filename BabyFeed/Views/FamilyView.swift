@@ -198,7 +198,7 @@ struct FamilyView: View {
             } header: {
                 Text("Sharing")
             } footer: {
-                Text("Until then, the pediatrician summary under History shares as plain text to anyone who needs it.")
+                Text("Until then, the pediatrician summary on the Timeline shares as plain text to anyone who needs it.")
             }
         }
     }

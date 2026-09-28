@@ -8,7 +8,8 @@ import SwiftUI
 /// written down.
 struct CareNotesView: View {
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.calendar) private var calendar
+    @Environment(\.timeZone) private var timeZone
+    @Environment(ToastCenter.self) private var toasts
     @Query(sort: \CareNote.date, order: .reverse) private var allCareNotes: [CareNote]
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
@@ -70,7 +71,7 @@ struct CareNotesView: View {
                 Label(careNote.kind.title, systemImage: careNote.kind.systemImage)
                     .font(.subheadline.weight(.medium))
                 Spacer(minLength: 8)
-                Text(careNote.date.formatted(date: .abbreviated, time: .shortened))
+                Text(careNote.date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, timeZone: timeZone)))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -84,8 +85,8 @@ struct CareNotesView: View {
                     Text(severity.title)
                         .foregroundStyle(severity == .severe ? .orange : .secondary)
                 }
-                if !careNote.loggedByName.isEmpty {
-                    Text(severity_separator(careNote) + "Logged by \(careNote.loggedByName)")
+                if let loggedBy = LoggedBy.text(careNote.loggedByName) {
+                    Text(severity_separator(careNote) + loggedBy)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -102,13 +103,9 @@ struct CareNotesView: View {
 
     private func delete(at offsets: IndexSet) {
         let visible = careNotes
-        withAnimation {
-            for index in offsets {
-                visible[index].softDelete()
-            }
+        for index in offsets {
+            toasts.delete(.note(visible[index]), context: modelContext)
         }
-        try? modelContext.save()
-        SyncEngine.shared.requestSync()
     }
 }
 
@@ -116,5 +113,7 @@ struct CareNotesView: View {
     NavigationStack {
         CareNotesView(babyName: "Nora")
     }
+    .environment(AppRouter())
+    .environment(ToastCenter())
     .modelContainer(.preview)
 }

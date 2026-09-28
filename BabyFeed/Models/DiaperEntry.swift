@@ -92,6 +92,17 @@ enum DiaperKind: String, CaseIterable, Identifiable, Codable {
         }
     }
 
+    /// "Wet diaper", "Dirty diaper", "Wet and dirty diaper": what a row or a
+    /// toast calls it. The picker's short "Both" only reads right next to the
+    /// other two.
+    var entryTitle: String {
+        switch self {
+        case .wet: "Wet diaper"
+        case .dirty: "Dirty diaper"
+        case .both: "Wet and dirty diaper"
+        }
+    }
+
     /// Whether this change counts toward each tally. `both` counts as one wet
     /// and one dirty, which is what it was.
     var countsAsWet: Bool { self != .dirty }
@@ -103,7 +114,6 @@ struct DiaperTally {
     var wet = 0
     var dirty = 0
 
-    var changeCount: Int { max(wet, dirty) == 0 ? 0 : wet + dirty }
     var isEmpty: Bool { wet == 0 && dirty == 0 }
 
     init(_ entries: [DiaperEntry]) {
@@ -123,10 +133,6 @@ struct DiaperTally {
 }
 
 extension Array where Element == DiaperEntry {
-    func active(for babyID: UUID?) -> [DiaperEntry] {
-        filter { $0.deletedAt == nil && (babyID == nil || $0.babyID == babyID) }
-    }
-
     func within(_ interval: TimeInterval, now: Date = .now) -> [DiaperEntry] {
         filter { now.timeIntervalSince($0.time) <= interval && $0.time <= now }
     }

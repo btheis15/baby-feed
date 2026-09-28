@@ -43,8 +43,8 @@ with newborn needs first.
 - **Days and times** come from `@Environment(\.calendar)`, `AppSettings.calendar` or
   `AppSettings.timeZone`, because a time zone can be pinned in Settings. Don't use `Calendar.current` or a
   bare `.formatted()` for user-facing days or clock times.
-- **One source of truth per number:** `FeedingGuidance.currentTarget`, `FeedSummary` and `DiaperTally`
-  (plus `FeedCountdown` once Phase 1 lands). Screens call these; they never recompute the numbers.
+- **One source of truth per number:** `FeedingGuidance.currentTarget`, `FeedSummary`, `DiaperTally`
+  and `FeedCountdown`. Screens call these; they never recompute the numbers.
 - **Sheets** use `Mode { case new; case edit(Model) }`. App-level sheets go through `AppRouter.sheet`,
   one at a time (commit `0802233` explains why).
 - **Models are listed once**, in `AppSchema.models`. Previews use `.modelContainer(.preview)`, and
@@ -61,6 +61,12 @@ with newborn needs first.
   - The app never suggests a medicine dose.
   - A missed log is never presented as a problem with the baby.
 - **Two taps to log a feed, one tap for a diaper.** Anything slower goes behind "+", not onto Today.
+- **Every log lands visibly.** After saving something new, call `toasts.logged(item, context:router:)`
+  (the `ToastCenter` in the environment), after `FeedCoordinator` has saved, so the entry's ID is
+  permanent by the time Edit uses it. Swipe deletes go through `toasts.delete(_:context:)`, which
+  gives the Undo. A Delete button inside a sheet always confirms.
+- **The Timeline is built from `TimelineItem`.** A new kind of entry adds a case there, and the
+  compiler then lists every screen that has to handle it (row, editor, search, CSV).
 
 ## Syncing and the server
 
@@ -97,4 +103,8 @@ Changing them breaks existing installs, pairing or widgets:
 - `UIDevice.current.name` returns just "iPhone" on iOS 16 and later.
 - Tests run inside the app (`TEST_HOST`), so `Bundle.main` is the app bundle.
 - SwiftUI already has a `TimelineView`, so our timeline screen is `CareTimelineView`.
+- In a List section header, `.foregroundStyle(.primary)` still comes out grey: it resolves against
+  the header's own style. Use `Color.primary`.
+- **Screenshots from the command line:** debug builds accept `--seed-demo-data`, `--open-tab
+  timeline|baby|settings` and `--open-sheet add` (`xcrun simctl launch <device> com.babyfeed.BabyFeed …`).
 - **Commit messages** here explain *why* in plain prose, the way `git log` shows. Match that style.

@@ -90,10 +90,3 @@ final class FeedEntry {
         }
     }
 }
-
-extension Array where Element == FeedEntry {
-    /// Undeleted feeds for one baby (or all babies when `babyID` is nil).
-    func active(for babyID: UUID?) -> [FeedEntry] {
-        filter { $0.deletedAt == nil && (babyID == nil || $0.babyID == babyID) }
-    }
-}
