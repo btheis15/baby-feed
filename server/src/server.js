@@ -833,6 +833,9 @@ export function createApp({
     return { applied, rejected, server_time: new Date().toISOString() }
   })
 
+  /** A row's server stamp, in milliseconds. */
+  const msOf = (row) => new Date(row.server_updated_at).getTime()
+
   route('GET', '/v1/sync/pull', (req, res, params, ctx) => {
     const { user } = requireUser(req)
     const babyID = String(ctx.query.get('baby_id') ?? '').toUpperCase()
@@ -844,15 +847,31 @@ export function createApp({
     if (Number.isNaN(sinceMs)) throw new HttpError(400, 'since is not a date.')
     const limit = Math.min(Number(ctx.query.get('limit')) || DEFAULT_PULL_LIMIT, MAX_PULL_LIMIT)
 
-    const payload = { baby_id: babyID }
-    let hasMore = false
+    // Each table gives up to `limit` rows. If any of them filled its page,
+    // every table is cut at the earliest of those last rows, so a page never
+    // runs ahead of itself: a table with a few late rows (a weigh-in) can't
+    // carry the cursor past the feeds still waiting behind a full page. The
+    // cursor for the next page is exact, and stamps never repeat, so nothing
+    // falls between pages and nothing is sent twice.
+    const pages = {}
+    let cutoff = Infinity
     for (const table of ROW_TABLES) {
       const rows = rowsSince(db, table, babyID, sinceMs, limit)
+      pages[table] = rows
+      if (rows.length >= limit) cutoff = Math.min(cutoff, msOf(rows[rows.length - 1]))
+    }
+    const hasMore = Number.isFinite(cutoff)
+    const payload = { baby_id: babyID }
+    let newest = sinceMs
+    for (const table of ROW_TABLES) {
+      const rows = hasMore ? pages[table].filter((row) => msOf(row) <= cutoff) : pages[table]
       payload[table] = rows
-      if (rows.length >= limit) hasMore = true
+      for (const row of rows) newest = Math.max(newest, msOf(row))
     }
     payload.members = membersOf(babyID)
     payload.has_more = hasMore
+    // Where the next pull starts: exactly the newest row this page sent.
+    payload.next_since = newest > 0 ? new Date(hasMore ? cutoff : newest).toISOString() : (sinceRaw || null)
     payload.server_time = new Date().toISOString()
     return payload
   })

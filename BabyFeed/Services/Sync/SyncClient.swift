@@ -387,12 +387,16 @@ struct SyncClient: Sendable {
         let solidFoods: [SolidFoodDTO]
         let members: [MemberDTO]
         let hasMore: Bool
+        /// Exactly where the next page starts. Nil from servers that don't
+        /// say, where the app falls back to the newest stamp it saw.
+        let nextSince: Date?
 
         enum CodingKeys: String, CodingKey {
             case babies, feeds, weights, diapers, members
             case careNotes = "care_notes"
             case solidFoods = "solid_foods"
             case hasMore = "has_more"
+            case nextSince = "next_since"
         }
 
         // A server from before diapers or solid foods existed omits those
@@ -408,6 +412,7 @@ struct SyncClient: Sendable {
             solidFoods = try container.decodeIfPresent([SolidFoodDTO].self, forKey: .solidFoods) ?? []
             members = try container.decode([MemberDTO].self, forKey: .members)
             hasMore = try container.decode(Bool.self, forKey: .hasMore)
+            nextSince = try container.decodeIfPresent(Date.self, forKey: .nextSince)
         }
 
         /// Every server timestamp in this response, for the next watermark.
