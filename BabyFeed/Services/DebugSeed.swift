@@ -197,8 +197,9 @@ enum DebugSeed {
 }
 
 /// Where to open, for screenshots taken from the command line:
-/// `--open-tab timeline|baby|settings`, `--open-sheet add|share` and
-/// `--debug-open-url <babyfeed://…>`. Debug builds only, like the seed.
+/// `--open-tab timeline|baby|settings`, `--open-sheet add|share`,
+/// `--debug-nursing <minutes ago>` and `--debug-open-url <babyfeed://…>`.
+/// Debug builds only, like the seed.
 @MainActor
 enum DebugLaunch {
     static func apply(to router: AppRouter) {
@@ -217,6 +218,10 @@ enum DebugLaunch {
         case "add": router.sheet = .addEntry
         case "share": if let id = AppSettings.currentBabyID { router.sheet = .share(id) }
         default: break
+        }
+        // A nursing timer already running, for the hero and Live Activity.
+        if let minutes = value(after: "--debug-nursing").flatMap(Double.init) {
+            NursingTimer.shared.start(side: .left, at: Date.now.addingTimeInterval(-minutes * 60))
         }
         // The same path a tapped link or a scanned QR takes, minus the
         // simulator's "Open in Baby Feed?" prompt.

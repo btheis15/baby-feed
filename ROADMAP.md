@@ -48,7 +48,7 @@ after each.
 | 2 | Logging that visibly lands, and one Timeline | app | **Done** 2026-09-28: toast with Undo/Edit on every log; Timeline of every kind with search, chips and folded older days; Today reordered; pediatrician summary and CSV cover diapers; 231 tests |
 | 3a | Sharing without credentials: server | server | **Done.** Merged to `main` in PR #2 and running on the mini since 2026-09-28 (`/v1/health` reports `"api":2`, `"enroll":"lan"`) |
 | 3b | Sharing without credentials: app | app | **Done** 2026-09-28: onboarding, Share → QR, join by scanning, one recovery phrase per parent, lazy connect with a calm "away"; checked end to end on two simulators against a local server; 251 tests. Needs the two-phone check below on real iPhones |
-| 4 | The first weeks: getting enough, nursing side and timer, dark at night | app, widget | Not started |
+| 4 | The first weeks: getting enough, nursing side and timer, dark at night | app, widget | **Done** 2026-09-28 (4.1–4.4; 4.5 pumping not built): "Getting enough?" on Today for 6 weeks, back to birth weight, next side and a minutes-only nursing timer with its Live Activity, dark at night; 276 tests |
 | 5 | Health for the first year: concerns, medicines, doctor visits | app, server | Not started |
 | 6 | Charts, numbers first | app | Not started |
 | 7 | Copy and docs refresh | app, docs | Not started |
@@ -901,6 +901,19 @@ If breast milk is being expressed:
   [Appendix A](#appendix-a--adding-a-synced-type) with the server part first.
 - A "Pumped" tile in "+", shown only when the feeding style is breast milk or mixed.
 - Sessions in the Timeline, and the amount in "Today so far".
+
+**As built**
+- The counts are the last 24 hours, like the diaper line and the Last 24 hours card; stools only
+  get a "usual" from day 5, as the guidance says. The no-wet-diaper flag only shows when the last wet
+  diaper is 8–24 hours old and something else was logged since, so a family that stopped logging
+  diapers isn't told its baby is dry.
+- The birth-weight red flag needs a weigh-in at two weeks or later that's still under birth weight.
+  A day-5 reading on day 15 says "below", not "not back": an old number says nothing about now.
+- The nursing timer starts from the Nursing sheet ("Start a timer · Right"), so the tile keeps its
+  two taps. Done after more than an hour asks "Save 85 min" or "Save and fix the time" (which opens
+  the editor). The tab-bar strip shows "Nursing · Left · 12m" while it runs, and the hero's minutes
+  are counted from the start of the feed, not the clock's minute.
+- The Baby tab offers "Add birth weight" for the first two months when there isn't one.
 
 **Done when:**
 - In the seeded first week, Today shows counts with ✓ that match the Timeline's day tallies, and the

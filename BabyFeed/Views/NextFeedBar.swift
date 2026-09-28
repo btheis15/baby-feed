@@ -19,11 +19,43 @@ struct NextFeedBar: View {
     /// grow it, so at accessibility sizes the bar says less rather than
     /// truncating everything into ellipses.
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var nursing = NursingTimer.shared
 
     private var unit: VolumeUnit { VolumeUnit(rawValue: unitRaw) ?? .ounces }
     private var lastFeed: FeedEntry? { entries.active(for: UUID(uuidString: currentBabyIDRaw)).first }
 
     var body: some View {
+        if let session = nursing.session {
+            nursingBar(session)
+        } else {
+            countdownBar
+        }
+    }
+
+    /// While a timer runs: what's happening, and the way back to it.
+    private func nursingBar(_ session: NursingSession) -> some View {
+        TimelineView(.periodic(from: session.startedAt, by: 60)) { context in
+            Button {
+                router.tab = .today
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: FeedKind.nursing.systemImage)
+                        .foregroundStyle(FeedKind.nursing.color)
+                    Text("Nursing · \(session.side.title) · \(ElapsedText.compact(minutes: session.minutes(at: context.date)))")
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 14)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Nursing on the \(session.side.title.lowercased()) side, \(ElapsedText.spoken(minutes: session.minutes(at: context.date))). Show the timer.")
+        }
+    }
+
+    private var countdownBar: some View {
         TimelineView(.everyMinute) { context in
             let countdown = AppSettings.countdown(
                 lastFeed: lastFeed?.startTime,

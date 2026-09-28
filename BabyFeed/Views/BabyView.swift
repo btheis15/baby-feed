@@ -10,6 +10,7 @@ struct BabyView: View {
     @Query(sort: \WeightEntry.date, order: .reverse) private var allWeights: [WeightEntry]
     @Query(sort: \FeedEntry.startTime, order: .reverse) private var allFeeds: [FeedEntry]
     @Query(sort: \CareNote.date, order: .reverse) private var allCareNotes: [CareNote]
+    @Query(sort: \DiaperEntry.time, order: .reverse) private var allDiapers: [DiaperEntry]
     @Query private var babies: [Baby]
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
@@ -23,6 +24,7 @@ struct BabyView: View {
     @AppStorage(AppSettings.feedsPerDayKey) private var feedsPerDay = 0
 
     @State private var showAddWeight = false
+    @State private var showAddBirthWeight = false
     /// Typing the name used to save, sync and refresh every widget on each
     /// keystroke. Now it waits for a second of quiet.
     @State private var nameSaveTask: Task<Void, Never>?
@@ -108,6 +110,9 @@ struct BabyView: View {
             .sheet(isPresented: $showAddWeight) {
                 AddWeightSheet(weightUnit: weightUnit)
             }
+            .sheet(isPresented: $showAddBirthWeight) {
+                AddWeightSheet(weightUnit: weightUnit, initialDate: profile.birthDate, initialNote: "Birth weight")
+            }
             .onChange(of: birthInterval) { _, _ in
                 BabyStore.profileDefaultsChanged(in: modelContext)
                 FeedCoordinator.settingsDidChange(in: modelContext)
@@ -179,6 +184,16 @@ struct BabyView: View {
 
     private var weightSection: some View {
         Section {
+            // What "back to birth weight" is measured from, while it matters.
+            if let birthDate = profile.birthDate,
+               (profile.ageInDays(calendar: calendar) ?? Int.max) < 60,
+               !BirthWeightStatus(weights: weights, birthDate: birthDate, calendar: calendar).hasBirthWeight {
+                Button {
+                    showAddBirthWeight = true
+                } label: {
+                    Label("Add birth weight", systemImage: "scalemass")
+                }
+            }
             if let latest = weights.first {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(weightUnit.format(grams: latest.grams))
@@ -458,7 +473,13 @@ struct BabyView: View {
                         feedsPerDay: feedsPerDay,
                         calendar: calendar
                     ).target?.targetML,
-                    unit: unit
+                    unit: unit,
+                    logged: profile.ageInDays(calendar: calendar).map { ageDays in
+                        let babyID = UUID(uuidString: currentBabyIDRaw)
+                        return EnoughSummary(diapers: allDiapers.active(for: babyID),
+                                             feeds: allFeeds.active(for: babyID),
+                                             ageDays: ageDays, now: .now)
+                    }
                 )
             } label: {
                 Label {

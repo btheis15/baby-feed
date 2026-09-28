@@ -17,6 +17,18 @@ enum AppSettings {
     static let hasSeenSharingIntroKey = "sync.hasSeenSharingIntro"
     /// Set once the first-launch screen has been shown.
     static let hasSeenOnboardingKey = "onboarding.seen"
+    /// "Dark at night": on unless turned off, 8 PM to 7 AM unless changed.
+    static let darkAtNightKey = "appearance.darkAtNight"
+    static let nightStartKey = "appearance.nightStartMinutes"
+    static let nightEndKey = "appearance.nightEndMinutes"
+
+    static var nightHours: NightHours {
+        let defaults = UserDefaults.standard
+        return NightHours(
+            startMinutes: defaults.object(forKey: nightStartKey) as? Int ?? NightHours.standard.startMinutes,
+            endMinutes: defaults.object(forKey: nightEndKey) as? Int ?? NightHours.standard.endMinutes
+        )
+    }
     /// A TimeZone identifier, or empty for "follow the device".
     static let timeZoneKey = "timeZone.identifier"
 

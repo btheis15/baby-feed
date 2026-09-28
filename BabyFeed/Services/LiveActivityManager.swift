@@ -11,6 +11,33 @@ enum LiveActivityManager {
         // requesting the one that would.
         let running = all.filter { $0.activityState == .active || $0.activityState == .stale }
 
+        // A nursing timer running: the activity counts its minutes instead,
+        // and doesn't go stale at a due time that no longer means anything.
+        if AppSettings.liveActivityEnabled, let session = NursingSession.load() {
+            guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+            let state = NextFeedActivityAttributes.ContentState(
+                lastFeedTime: lastFeed?.startTime ?? session.startedAt,
+                lastFeedText: lastFeed.map { "\($0.kind.title) · \($0.detailText(unit: unit))" } ?? "",
+                kindRaw: FeedKind.nursing.rawValue,
+                dueTime: nil,
+                timeZoneIdentifier: AppSettings.pinnedTimeZoneIdentifier,
+                nursingStartedAt: session.startedAt,
+                nursingSideRaw: session.side.rawValue
+            )
+            let content = ActivityContent(state: state, staleDate: nil)
+            if let current = running.first {
+                if current.content.state != state { await current.update(content) }
+                for extra in running.dropFirst() { await extra.end(nil, dismissalPolicy: .immediate) }
+            } else {
+                _ = try? Activity<NextFeedActivityAttributes>.request(
+                    attributes: NextFeedActivityAttributes(babyName: babyName),
+                    content: content,
+                    pushType: nil
+                )
+            }
+            return
+        }
+
         // Nothing to count down to: no feed yet, switched off in Settings, or
         // gone quiet because nothing has been logged for well over an interval.
         guard AppSettings.liveActivityEnabled, let lastFeed, let due = countdown.due else {

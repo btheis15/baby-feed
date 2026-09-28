@@ -8,6 +8,13 @@ struct RootView: View {
     /// Read so the whole tree re-renders when the time zone setting changes.
     @AppStorage(AppSettings.timeZoneKey) private var timeZoneIdentifier = ""
     @AppStorage(AppSettings.hasSeenOnboardingKey) private var hasSeenOnboarding = false
+    @AppStorage(AppSettings.darkAtNightKey) private var darkAtNight = true
+    @AppStorage(AppSettings.nightStartKey) private var nightStart = NightHours.standard.startMinutes
+    @AppStorage(AppSettings.nightEndKey) private var nightEnd = NightHours.standard.endMinutes
+    @Environment(\.scenePhase) private var scenePhase
+    /// Whether it's night right now, by the "Dark at night" hours. Moved at
+    /// each boundary and whenever the app comes to the front.
+    @State private var isNight = false
 
     var body: some View {
         @Bindable var router = router
@@ -36,6 +43,14 @@ struct RootView: View {
         // means. Empty identifier = follow the device, which is the default.
         .environment(\.calendar, AppSettings.calendar)
         .environment(\.timeZone, AppSettings.timeZone)
+        // Dark at night, whatever the phone's own setting, so a light-mode
+        // phone doesn't flash white at the 3 a.m. feed. Outside those hours
+        // the system decides.
+        .preferredColorScheme(darkAtNight && isNight ? .dark : nil)
+        .task(id: "\(darkAtNight)-\(nightStart)-\(nightEnd)") { await followNightHours() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { updateNight() }
+        }
         // One sheet modifier, so an invite that arrives while the log sheet is
         // open replaces it instead of being dropped. Presented here rather than
         // inside Settings so an invite opened from Messages or the Camera works
@@ -88,6 +103,26 @@ struct RootView: View {
             guard router.sheet == nil, !SyncCredentials.isPaired,
                   BabyStore.realBabies(in: modelContext).isEmpty else { return }
             router.sheet = .onboarding
+        }
+    }
+}
+
+extension RootView {
+    private var hours: NightHours { NightHours(startMinutes: nightStart, endMinutes: nightEnd) }
+
+    private func updateNight() {
+        isNight = hours.contains(.now, calendar: AppSettings.calendar)
+    }
+
+    /// Sleeps until the next boundary, then flips, for as long as the app
+    /// runs. No polling in between.
+    private func followNightHours() async {
+        updateNight()
+        while !Task.isCancelled {
+            guard let next = hours.nextBoundary(after: .now, calendar: AppSettings.calendar) else { return }
+            try? await Task.sleep(for: .seconds(max(1, next.timeIntervalSinceNow + 1)))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.6)) { updateNight() }
         }
     }
 }

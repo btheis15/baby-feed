@@ -98,13 +98,34 @@ enum IntakeGuidance {
         ),
     ]
 
-    /// What to expect from nappies at a given age, which changes fast in the
-    /// first week. Nil without a birthday to work from.
+    /// Wet diapers a day to expect at an age, which changes fast in the first
+    /// week: 1–2 in the first two days, 2–3 while milk comes in, then 5–6 or
+    /// more. The numbers behind both the sentence below and Today's
+    /// "Getting enough?" block, so the two can't disagree.
+    static func expectedWet(ageDays: Int) -> ClosedRange<Int>? {
+        guard ageDays >= 0 else { return nil }
+        if ageDays <= 1 { return 1...2 }
+        if ageDays < 5 { return 2...3 }
+        return 5...6
+    }
+
+    /// Stools a day to expect: 3–4 once the first week is under way. Nothing
+    /// before day 5, when they're changing from dark to yellow and a count
+    /// isn't the point.
+    static func expectedDirty(ageDays: Int) -> ClosedRange<Int>? {
+        ageDays >= 5 ? 3...4 : nil
+    }
+
+    /// What to expect from nappies at a given age, as a sentence. Nil without
+    /// a birthday to work from.
     static func diaperExpectation(ageDays: Int?) -> String? {
-        guard let ageDays, ageDays >= 0 else { return nil }
-        if ageDays <= 1 { return "1–2 wet diapers a day is normal this early." }
-        if ageDays < 5 { return "About 2–3 wet diapers a day while your milk comes in." }
-        return "At least 5–6 wet diapers a day, and 3–4 stools."
+        guard let ageDays, let wet = expectedWet(ageDays: ageDays) else { return nil }
+        let wetText = "\(wet.lowerBound)–\(wet.upperBound)"
+        if ageDays <= 1 { return "\(wetText) wet diapers a day is normal this early." }
+        guard let dirty = expectedDirty(ageDays: ageDays) else {
+            return "About \(wetText) wet diapers a day while your milk comes in."
+        }
+        return "At least \(wetText) wet diapers a day, and \(dirty.lowerBound)–\(dirty.upperBound) stools."
     }
 
     // MARK: When to call

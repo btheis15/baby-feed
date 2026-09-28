@@ -109,6 +109,7 @@ struct LogFeedSheet: View {
             .confirmationDialog("Delete this feed?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
                 Button("Delete Feed", role: .destructive) { deleteEntry() }
             }
+            .onAppear(perform: suggestSide)
             .onChange(of: kind) { _, newKind in
                 // Switching bottle kinds on a new entry picks up that kind's usual amount.
                 if !isEditing, newKind.usesVolume {
@@ -178,6 +179,24 @@ struct LogFeedSheet: View {
 
     private var nursingSection: some View {
         VStack(spacing: 16) {
+            if !isEditing {
+                // Nursing right now: a timer, in minutes, instead of guessing
+                // the length afterwards.
+                Button {
+                    NursingTimer.shared.start(side: timerSide)
+                    dismiss()
+                } label: {
+                    Label("Start a timer · \(timerSide.title)", systemImage: "timer")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .tint(kind.color)
+                .disabled(NursingTimer.shared.isRunning)
+            }
+
             sectionTitle("Duration")
 
             HStack(spacing: 20) {
@@ -363,6 +382,24 @@ struct LogFeedSheet: View {
             toasts.logged(.feed(logged), detail: logged.detailText(unit: unit), context: modelContext, router: router)
         }
         dismiss()
+    }
+
+    /// A timer runs on one side at a time: the chosen one, or left.
+    private var timerSide: NursingSide {
+        side == .right ? .right : .left
+    }
+
+    /// A new nursing feed starts on the other side from last time.
+    private func suggestSide() {
+        guard !isEditing, side == nil else { return }
+        let babyID = AppSettings.currentBabyID
+        let nursingRaw = FeedKind.nursing.rawValue
+        var descriptor = FetchDescriptor<FeedEntry>(
+            predicate: #Predicate { $0.babyID == babyID && $0.deletedAt == nil && $0.kindRaw == nursingRaw },
+            sortBy: [SortDescriptor(\.startTime, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+        side = NextSide.suggestion(after: (try? modelContext.fetch(descriptor)) ?? [])
     }
 
     private func deleteEntry() {

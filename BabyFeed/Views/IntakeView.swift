@@ -10,6 +10,8 @@ struct IntakeView: View {
     let consumedML: Double
     let targetML: Double?
     let unit: VolumeUnit
+    /// What was actually logged over the last 24 hours, against what's usual.
+    var logged: EnoughSummary? = nil
 
     private var sources: [FoodGuidance.Source] {
         IntakeGuidance.sourceIDs.compactMap(FoodGuidance.source)
@@ -18,6 +20,7 @@ struct IntakeView: View {
     var body: some View {
         List {
             headlineSection
+            if let logged { loggedSection(logged) }
             if let targetML { todaySection(targetML: targetML) }
             whatMattersSection
             redFlagsSection
@@ -43,6 +46,42 @@ struct IntakeView: View {
             .padding(.vertical, 2)
         } footer: {
             Text(IntakeGuidance.bottomLine)
+        }
+    }
+
+    // MARK: Logged
+
+    private func loggedSection(_ logged: EnoughSummary) -> some View {
+        Section {
+            loggedRow("Wet diapers", logged.wet, usual: logged.wet.expected.map {
+                $0.lowerBound >= 5 ? "at least \($0.lowerBound)–\($0.upperBound)" : "\($0.lowerBound)–\($0.upperBound)"
+            })
+            loggedRow("Stools", logged.dirty, usual: logged.dirty.expected.map { "\($0.lowerBound)–\($0.upperBound)" })
+            loggedRow("Feeds", logged.feeds, usual: logged.feeds.expected.map { "\($0.lowerBound)–\($0.upperBound)" })
+        } header: {
+            Text("Logged in the last 24 hours")
+        } footer: {
+            Text("Only what was logged. A diaper nobody wrote down still happened.")
+        }
+    }
+
+    private func loggedRow(_ title: String, _ count: EnoughSummary.Count, usual: String?) -> some View {
+        LabeledContent {
+            VStack(alignment: .trailing, spacing: 1) {
+                HStack(spacing: 4) {
+                    if count.meetsExpectation {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    }
+                    Text("\(count.count)").monospacedDigit()
+                }
+                if let usual {
+                    Text("usually \(usual)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } label: {
+            Text(title)
         }
     }
 

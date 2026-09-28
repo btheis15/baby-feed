@@ -25,6 +25,9 @@ struct SettingsView: View {
     @AppStorage(AppSettings.currentBabyIDKey) private var currentBabyIDRaw = ""
 
     @State private var permissionMessage: String?
+    @AppStorage(AppSettings.darkAtNightKey) private var darkAtNight = true
+    @AppStorage(AppSettings.nightStartKey) private var nightStart = NightHours.standard.startMinutes
+    @AppStorage(AppSettings.nightEndKey) private var nightEnd = NightHours.standard.endMinutes
 
     private var unit: VolumeUnit { VolumeUnit(rawValue: unitRaw) ?? .ounces }
 
@@ -35,6 +38,7 @@ struct SettingsView: View {
                 feedingScheduleSection
                 remindersSection
                 unitsSection
+                nightSection
                 timeZoneSection
                 defaultsSection
                 siriSection
@@ -197,6 +201,37 @@ struct SettingsView: View {
             return "Bottles start at the recommended amount for \(name)'s weight and age and follow it as they grow. Once you've logged a few, they'll start at what you usually give instead."
         }
         return "Bottles will start at the recommended amount once there's a weight and a birthday to work from. Until then they start at \(unit.format(milliliters: unit.toMilliliters(unit.defaultAmount)))."
+    }
+
+    /// The app goes dark in these hours whatever the phone is set to, so the
+    /// 3 a.m. feed isn't lit by a white screen.
+    private var nightSection: some View {
+        Section {
+            Toggle("Dark at night", isOn: $darkAtNight)
+            if darkAtNight {
+                DatePicker("From", selection: timeBinding($nightStart), displayedComponents: .hourAndMinute)
+                DatePicker("Until", selection: timeBinding($nightEnd), displayedComponents: .hourAndMinute)
+            }
+        } header: {
+            Text("Appearance")
+        } footer: {
+            Text("Keeps the screen dark during night feeds even if your iPhone is in light mode. The rest of the day follows your iPhone.")
+        }
+    }
+
+    /// Minutes after midnight, as a time of day the pickers can show.
+    private func timeBinding(_ minutes: Binding<Int>) -> Binding<Date> {
+        let calendar = AppSettings.calendar
+        return Binding(
+            get: {
+                calendar.date(bySettingHour: minutes.wrappedValue / 60, minute: minutes.wrappedValue % 60,
+                              second: 0, of: .now) ?? .now
+            },
+            set: { date in
+                let parts = calendar.dateComponents([.hour, .minute], from: date)
+                minutes.wrappedValue = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+            }
+        )
     }
 
     private var timeZoneSection: some View {

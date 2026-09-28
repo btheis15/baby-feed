@@ -55,6 +55,7 @@ with newborn needs first.
   the next feed stands always comes from `FeedCountdown`.
 - **Never nest one `TimelineView` inside another.** In a List it loops the main thread at 100% before
   the first frame. Keep one ticking view per screen, and drive slower refreshes from a `@State` clock.
+  Today's hero ticks on `.periodic(from:by: 60)`, so a nursing timer's minutes turn over from its start.
 - **Guidance, not orders.**
   - Every guidance number cites the AAP, CDC or WHO through `FoodGuidance.Source`; a test enforces the
     hosts.
@@ -111,7 +112,8 @@ Changing them breaks existing installs, pairing or widgets:
 - In a List section header, `.foregroundStyle(.primary)` still comes out grey: it resolves against
   the header's own style. Use `Color.primary`.
 - **Screenshots and sync checks from the command line:** debug builds accept `--seed-demo-data`,
-  `--open-tab timeline|baby|settings`, `--open-sheet add|share`, `--debug-open-url <babyfeed://…>`,
+  `--open-tab timeline|baby|settings`, `--open-sheet add|share`, `--debug-nursing <minutes ago>`,
+  `--debug-open-url <babyfeed://…>`,
   `--debug-connect`, `--debug-invite`, `--debug-restore <phrase>`, `--debug-name <name>` and
   `--debug-log-diaper` (`xcrun simctl launch <device> com.babyfeed.BabyFeed …`; results in
   `xcrun simctl spawn <device> log show`). Point `ServerConfig.plist` at a local server started with

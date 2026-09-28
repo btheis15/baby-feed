@@ -9,6 +9,9 @@ struct AddWeightSheet: View {
 
     let weightUnit: WeightUnit
     var mode: Mode = .new
+    /// For "Add birth weight": the birthday, and a note saying what it is.
+    var initialDate: Date? = nil
+    var initialNote: String = ""
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -92,7 +95,7 @@ struct AddWeightSheet: View {
                     TextField("Note (optional) – e.g. pediatrician visit", text: $note)
                 }
             }
-            .navigationTitle(isEditing ? "Edit Weight" : "Add Weight")
+            .navigationTitle(isEditing ? "Edit Weight" : (initialNote.isEmpty ? "Add Weight" : initialNote))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -124,6 +127,8 @@ struct AddWeightSheet: View {
             date = entry.date
             note = entry.note
         case .new:
+            if let initialDate { date = initialDate }
+            if !initialNote.isEmpty { note = initialNote }
             // Start the wheels at the last weigh-in: the new one is close by.
             let fetch = FetchDescriptor<WeightEntry>(sortBy: [SortDescriptor(\.date, order: .reverse)])
             let all = (try? modelContext.fetch(fetch)) ?? []

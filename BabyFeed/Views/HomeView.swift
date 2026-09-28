@@ -9,6 +9,8 @@ struct HomeView: View {
     @Environment(\.timeZone) private var timeZone
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AppRouter.self) private var router
+    @Environment(\.modelContext) private var modelContext
+    @Environment(ToastCenter.self) private var toasts
     @Query(sort: \FeedEntry.startTime, order: .reverse) private var entries: [FeedEntry]
     @Query(sort: \WeightEntry.date, order: .reverse) private var weights: [WeightEntry]
     @Query(sort: \DiaperEntry.time, order: .reverse) private var diapers: [DiaperEntry]
@@ -34,6 +36,9 @@ struct HomeView: View {
     /// TimelineView nested inside another one, in a List, sends SwiftUI into
     /// a redraw loop that pins the main thread at 100% before the first frame.
     @State private var clock = Date.now
+    @State private var nursing = NursingTimer.shared
+    /// Done on a timer left running over an hour: save as is, or fix the time.
+    @State private var confirmLongNursing = false
 
     private var unit: VolumeUnit { VolumeUnit(rawValue: unitRaw) ?? .ounces }
     private var weightUnit: WeightUnit { WeightUnit(rawValue: weightUnitRaw) ?? .poundsOunces }
@@ -74,28 +79,45 @@ struct HomeView: View {
                 )
                 let target = guidance.target
                 let projection = guidance.projection
+                let ageDays = profile.ageInDays(on: now, calendar: calendar)
+                let birthWeight = BirthWeightStatus(weights: babyWeights, birthDate: profile.birthDate, calendar: calendar)
 
                 List {
                     Section {
-                        TimelineView(.everyMinute) { minute in
-                            NextFeedCard(
-                                lastFeed: visible.first,
-                                countdown: AppSettings.countdown(
-                                    lastFeed: visible.first?.startTime,
-                                    intervalRaw: intervalMinutesRaw,
-                                    now: minute.date
-                                ),
-                                unit: unit,
-                                now: minute.date,
-                                timeZone: timeZone,
-                                showsNewbornWakeLine: showsNewbornWakeLine(lastFeed: visible.first, now: minute.date),
-                                onLog: { router.openLog(kind: visible.first?.kind) }
-                            )
+                        // Once a minute. Anchored to a running nursing timer's
+                        // start, so its minutes turn over when a real minute
+                        // of nursing has passed rather than on the clock's.
+                        TimelineView(.periodic(from: nursing.session?.startedAt ?? Self.minuteAnchor, by: 60)) { minute in
+                            if let session = nursing.session {
+                                NursingHero(
+                                    session: session,
+                                    now: minute.date,
+                                    timeZone: timeZone,
+                                    onSwitch: { nursing.switchSide() },
+                                    onDone: { finishNursing(now: minute.date) },
+                                    onCancel: { nursing.cancel() }
+                                )
+                            } else {
+                                NextFeedCard(
+                                    lastFeed: visible.first,
+                                    countdown: AppSettings.countdown(
+                                        lastFeed: visible.first?.startTime,
+                                        intervalRaw: intervalMinutesRaw,
+                                        now: minute.date
+                                    ),
+                                    unit: unit,
+                                    now: minute.date,
+                                    timeZone: timeZone,
+                                    showsNewbornWakeLine: showsNewbornWakeLine(lastFeed: visible.first, birthWeight: birthWeight,
+                                                                               now: minute.date),
+                                    onLog: { router.openLog(kind: visible.first?.kind) }
+                                )
+                            }
                         }
                     }
 
                     Section {
-                        QuickLogButtons(unit: unit) { kind in
+                        QuickLogButtons(unit: unit, nursingSide: NextSide.suggestion(after: visible)) { kind in
                             router.openLog(kind: kind)
                         }
                         .listRowBackground(Color.clear)
@@ -106,6 +128,25 @@ struct HomeView: View {
                         DiaperSection(last: babyDiapers.first, tally: diaperTally)
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets())
+                    }
+
+                    if let ageDays, EnoughSummary.shows(ageDays: ageDays) {
+                        let enough = EnoughSummary(diapers: babyDiapers, feeds: visible, ageDays: ageDays, now: now)
+                        Section {
+                            NavigationLink {
+                                IntakeView(
+                                    babyName: profile.displayName,
+                                    ageDays: ageDays,
+                                    consumedML: summary.totalML,
+                                    targetML: target?.targetML,
+                                    unit: unit,
+                                    logged: enough
+                                )
+                            } label: {
+                                GettingEnoughCard(summary: enough, birthWeight: birthWeight, ageDays: ageDays,
+                                                  weightUnit: weightUnit, now: now)
+                            }
+                        }
                     }
 
                     SyncSetupCard(babyName: profile.displayName,
@@ -165,6 +206,15 @@ struct HomeView: View {
                     }
                 }
             }
+            .confirmationDialog("That's a long feed", isPresented: $confirmLongNursing, titleVisibility: .visible) {
+                if let session = nursing.session {
+                    Button("Save \(session.minutes(at: .now)) min") { saveNursing(fixTime: false) }
+                    Button("Save and fix the time") { saveNursing(fixTime: true) }
+                }
+                Button("Keep going", role: .cancel) {}
+            } message: {
+                Text("The timer has been running for over an hour. If it was left on, fix the time after saving.")
+            }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { clock = .now }
             }
@@ -180,14 +230,38 @@ struct HomeView: View {
 
     /// The AAP's guidance for the first weeks: a newborn who has gone about
     /// four hours without a feed is woken for one, until they're back to birth
-    /// weight. Two weeks is when most babies are; Phase 4 of the roadmap swaps
-    /// this for the actual weigh-ins once birth weight is tracked.
-    private func showsNewbornWakeLine(lastFeed: FeedEntry?, now: Date) -> Bool {
-        guard let lastFeed,
-              let ageDays = profile.ageInDays(on: now, calendar: calendar),
-              ageDays < 14
-        else { return false }
+    /// weight. With a birth weight logged, that's until the weigh-ins say so
+    /// (up to four weeks); without one, the first two weeks, when most are.
+    private func showsNewbornWakeLine(lastFeed: FeedEntry?, birthWeight: BirthWeightStatus, now: Date) -> Bool {
+        guard let lastFeed, let ageDays = profile.ageInDays(on: now, calendar: calendar) else { return false }
+        let stillApplies = birthWeight.hasBirthWeight
+            ? !birthWeight.isRegained && ageDays < 28
+            : ageDays < 14
+        guard stillApplies else { return false }
         return now.timeIntervalSince(lastFeed.startTime) >= FeedingGuidance.newbornMaxGapHours * 3600
+    }
+
+    // MARK: Nursing timer
+
+    /// Any whole minute: the countdown ticks on the clock's minutes.
+    private static let minuteAnchor = Date(timeIntervalSinceReferenceDate: 0)
+
+    private func finishNursing(now: Date) {
+        guard let session = nursing.session else { return }
+        if session.isProbablyForgotten(at: now) {
+            confirmLongNursing = true
+        } else {
+            saveNursing(fixTime: false)
+        }
+    }
+
+    private func saveNursing(fixTime: Bool) {
+        guard let feed = nursing.finish(in: modelContext) else { return }
+        if fixTime {
+            router.sheet = .editEntry(.feed(feed.persistentModelID))
+        } else {
+            toasts.logged(.feed(feed), detail: feed.detailText(unit: unit), context: modelContext, router: router)
+        }
     }
 
     /// What's behind the "+", so nobody has to open it to find out.
