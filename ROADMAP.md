@@ -49,7 +49,7 @@ after each.
 | 3a | Sharing without credentials: server | server | **Done.** Merged to `main` in PR #2 and running on the mini since 2026-09-28 (`/v1/health` reports `"api":2`, `"enroll":"lan"`) |
 | 3b | Sharing without credentials: app | app | **Done** 2026-09-28: onboarding, Share → QR, join by scanning, one recovery phrase per parent, lazy connect with a calm "away"; checked end to end on two simulators against a local server; 251 tests. Needs the two-phone check below on real iPhones |
 | 4 | The first weeks: getting enough, nursing side and timer, dark at night | app, widget | **Done** 2026-09-28 (4.1–4.4; 4.5 pumping not built): "Getting enough?" on Today for 6 weeks, back to birth weight, next side and a minutes-only nursing timer with its Live Activity, dark at night; 276 tests |
-| 5 | Health for the first year: concerns, medicines, doctor visits | app, server | Not started |
+| 5 | Health for the first year: concerns, medicines, doctor visits | app, server | **Done** 2026-09-28: a Health tab; concerns with updates and "It's better"; medicines with notices that never block and never suggest a dose; visits and the AAP checkup schedule; "Right now" on Today; the summary since the last visit; 4 server tables and a column migration; 300 app and 69 server tests. **Deploy the server before the app** |
 | 6 | Charts, numbers first | app | Not started |
 | 7 | Copy and docs refresh | app, docs | Not started |
 | 8 | Rename to "Baby Care" | app | Optional (decided to keep "Baby Feed" for now) |
@@ -1115,6 +1115,21 @@ healthychildren.org and verify the URL. A logged checkup near a scheduled age co
 
 At most three rows: medicines due or overdue [Give], concerns due a check-in, and a checkup due this
 week. Hidden when empty.
+
+**As built**
+- **"Day N" counts the first day as day 1**, as the wireframe does ("day 3 · since Sep 26" on Sep
+  28): started 12 days ago reads "day 13" beside "12 days ago". It's how an illness is counted
+  ("day 3 of fever"), and `RelativeAge.span` already said so.
+- **Health gets its own Timeline chip** (concerns, doses and visits).
+- **Sources.** The vitamin D copy cites the AAP's "Vitamin D for Babies, Children & Adolescents" (and
+  the CDC's page). The checkup schedule cites the AAP's schedule, fever under 12 weeks cites "Fever and
+  Your Baby", and dosing cites "How to Use Liquid Medicines for Children". All were checked on
+  2026-09-28.
+- **The duplicate-dose warning** is a banner in Health whenever two doses of one medicine within its
+  gap (an hour by default) were logged in the last 48 hours, whichever phone logged them.
+- **An old server.** Health records wait on the phone when the server doesn't list their table in
+  `/v1/health`, and Health and Caregivers say "Your Mac mini needs an update". Medicine reminders
+  (optional) are not built.
 
 **Done when:**
 - A store full of existing notes shows nothing as ongoing.

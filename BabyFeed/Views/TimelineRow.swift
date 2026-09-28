@@ -64,6 +64,37 @@ struct TimelineRow: View {
                 time: when(note.date),
                 subtitleLines: 3
             )
+        case .concern(let concern):
+            EntryRow(
+                symbol: item.systemImage,
+                tint: item.tint,
+                title: concern.title.isEmpty ? concern.kind.title : concern.title,
+                badge: concern.isOngoing ? "Ongoing" : nil,
+                subtitle: EntryRow.joined([ConcernStats.statusText(concern, now: .now, calendar: calendar),
+                                           concern.note, LoggedBy.text(concern.loggedByName)]),
+                value: nil,
+                time: when(concern.startedAt),
+                subtitleLines: 2
+            )
+        case .dose(let dose):
+            EntryRow(
+                symbol: item.systemImage,
+                tint: item.tint,
+                title: dose.medicationName,
+                subtitle: EntryRow.joined([LoggedBy.text(dose.loggedByName), dose.note]),
+                value: dose.amountText,
+                time: when(dose.time)
+            )
+        case .visit(let visit):
+            EntryRow(
+                symbol: item.systemImage,
+                tint: item.tint,
+                title: visit.kind.title,
+                subtitle: EntryRow.joined([visit.provider, visit.reason, visit.doctorNotes]),
+                value: nil,
+                time: when(visit.date),
+                subtitleLines: 2
+            )
         }
     }
 }

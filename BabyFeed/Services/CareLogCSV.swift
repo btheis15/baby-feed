@@ -40,7 +40,24 @@ enum CareLogCSV {
             return ("weight", "", weightUnit.format(grams: weight.grams), weight.note)
         case .note(let note):
             return ("note", note.kind.rawValue, note.severity?.title ?? "", note.note)
+        case .concern(let concern):
+            let status = concern.resolvedAt.map { "resolved \(csvDate($0))" } ?? "ongoing"
+            return ("concern", concern.kind.rawValue,
+                    [concern.title, concern.severity?.title ?? "", status, concern.outcome]
+                        .filter { !$0.isEmpty }.joined(separator: " · "),
+                    concern.note)
+        case .dose(let dose):
+            return ("medicine", "", [dose.medicationName, dose.amountText ?? ""].filter { !$0.isEmpty }.joined(separator: " · "),
+                    dose.note)
+        case .visit(let visit):
+            return ("doctor visit", visit.kind.rawValue,
+                    [visit.provider, visit.reason, visit.vaccines].filter { !$0.isEmpty }.joined(separator: " · "),
+                    visit.doctorNotes)
         }
+    }
+
+    private static func csvDate(_ date: Date) -> String {
+        date.formatted(Date.ISO8601FormatStyle(timeZone: AppSettings.timeZone).year().month().day())
     }
 
     /// Quoted when it has to be, per RFC 4180: a comma, a quote or a line

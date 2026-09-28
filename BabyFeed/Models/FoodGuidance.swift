@@ -100,6 +100,36 @@ enum FoodGuidance {
             url: "https://www.healthychildren.org/English/ages-stages/baby/breastfeeding/Pages/How-to-Tell-if-Baby-is-Getting-Enough-Milk.aspx"
         ),
         Source(
+            id: "aap-vitamin-d",
+            organisation: "American Academy of Pediatrics",
+            title: "Vitamin D for Babies, Children & Adolescents",
+            url: "https://www.healthychildren.org/English/healthy-living/nutrition/Pages/Vitamin-D-On-the-Double.aspx"
+        ),
+        Source(
+            id: "cdc-vitamin-d",
+            organisation: "CDC",
+            title: "Vitamin D",
+            url: "https://www.cdc.gov/infant-toddler-nutrition/vitamins-minerals/vitamin-d.html"
+        ),
+        Source(
+            id: "aap-well-child",
+            organisation: "American Academy of Pediatrics",
+            title: "AAP Schedule of Well-Child Care Visits",
+            url: "https://www.healthychildren.org/English/family-life/health-management/Pages/Well-Child-Care-A-Check-Up-for-Success.aspx"
+        ),
+        Source(
+            id: "aap-fever-baby",
+            organisation: "American Academy of Pediatrics",
+            title: "Fever and Your Baby",
+            url: "https://www.healthychildren.org/English/health-issues/conditions/fever/Pages/Fever-and-Your-Baby.aspx"
+        ),
+        Source(
+            id: "aap-liquid-medicines",
+            organisation: "American Academy of Pediatrics",
+            title: "How to Use Liquid Medicines for Children",
+            url: "https://www.healthychildren.org/English/safety-prevention/at-home/medication-safety/Pages/Using-Liquid-Medicines.aspx"
+        ),
+        Source(
             id: "cdc-cues",
             organisation: "CDC",
             title: "Signs Your Child Is Hungry or Full",

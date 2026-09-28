@@ -61,14 +61,15 @@ struct TimelineBuilderTests {
             diapers: [DiaperEntry(babyID: baby, time: at(2), kind: .wet)],
             foods: [SolidFoodEntry(babyID: baby, time: at(3), name: "Pear", texture: .puree)],
             weights: [WeightEntry(babyID: baby, date: at(4), grams: 3400)],
-            notes: [CareNote(babyID: baby, date: at(5), kind: .sleep, note: "long nap")]
+            notes: [CareNote(babyID: baby, date: at(5), kind: .sleep, note: "long nap")],
+            concerns: [HealthConcern(babyID: baby, title: "Red left eye", kind: .eye, startedAt: at(6))]
         )
         for category in TimelineCategory.allCases {
             let items = TimelineBuilder.items(sources, babyID: baby, filter: .only(category))
             #expect(items.count == 1, "\(category)")
             #expect(items.first?.category == category)
         }
-        #expect(TimelineBuilder.items(sources, babyID: baby, filter: .all).count == 5)
+        #expect(TimelineBuilder.items(sources, babyID: baby, filter: .all).count == 6)
     }
 
     @Test func aChipIsOnlyOfferedForKindsThatHaveRows() {

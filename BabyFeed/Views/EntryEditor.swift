@@ -56,6 +56,30 @@ struct EntryEditor: View {
             } else {
                 missing
             }
+        case .concern(let id):
+            if let entry = modelContext.model(for: id) as? HealthConcern {
+                LogConcernSheet(mode: .edit(entry))
+            } else {
+                missing
+            }
+        case .dose(let id):
+            if let entry = modelContext.model(for: id) as? MedicationDose {
+                LogDoseSheet(mode: .edit(entry))
+            } else {
+                missing
+            }
+        case .visit(let id):
+            if let entry = modelContext.model(for: id) as? DoctorVisit {
+                DoctorVisitSheet(mode: .edit(entry))
+            } else {
+                missing
+            }
+        case .medication(let id):
+            if let entry = modelContext.model(for: id) as? Medication {
+                MedicationSheet(mode: .edit(entry))
+            } else {
+                missing
+            }
         }
     }
 

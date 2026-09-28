@@ -134,7 +134,11 @@ enum BabyStore {
         let weights = (try? context.fetchCount(FetchDescriptor<WeightEntry>(predicate: #Predicate { $0.babyID == id }))) ?? 0
         let notes = (try? context.fetchCount(FetchDescriptor<CareNote>(predicate: #Predicate { $0.babyID == id }))) ?? 0
         let foods = (try? context.fetchCount(FetchDescriptor<SolidFoodEntry>(predicate: #Predicate { $0.babyID == id }))) ?? 0
-        return feeds + diapers + weights + notes + foods
+        let concerns = (try? context.fetchCount(FetchDescriptor<HealthConcern>(predicate: #Predicate { $0.babyID == id }))) ?? 0
+        let medications = (try? context.fetchCount(FetchDescriptor<Medication>(predicate: #Predicate { $0.babyID == id }))) ?? 0
+        let doses = (try? context.fetchCount(FetchDescriptor<MedicationDose>(predicate: #Predicate { $0.babyID == id }))) ?? 0
+        let visits = (try? context.fetchCount(FetchDescriptor<DoctorVisit>(predicate: #Predicate { $0.babyID == id }))) ?? 0
+        return feeds + diapers + weights + notes + foods + concerns + medications + doses + visits
     }
 
     /// The nameless, empty baby a fresh install starts with. It's never
@@ -229,6 +233,14 @@ enum BabyStore {
         diapers.forEach(context.delete)
         let foods = (try? context.fetch(FetchDescriptor<SolidFoodEntry>(predicate: #Predicate { $0.babyID == id }))) ?? []
         foods.forEach(context.delete)
+        let concerns = (try? context.fetch(FetchDescriptor<HealthConcern>(predicate: #Predicate { $0.babyID == id }))) ?? []
+        concerns.forEach(context.delete)
+        let medications = (try? context.fetch(FetchDescriptor<Medication>(predicate: #Predicate { $0.babyID == id }))) ?? []
+        medications.forEach(context.delete)
+        let doses = (try? context.fetch(FetchDescriptor<MedicationDose>(predicate: #Predicate { $0.babyID == id }))) ?? []
+        doses.forEach(context.delete)
+        let visits = (try? context.fetch(FetchDescriptor<DoctorVisit>(predicate: #Predicate { $0.babyID == id }))) ?? []
+        visits.forEach(context.delete)
         context.delete(baby)
         try? context.save()
     }

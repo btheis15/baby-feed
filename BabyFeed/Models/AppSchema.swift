@@ -12,6 +12,7 @@ enum AppSchema {
     static let models: [any PersistentModel.Type] = [
         FeedEntry.self, WeightEntry.self, Baby.self, CareNote.self,
         DiaperEntry.self, SolidFoodEntry.self,
+        HealthConcern.self, Medication.self, MedicationDose.self, DoctorVisit.self,
     ]
 
     static var schema: Schema { Schema(models) }

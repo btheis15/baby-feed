@@ -9,7 +9,7 @@
 
 import { createServer } from 'node:http'
 import { randomUUID } from 'node:crypto'
-import { openDatabase, primeStamp, serverID, stamp, ROW_TABLES } from './db.js'
+import { openDatabase, primeStamp, serverID, stamp, schemaVersion, ROW_TABLES } from './db.js'
 import {
   authenticate, createRateLimiter, hashToken, newInviteCode, newToken,
   normalizeCode, secretsMatch, CODE_LENGTH,
@@ -232,6 +232,10 @@ export function createApp({
     api: API_VERSION,
     server_id: SERVER_ID,
     features: FEATURES,
+    // What this server can store, so an app with a newer kind of row can say
+    // "your Mac mini needs an update" instead of retrying it forever.
+    tables: ROW_TABLES,
+    schema_version: schemaVersion(db),
     enroll,
     // Whether a new phone could set itself up from where this request came
     // from, so the app can say "connect to your home Wi-Fi" instead of failing.

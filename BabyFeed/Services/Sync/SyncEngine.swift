@@ -75,6 +75,14 @@ final class SyncEngine {
     private var lastAutomaticAttempt: Date?
     private var lastReconnect: Date?
     private var lastAdoption: Date?
+    /// What the server can store, asked once per launch. Nil until known.
+    private var serverTables: Set<String>?
+    /// Set when there are health records the Mac mini is too old to store:
+    /// they wait on this phone, and Caregivers and Health say so.
+    private(set) var serverNeedsUpdateForHealth = false
+
+    /// The tables every server has had, for one too old to list them.
+    static let baseTables: Set<String> = ["babies", "feeds", "weights", "care_notes", "diapers", "solid_foods"]
 
     private init() {}
 
@@ -284,6 +292,10 @@ final class SyncEngine {
         let context = container.mainContext
 
         do {
+            if serverTables == nil {
+                let health = try await client.health()
+                serverTables = health.tables.map(Set.init) ?? Self.baseTables
+            }
             try await adoptBabies(using: client, context: context)
             try await push(using: client, context: context)
             let failures = try await pullAll(using: client, context: context)
@@ -387,6 +399,17 @@ final class SyncEngine {
         rows += queued(CareNote.self) as [any SyncableRow & CareEntry]
         rows += queued(DiaperEntry.self) as [any SyncableRow & CareEntry]
         rows += queued(SolidFoodEntry.self) as [any SyncableRow & CareEntry]
+        // Health records only go to a server that stores them. One that
+        // doesn't would drop them without a word, and they'd be sent again on
+        // every sync, forever; so they wait here, and the app says why.
+        let tables = serverTables ?? Self.baseTables
+        let health: [any SyncableRow & CareEntry] = (queued(HealthConcern.self) as [any SyncableRow & CareEntry])
+            + (queued(Medication.self) as [any SyncableRow & CareEntry])
+            + (queued(MedicationDose.self) as [any SyncableRow & CareEntry])
+            + (queued(DoctorVisit.self) as [any SyncableRow & CareEntry])
+        let storable = health.filter { tables.contains(Self.table(of: $0)) }
+        serverNeedsUpdateForHealth = storable.count < health.count
+        rows += storable
         guard !babies.isEmpty || !rows.isEmpty else { return }
 
         // What was sent, by when it was last changed. A row edited again while
@@ -414,6 +437,10 @@ final class SyncEngine {
             payload.careNotes = batch.compactMap { ($0 as? CareNote).flatMap { CareNoteDTO(entry: $0, userID: userID) } }
             payload.diapers = batch.compactMap { ($0 as? DiaperEntry).flatMap { DiaperDTO(entry: $0, userID: userID) } }
             payload.solidFoods = batch.compactMap { ($0 as? SolidFoodEntry).flatMap { SolidFoodDTO(entry: $0, userID: userID) } }
+            payload.concerns = batch.compactMap { ($0 as? HealthConcern).flatMap { HealthConcernDTO(entry: $0, userID: userID) } }
+            payload.medications = batch.compactMap { ($0 as? Medication).flatMap { MedicationDTO(entry: $0, userID: userID) } }
+            payload.medicationDoses = batch.compactMap { ($0 as? MedicationDose).flatMap { MedicationDoseDTO(entry: $0, userID: userID) } }
+            payload.doctorVisits = batch.compactMap { ($0 as? DoctorVisit).flatMap { DoctorVisitDTO(entry: $0, userID: userID) } }
             let sentBabies = isFirstBatch ? babies : []
             isFirstBatch = false
             guard !payload.isEmpty else { continue }
@@ -543,6 +570,18 @@ final class SyncEngine {
         merge(result.solidFoods, in: context, key: \SolidFoodEntry.uuid,
               apply: { dto, entry in dto.apply(to: entry) },
               newRow: { SolidFoodEntry(uuid: $0.id, name: "", texture: .puree) })
+        merge(result.concerns, in: context, key: \HealthConcern.uuid,
+              apply: { dto, entry in dto.apply(to: entry) },
+              newRow: { HealthConcern(uuid: $0.id, title: "", kind: .other) })
+        merge(result.medications, in: context, key: \Medication.uuid,
+              apply: { dto, entry in dto.apply(to: entry) },
+              newRow: { Medication(uuid: $0.id, name: "") })
+        merge(result.medicationDoses, in: context, key: \MedicationDose.uuid,
+              apply: { dto, entry in dto.apply(to: entry) },
+              newRow: { MedicationDose(uuid: $0.id, medicationName: "") })
+        merge(result.doctorVisits, in: context, key: \DoctorVisit.uuid,
+              apply: { dto, entry in dto.apply(to: entry) },
+              newRow: { DoctorVisit(uuid: $0.id) })
 
         try? context.save()
         if !result.isEmpty { pulledChanges = true }
@@ -851,11 +890,16 @@ final class SyncEngine {
         func count<T: PersistentModel>(_ predicate: Predicate<T>) -> Int {
             (try? context.fetchCount(FetchDescriptor<T>(predicate: predicate))) ?? 0
         }
-        return count(#Predicate<FeedEntry> { $0.needsUpload })
-            + count(#Predicate<DiaperEntry> { $0.needsUpload })
-            + count(#Predicate<WeightEntry> { $0.needsUpload })
-            + count(#Predicate<CareNote> { $0.needsUpload })
-            + count(#Predicate<SolidFoodEntry> { $0.needsUpload })
+        var total = count(#Predicate<FeedEntry> { $0.needsUpload })
+        total += count(#Predicate<DiaperEntry> { $0.needsUpload })
+        total += count(#Predicate<WeightEntry> { $0.needsUpload })
+        total += count(#Predicate<CareNote> { $0.needsUpload })
+        total += count(#Predicate<SolidFoodEntry> { $0.needsUpload })
+        total += count(#Predicate<HealthConcern> { $0.needsUpload })
+        total += count(#Predicate<Medication> { $0.needsUpload })
+        total += count(#Predicate<MedicationDose> { $0.needsUpload })
+        total += count(#Predicate<DoctorVisit> { $0.needsUpload })
+        return total
     }
 
     private func queueEverything(for babyID: UUID, in context: ModelContext) {
@@ -864,6 +908,26 @@ final class SyncEngine {
         for note in fetch(CareNote.self, in: context) where note.babyID == babyID { note.needsUpload = true }
         for diaper in fetch(DiaperEntry.self, in: context) where diaper.babyID == babyID { diaper.needsUpload = true }
         for food in fetch(SolidFoodEntry.self, in: context) where food.babyID == babyID { food.needsUpload = true }
+        for concern in fetch(HealthConcern.self, in: context) where concern.babyID == babyID { concern.needsUpload = true }
+        for medication in fetch(Medication.self, in: context) where medication.babyID == babyID { medication.needsUpload = true }
+        for dose in fetch(MedicationDose.self, in: context) where dose.babyID == babyID { dose.needsUpload = true }
+        for visit in fetch(DoctorVisit.self, in: context) where visit.babyID == babyID { visit.needsUpload = true }
+    }
+
+    /// The server table a row goes in.
+    static func table(of row: any SyncableRow & CareEntry) -> String {
+        switch row {
+        case is FeedEntry: "feeds"
+        case is WeightEntry: "weights"
+        case is CareNote: "care_notes"
+        case is DiaperEntry: "diapers"
+        case is SolidFoodEntry: "solid_foods"
+        case is HealthConcern: "concerns"
+        case is Medication: "medications"
+        case is MedicationDose: "medication_doses"
+        case is DoctorVisit: "doctor_visits"
+        default: ""
+        }
     }
 
     /// For a server that lost its database: every shared baby goes back up in
@@ -930,6 +994,10 @@ extension WeightDTO: SyncRow {}
 extension CareNoteDTO: SyncRow {}
 extension DiaperDTO: SyncRow {}
 extension SolidFoodDTO: SyncRow {}
+extension HealthConcernDTO: SyncRow {}
+extension MedicationDTO: SyncRow {}
+extension MedicationDoseDTO: SyncRow {}
+extension DoctorVisitDTO: SyncRow {}
 
 protocol SyncableRow: AnyObject {
     var updatedAt: Date { get }
@@ -941,6 +1009,10 @@ extension WeightEntry: SyncableRow {}
 extension CareNote: SyncableRow {}
 extension DiaperEntry: SyncableRow {}
 extension SolidFoodEntry: SyncableRow {}
+extension HealthConcern: SyncableRow {}
+extension Medication: SyncableRow {}
+extension MedicationDose: SyncableRow {}
+extension DoctorVisit: SyncableRow {}
 
 enum SyncError: LocalizedError, Equatable {
     case notConfigured

@@ -143,9 +143,11 @@ kept, taken with SQLite's `.backup` so a copy is never torn mid-write.
 
 ## What it stores
 
-Babies, feeds, weights, care notes, diapers and solid foods — the same shapes
-the app has in `Services/Sync/SyncDTOs.swift`, which is why the JSON goes
-straight into a table with no translation. Plus caregivers, the phones they've
+Babies, feeds, weights, care notes, diapers and solid foods, and the health
+records: concerns, medicines, doses given and doctor visits. They're the same
+shapes the app has in `Services/Sync/SyncDTOs.swift`, which is why the JSON goes
+straight into a table with no translation. Medicine amounts are whatever a
+parent typed; nothing here suggests a dose. Plus caregivers, the phones they've
 paired (token hashes only), invite codes, recovery phrase hashes, a random
 `server_id` (so a phone can tell a reset server from a revoked token), and a
 change feed recording who did what.
@@ -172,6 +174,13 @@ meeting point, not an authority.
 - **Watermarks** come from a server clock that never repeats a millisecond and
   never goes backwards, so two phones pushing at the same instant can't hide a
   row from each other's next pull.
+- **Paging.** A pull returns up to 500 rows a table. If any table fills its
+  page, every table is cut at the same point, and `next_since` says exactly
+  where the next page starts, so a phone joining a long log gets all of it.
+- **New columns.** A column added to a table phones already sync goes in
+  `COLUMN_ADDITIONS` (db.js, applied on open, recorded in `PRAGMA user_version`)
+  and `LATE_COLUMNS` (sync.js). A late column is written only when a row carries
+  its key, so an older app that doesn't know the field can't wipe it.
 
 ## API
 
@@ -180,7 +189,7 @@ except `/v1/health`, the three pairing routes and `/v1/recover`.
 
 | Route | What it does |
 |---|---|
-| `GET /v1/health` | Liveness, row counts, `api`, `server_id`, `features`, and whether a new phone could enrol from where you're asking (`enroll_available`). No token. |
+| `GET /v1/health` | Liveness, row counts, `api`, `server_id`, `features`, the `tables` it stores and its `schema_version`, and whether a new phone could enrol from where you're asking (`enroll_available`). No token. |
 | `POST /v1/pair/enroll` | A new phone on the home Wi-Fi, nothing typed. JSON only. Optional `key_hash` registers the person's recovery phrase in the same step. With a token, returns the same caregiver (`token: null`). |
 | `POST /v1/pair/invite` | Join with an invite code. With a token, joins as the caregiver this phone already is (`token: null`); re-scanning a code for a log you're on spends nothing. |
 | `POST /v1/pair/claim` | Builds from before enrolment: the first phone, with the setup secret. Single use. |
@@ -196,7 +205,7 @@ except `/v1/health`, the three pairing routes and `/v1/recover`.
 | `GET /v1/babies/:id/members` | Who's on this log. |
 | `DELETE /v1/babies/:id/members/:userID` | Remove someone, or leave. |
 | `POST /v1/sync/push` | Rows up. Per-row applied/rejected, with a `code` on each rejection (`malformed`, `not_a_member`). |
-| `GET /v1/sync/pull?baby_id=&since=` | Rows down, since a watermark. |
+| `GET /v1/sync/pull?baby_id=&since=` | Rows down, since a watermark; `has_more` and `next_since` for the next page. |
 | `GET /v1/changes?baby_id=&since_seq=` | Who changed what. |
 
 A baby becomes shared by being pushed: the phone that first pushes it becomes

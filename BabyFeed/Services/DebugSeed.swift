@@ -40,6 +40,10 @@ enum DebugSeed {
         for note in (try? context.fetch(FetchDescriptor<CareNote>())) ?? [] { context.delete(note) }
         for diaper in (try? context.fetch(FetchDescriptor<DiaperEntry>())) ?? [] { context.delete(diaper) }
         for food in (try? context.fetch(FetchDescriptor<SolidFoodEntry>())) ?? [] { context.delete(food) }
+        for concern in (try? context.fetch(FetchDescriptor<HealthConcern>())) ?? [] { context.delete(concern) }
+        for medication in (try? context.fetch(FetchDescriptor<Medication>())) ?? [] { context.delete(medication) }
+        for dose in (try? context.fetch(FetchDescriptor<MedicationDose>())) ?? [] { context.delete(dose) }
+        for visit in (try? context.fetch(FetchDescriptor<DoctorVisit>())) ?? [] { context.delete(visit) }
 
         let calendar = AppSettings.calendar
         let today = calendar.startOfDay(for: .now)
@@ -191,13 +195,71 @@ enum DebugSeed {
             ))
         }
 
+        seedHealth(babyID: babyID, birth: birth, today: today, calendar: calendar, in: context)
+
         try? context.save()
         print("[DebugSeed] \(feedCount) feeds and \(diaperCount) diapers over 15 days, \(weighIns.count) weigh-ins, \(notes.count) notes, born \(birth)")
+    }
+
+    /// A red eye that's still going on (with an update), a stuffy nose that
+    /// cleared, vitamin D most mornings but not yet today, two gas drops
+    /// yesterday, and the first-week and weight-check visits.
+    private static func seedHealth(babyID: UUID?, birth: Date, today: Date, calendar: Calendar, in context: ModelContext) {
+        func at(daysAgo: Int, hour: Int, minute: Int = 0) -> Date {
+            let day = calendar.date(byAdding: .day, value: -daysAgo, to: today) ?? today
+            return calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day) ?? day
+        }
+
+        let eye = HealthConcern(babyID: babyID, title: "Red left eye", kind: .eye, startedAt: at(daysAgo: 3, hour: 7),
+                                severity: .mild, note: "Goopy in the mornings, wiped clean with cooled boiled water.",
+                                loggedByName: "Sam")
+        context.insert(eye)
+        let update = CareNote(babyID: babyID, date: at(daysAgo: 1, hour: 8), kind: .eye,
+                              note: "Less red today, still a bit goopy on waking.", loggedByName: "Brian")
+        update.concernID = eye.uuid
+        context.insert(update)
+
+        let nose = HealthConcern(babyID: babyID, title: "Stuffy nose", kind: .cough, startedAt: at(daysAgo: 12, hour: 20),
+                                 severity: .mild, loggedByName: "Brian")
+        nose.resolvedAt = at(daysAgo: 7, hour: 9)
+        nose.outcome = "Cleared with saline drops and suction."
+        context.insert(nose)
+
+        let vitaminD = Medication(babyID: babyID, name: "Vitamin D", kind: .supplement, doseUnit: .drop,
+                                  schedule: .daily, timesPerDay: 1, maxDosesPer24h: 1,
+                                  startDate: at(daysAgo: 12, hour: 0), loggedByName: "Brian")
+        context.insert(vitaminD)
+        for daysAgo in 1...10 {
+            context.insert(MedicationDose(babyID: babyID, medicationID: vitaminD.uuid, medicationName: "Vitamin D",
+                                          time: at(daysAgo: daysAgo, hour: 8, minute: 10), amount: 1, unit: .drop,
+                                          loggedByName: daysAgo.isMultiple(of: 3) ? "Sam" : "Brian"))
+        }
+
+        let gasDrops = Medication(babyID: babyID, name: "Gas drops", kind: .medicine, doseUnit: .ml,
+                                  schedule: .asNeeded, minHoursBetween: 2, startDate: at(daysAgo: 6, hour: 0),
+                                  loggedByName: "Sam")
+        context.insert(gasDrops)
+        for (hour, author) in [(2, "Sam"), (19, "Brian")] {
+            context.insert(MedicationDose(babyID: babyID, medicationID: gasDrops.uuid, medicationName: "Gas drops",
+                                          time: at(daysAgo: 1, hour: hour, minute: 30), amount: 0.3, unit: .ml,
+                                          loggedByName: author))
+        }
+
+        let firstWeek = DoctorVisit(babyID: babyID, date: at(daysAgo: 10, hour: 10), kind: .checkup, provider: "Dr. Patel",
+                                    reason: "First-week visit", doctorNotes: "Feeding well, jaundice fading.",
+                                    loggedByName: "Brian")
+        context.insert(firstWeek)
+        let weightCheck = DoctorVisit(babyID: babyID, date: at(daysAgo: 3, hour: 11), kind: .followUp,
+                                      provider: "Dr. Patel", reason: "Weight check",
+                                      doctorNotes: "Back to birth weight. Keep feeding on demand.", loggedByName: "Sam")
+        weightCheck.followUpNote = "2-month shots"
+        weightCheck.followUpDate = calendar.date(byAdding: .month, value: 2, to: birth)
+        context.insert(weightCheck)
     }
 }
 
 /// Where to open, for screenshots taken from the command line:
-/// `--open-tab timeline|baby|settings`, `--open-sheet add|share`,
+/// `--open-tab timeline|health|baby|settings`, `--open-sheet add|share`,
 /// `--debug-nursing <minutes ago>` and `--debug-open-url <babyfeed://…>`.
 /// Debug builds only, like the seed.
 @MainActor
@@ -210,6 +272,7 @@ enum DebugLaunch {
         }
         switch value(after: "--open-tab") {
         case "timeline": router.tab = .timeline
+        case "health": router.tab = .health
         case "baby": router.tab = .baby
         case "settings": router.tab = .settings
         default: break
