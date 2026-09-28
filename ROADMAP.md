@@ -44,7 +44,7 @@ after each.
 | Phase | What | Touches | Status |
 |---|---|---|---|
 | 0 | Safety net: tests green, previews render | app | **Done** 2026-09-28: 190 tests pass; one shared model list; `removeLocally` and the debug seed cover every type |
-| 1 | Today: a countdown, minutes not seconds, less battery | app, widget | Not started |
+| 1 | Today: a countdown, minutes not seconds, less battery | app, widget | **Done** 2026-09-28: `FeedCountdown` everywhere; minute-only hero, strip, widget and Live Activity; the battery fixes |
 | 2 | Logging that visibly lands, and one Timeline | app | Not started |
 | 3a | Sharing without credentials: server | server | **Done.** Merged to `main` in PR #2 and running on the mini since 2026-09-28 (`/v1/health` reports `"api":2`, `"enroll":"lan"`) |
 | 3b | Sharing without credentials: app | app | Not started (3a is live, so nothing blocks it) |
@@ -284,6 +284,10 @@ enum FeedCountdown: Equatable {
 - The 24-hour sections (Last 24 hours, the daily target's "consumed", Recent) drift slowly. Drive
   them from a `now` that refreshes every 10 minutes and whenever the app becomes active. Keep
   `FeedingGuidance.currentTarget`, which runs the growth projection, out of any per-minute closure.
+- **As built:** that `now` is a `@State var clock`, moved by a `.task` loop every 10 minutes and on
+  becoming active. It is *not* an outer `TimelineView(.periodic(…, by: 600))`. A TimelineView nested
+  inside another TimelineView, in a List, put SwiftUI into a redraw loop that pinned the main thread
+  at 100% and never drew the first frame.
 - `NextFeedBar`: replace `Text(last.startTime, style: .relative)` with `TimelineView(.everyMinute)`
   and `FeedCountdown` text: "Next feed in 1h 20m · 5:10 PM", or "Feed due · 25m late" in red. Compute
   its accessibility label from the same state; today it's computed once and goes stale.
@@ -1425,4 +1429,7 @@ it (you're left at a `quote>` prompt; press Ctrl‑C to get out).
 - **Server tests.** The older test files each share one rate limiter. Put new tests in their own
   files, using `server/test/support.js`.
 - **Name clash.** SwiftUI already has `TimelineView`, so call the screen `CareTimelineView`.
+- **Never nest a `TimelineView` inside another `TimelineView`.** In a List, it sent SwiftUI into a
+  redraw loop that pinned the main thread at 100% before the first frame (found in Phase 1). Keep
+  one ticking view per screen, and drive slower refreshes from a `@State` clock.
 - **Claude in Xcode may not see `server/`.** Use Claude Code in Terminal for server work.
