@@ -367,6 +367,10 @@ final class SyncEngine {
 
     // MARK: Push
 
+    /// Rows per push. The server refuses a request over 2 MB, and a first
+    /// backup of a few months is thousands of rows, so it goes up in batches.
+    static let pushBatchSize = 400
+
     private func push(using client: SyncClient, context: ModelContext) async throws {
         let userID = SyncCredentials.userID
         let shared = sharedBabies(in: context)
@@ -376,27 +380,14 @@ final class SyncEngine {
             fetch(type, in: context).filter { $0.needsUpload && $0.babyID.map(sharedIDs.contains) == true }
         }
 
-        var payload = SyncPushPayload()
         let babies = shared.filter(\.needsUpload)
-        payload.babies = babies.map { BabyDTO(baby: $0, createdBy: userID) }
-        let feeds = queued(FeedEntry.self)
-        payload.feeds = feeds.compactMap { FeedDTO(entry: $0, userID: userID ?? UUID()) }
-        let weights = queued(WeightEntry.self)
-        payload.weights = weights.compactMap { WeightDTO(entry: $0, userID: userID ?? UUID()) }
-        let notes = queued(CareNote.self)
-        payload.careNotes = notes.compactMap { CareNoteDTO(entry: $0, userID: userID) }
-        let diapers = queued(DiaperEntry.self)
-        payload.diapers = diapers.compactMap { DiaperDTO(entry: $0, userID: userID) }
-        let foods = queued(SolidFoodEntry.self)
-        payload.solidFoods = foods.compactMap { SolidFoodDTO(entry: $0, userID: userID) }
-        guard !payload.isEmpty else { return }
-
         var rows: [any SyncableRow & CareEntry] = []
-        rows += feeds as [any SyncableRow & CareEntry]
-        rows += weights as [any SyncableRow & CareEntry]
-        rows += notes as [any SyncableRow & CareEntry]
-        rows += diapers as [any SyncableRow & CareEntry]
-        rows += foods as [any SyncableRow & CareEntry]
+        rows += queued(FeedEntry.self) as [any SyncableRow & CareEntry]
+        rows += queued(WeightEntry.self) as [any SyncableRow & CareEntry]
+        rows += queued(CareNote.self) as [any SyncableRow & CareEntry]
+        rows += queued(DiaperEntry.self) as [any SyncableRow & CareEntry]
+        rows += queued(SolidFoodEntry.self) as [any SyncableRow & CareEntry]
+        guard !babies.isEmpty || !rows.isEmpty else { return }
 
         // What was sent, by when it was last changed. A row edited again while
         // this push was in flight has a newer stamp by the time the answer
@@ -408,27 +399,49 @@ final class SyncEngine {
             if let id = row.uuid { sentAt[id] = row.updatedAt }
         }
 
-        let result = try await client.push(payload)
+        var rejected: [SyncClient.PushResult.Rejected] = []
+        var next = 0
+        var isFirstBatch = true
+        repeat {
+            let batch = Array(rows[next..<min(rows.count, next + Self.pushBatchSize)])
+            next += batch.count
+            var payload = SyncPushPayload()
+            // Babies go in the first batch, ahead of their rows: a log starts
+            // on the server when it first sees the baby.
+            if isFirstBatch { payload.babies = babies.map { BabyDTO(baby: $0, createdBy: userID) } }
+            payload.feeds = batch.compactMap { ($0 as? FeedEntry).flatMap { FeedDTO(entry: $0, userID: userID ?? UUID()) } }
+            payload.weights = batch.compactMap { ($0 as? WeightEntry).flatMap { WeightDTO(entry: $0, userID: userID ?? UUID()) } }
+            payload.careNotes = batch.compactMap { ($0 as? CareNote).flatMap { CareNoteDTO(entry: $0, userID: userID) } }
+            payload.diapers = batch.compactMap { ($0 as? DiaperEntry).flatMap { DiaperDTO(entry: $0, userID: userID) } }
+            payload.solidFoods = batch.compactMap { ($0 as? SolidFoodEntry).flatMap { SolidFoodDTO(entry: $0, userID: userID) } }
+            let sentBabies = isFirstBatch ? babies : []
+            isFirstBatch = false
+            guard !payload.isEmpty else { continue }
 
-        // Clear the queue only for rows the server confirmed. "kept" counts:
-        // it means the server holds a newer copy, which the pull just below is
-        // about to bring back, so there is nothing left to upload.
-        let accepted = Set(result.applied.map(\.id))
-        func settle(_ id: UUID?, _ updatedAt: Date, _ clear: () -> Void) {
-            guard let id, accepted.contains(id), sentAt[id] == updatedAt else { return }
-            clear()
-        }
-        for baby in babies { settle(baby.uuid, baby.updatedAt) { baby.needsUpload = false } }
-        for row in rows {
-            settle(row.uuid, row.updatedAt) { row.needsUpload = false }
-        }
+            let result = try await client.push(payload)
+
+            // Clear the queue only for rows the server confirmed. "kept"
+            // counts: it means the server holds a newer copy, which the pull
+            // just below is about to bring back, so there's nothing to upload.
+            let accepted = Set(result.applied.map(\.id))
+            func settle(_ id: UUID?, _ updatedAt: Date, _ clear: () -> Void) {
+                guard let id, accepted.contains(id), sentAt[id] == updatedAt else { return }
+                clear()
+            }
+            for baby in sentBabies { settle(baby.uuid, baby.updatedAt) { baby.needsUpload = false } }
+            for row in batch {
+                settle(row.uuid, row.updatedAt) { row.needsUpload = false }
+            }
+            try? context.save()
+            rejected += result.rejected
+        } while next < rows.count
 
         // Taken off a log by its owner: stop sending its rows, keep them here.
         var rowBabies: [UUID: UUID] = [:]
         for row in rows {
             if let id = row.uuid, let babyID = row.babyID { rowBabies[id] = babyID }
         }
-        let dropped = SyncPlan.babiesNoLongerShared(rejected: result.rejected) { table, id in
+        let dropped = SyncPlan.babiesNoLongerShared(rejected: rejected) { table, id in
             table == "babies" ? id : rowBabies[id]
         }
         for baby in shared where dropped.contains(baby.uuid) {
@@ -436,7 +449,7 @@ final class SyncEngine {
         }
         try? context.save()
 
-        let other = result.rejected.filter { $0.code != "not_a_member" }
+        let other = rejected.filter { $0.code != "not_a_member" }
         if !dropped.isEmpty {
             let names = shared.filter { dropped.contains($0.uuid) }.map(\.displayName).joined(separator: ", ")
             throw SyncError.server(status: 403,
@@ -477,16 +490,20 @@ final class SyncEngine {
 
     private func pull(babyID: UUID, using client: SyncClient, context: ModelContext) async throws {
         // A pull is capped server-side, so keep going while there's more. The
-        // loop is bounded so a server that always says "more" can't hang here.
-        for _ in 0..<20 {
+        // loop is bounded so a server that always says "more" can't hang here;
+        // at 500 rows a page that's still a year of a busy newborn's log.
+        for _ in 0..<100 {
             let since = Self.watermark(for: babyID)
             let result = try await client.pull(babyID: babyID, since: since)
             apply(result, babyID: babyID, in: context)
 
-            if let next = SyncMerge.nextWatermark(previous: since, seen: result.serverStamps) {
+            // The server's own cursor when it gives one: exact, so a long log
+            // pages through whole. Guessing from the newest stamp (minus a
+            // second) used to skip rows or never get past a big first backup.
+            if let next = result.nextSince ?? SyncMerge.nextWatermark(previous: since, seen: result.serverStamps) {
                 Self.setWatermark(next, for: babyID)
             }
-            if !result.hasMore || result.isEmpty { break }
+            if !result.hasMore || (result.isEmpty && result.nextSince == nil) { break }
         }
     }
 
