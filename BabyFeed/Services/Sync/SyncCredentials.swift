@@ -13,6 +13,10 @@ import Security
 enum SyncCredentials {
     private static let serverKey = "sync.serverURL"
     private static let userIDKey = "sync.userID"
+    private static let serverIDKey = "sync.serverID"
+    private static let optedOutKey = "sync.optedOut"
+    private static let connectedBeforeKey = "sync.hasConnectedBefore"
+    private static let connectionRequestedKey = "sync.connectionRequested"
     private static let keychainAccount = "sync.deviceToken"
     private static let keychainService = "com.babyfeed.BabyFeed"
 
@@ -62,12 +66,48 @@ enum SyncCredentials {
         }
     }
 
+    /// The id the server keeps in its database, as of the last connect. When
+    /// the server reports a different one, its database was reset.
+    static var serverID: String? {
+        get { UserDefaults.standard.string(forKey: serverIDKey) }
+        set { UserDefaults.standard.set(newValue, forKey: serverIDKey) }
+    }
+
+    /// Set by "Stop syncing this phone". While it's set nothing reconnects by
+    /// itself; an explicit Share, Join, Restore or Back up clears it.
+    static var optedOut: Bool {
+        get { UserDefaults.standard.bool(forKey: optedOutKey) }
+        set { UserDefaults.standard.set(newValue, forKey: optedOutKey) }
+    }
+
+    /// Whether this phone has ever been connected. Until it has, nothing
+    /// reaches for the network on its own, so the Local Network prompt only
+    /// ever appears right after the parent asked for something that needs it.
+    static var hasConnectedBefore: Bool {
+        get { UserDefaults.standard.bool(forKey: connectedBeforeKey) || isPaired }
+        set { UserDefaults.standard.set(newValue, forKey: connectedBeforeKey) }
+    }
+
+    /// Set the first time the parent asks for something that needs the
+    /// server (adding a baby, Share, Back up), even if the phone wasn't home
+    /// then, so it keeps trying once it is.
+    static var connectionRequested: Bool {
+        get { UserDefaults.standard.bool(forKey: connectionRequestedKey) }
+        set { UserDefaults.standard.set(newValue, forKey: connectionRequestedKey) }
+    }
+
+    /// Whether this phone should reconnect by itself when it can.
+    static var wantsSync: Bool { hasConnectedBefore || connectionRequested }
+
     static var isPaired: Bool { serverURL != nil && token != nil }
 
-    static func save(serverURL: URL, token: String, userID: UUID?) {
+    static func save(serverURL: URL, token: String, userID: UUID?, serverID: String? = nil) {
         self.serverURL = serverURL
         self.token = token
         self.userID = userID
+        if let serverID { self.serverID = serverID }
+        hasConnectedBefore = true
+        optedOut = false
     }
 
     /// Unpairs this phone. The local SwiftData store is deliberately untouched:
@@ -77,6 +117,17 @@ enum SyncCredentials {
         serverURL = nil
         userID = nil
         token = nil
+        serverID = nil
         UserDefaults.standard.removeObject(forKey: "sync.watermarks")
+    }
+
+    /// Clears only if the token that just failed is still the one saved. A
+    /// sync that started with an old token must not wipe the credentials a
+    /// join saved while it was in flight.
+    @discardableResult
+    static func clear(ifToken failed: String) -> Bool {
+        guard token == failed else { return false }
+        clear()
+        return true
     }
 }

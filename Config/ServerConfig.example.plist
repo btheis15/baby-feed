@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The sync server this build talks to. Copy this file to BabyFeed/ServerConfig.plist
+  (which git ignores, so a hostname never lands in the public repo) and fill in the
+  Mac mini's address. Without it the app works as before, entirely on the phone,
+  and sharing asks for an address under Caregivers → Advanced.
+  Plain http is only accepted for home-network hosts (.local, 10.x, 192.168.x).
+-->
+<plist version="1.0">
+<dict>
+	<key>Scheme</key>
+	<string>http</string>
+	<key>Host</key>
+	<string>your-mac-mini.local:8791</string>
+</dict>
+</plist>

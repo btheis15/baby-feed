@@ -108,6 +108,9 @@ struct HomeView: View {
                             .listRowInsets(EdgeInsets())
                     }
 
+                    SyncSetupCard(babyName: profile.displayName,
+                                  hasRealBaby: !babyName.isEmpty || !visible.isEmpty)
+
                     Section {
                         Button {
                             router.sheet = .addEntry
@@ -151,6 +154,17 @@ struct HomeView: View {
                 .listStyle(.insetGrouped)
             }
             .navigationTitle(babyName.isEmpty ? "Baby Feed" : babyName)
+            .toolbar {
+                if SyncEngine.shared.hasServer, let babyID = currentBabyID {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            router.sheet = .share(babyID)
+                        } label: {
+                            Label("Share \(profile.displayName)'s log", systemImage: "person.badge.plus")
+                        }
+                    }
+                }
+            }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { clock = .now }
             }

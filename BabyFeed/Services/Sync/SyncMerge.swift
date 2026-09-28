@@ -24,9 +24,10 @@ enum SyncMerge {
         normalizedInviteCode(input).count == inviteCodeLength
     }
 
-    /// Text the owner sends to another caregiver.
-    static func inviteMessage(babyName: String, code: String) -> String {
-        "Join \(babyName)'s feeding log in Baby Feed. Open the app, sign in, and enter code \(code), or tap: babyfeed://join/\(code)"
+    /// Text sent with an invite link. The whole link, server and all: the
+    /// older server-less `babyfeed://join/CODE` dead-ended on a new phone.
+    static func inviteMessage(babyName: String, link: URL) -> String {
+        "Join \(babyName)'s log in Baby Feed. Open this link on your iPhone (Baby Feed must be installed): \(link.absoluteString)"
     }
 
     /// The watermark for the next pull: newest server timestamp seen, minus a
@@ -36,17 +37,5 @@ enum SyncMerge {
         let candidate = newest.addingTimeInterval(-1)
         if let previous { return max(previous, candidate) }
         return candidate
-    }
-
-    /// First-time display name from Sign in with Apple or an email address.
-    static func suggestedDisplayName(givenName: String?, familyName: String?, email: String?) -> String {
-        let given = givenName?.trimmingCharacters(in: .whitespaces) ?? ""
-        if !given.isEmpty { return given }
-        let family = familyName?.trimmingCharacters(in: .whitespaces) ?? ""
-        if !family.isEmpty { return family }
-        if let email, let local = email.split(separator: "@").first, !local.isEmpty {
-            return String(local)
-        }
-        return ""
     }
 }

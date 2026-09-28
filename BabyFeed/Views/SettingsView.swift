@@ -107,9 +107,11 @@ struct SettingsView: View {
         case .syncing: return "Syncing…"
         case .idle(let lastSync):
             if let lastSync {
-                return "Synced \(lastSync.formatted(date: .omitted, time: .shortened))"
+                return "Synced \(ClockText.time(lastSync, in: AppSettings.timeZone))"
             }
             return "Logging as \(displayName)"
+        case .away: return "Will sync when you're home"
+        case .needsUpdate: return "Your Mac mini needs an update"
         case .error: return "Sync problem – tap for details"
         }
     }
