@@ -83,8 +83,7 @@ struct LastFeedIntent: AppIntent {
         }
 
         let unit = AppSettings.volumeUnit
-        let elapsed = FeedStats.elapsedText(since: last.startTime)
-        let when = elapsed == "Just now" ? "just now" : "\(elapsed) ago"
+        let when = ElapsedText.ago(since: last.startTime)
         var text = "Last feed was \(when): \(last.kind.title.lowercased()), \(last.detailText(unit: unit))."
         // The same answer the hero gives, reminders on or not.
         switch AppSettings.countdown(lastFeed: last.startTime) {

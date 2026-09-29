@@ -197,16 +197,12 @@ struct BabyView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(weightUnit.format(grams: latest.grams))
                         .font(.system(size: 34, weight: .bold, design: .rounded))
-                    HStack {
-                        Text(latest.date.formatted(date: .abbreviated, time: .omitted))
-                        if let gain = weeklyGain {
-                            Text("·")
-                            Text(weightUnit.formatGain(gramsPerWeek: gain))
-                                .foregroundStyle(gain >= 0 ? Color.green : Color.orange)
-                        }
-                    }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    // Only the date: a weekly rate from the last step alone sat
+                    // right next to "Average gain" and disagreed with it.
+                    // "Since last weigh-in" below says what the last step was.
+                    Text(latest.date.formatted(date: .abbreviated, time: .omitted))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
 
@@ -268,6 +264,10 @@ struct BabyView: View {
             calendar: calendar
         )
         return VStack(alignment: .leading, spacing: 8) {
+            // Like every chart, it leads with the number it shows.
+            Text(CareCharts.weightSentence(weights: weights, profile: profile, weightUnit: weightUnit, calendar: calendar))
+                .font(.headline)
+                .fixedSize(horizontal: false, vertical: true)
             chart
             if let caption = chart.caption {
                 Text(caption)
@@ -572,8 +572,6 @@ struct BabyView: View {
     }
 
     // MARK: Helpers
-
-    private var weeklyGain: Double? { WeightStats.lastChange(weights, calendar: calendar)?.gramsPerWeek }
 
     private func deleteWeights(at offsets: IndexSet) {
         let visible = weights

@@ -91,12 +91,13 @@ struct CareLogExportTests {
 
         #expect(!report.hasFeeds)
         #expect(report.days.count == 2)
-        #expect(report.averageItems.contains { $0.id == "wetDiapers" && $0.value == "1.5" })
-        #expect(report.averageItems.contains { $0.id == "dirtyDiapers" && $0.value == "0.5" })
+        // Averaged over the one full day; today is still listed below.
+        #expect(report.averageItems.contains { $0.id == "wetDiapers" && $0.value == "1.0" })
+        #expect(report.averageItems.contains { $0.id == "dirtyDiapers" && $0.value == "1.0" })
         let text = DaySummaryGenerator.plainText(from: report)
         #expect(text.contains("No feeds logged in this period."))
-        #expect(text.contains("wet diapers 1.5"))
+        #expect(text.contains("wet diapers 1.0"))
         #expect(text.contains("Today: diapers 2 wet"))
-        #expect(report.averagesFootnote == "Averaged over the 2 days with diapers logged.")
+        #expect(report.averagesFootnote == "Averaged over the 1 day with diapers logged, not counting today.")
     }
 }

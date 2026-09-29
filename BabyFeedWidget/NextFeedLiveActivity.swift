@@ -58,7 +58,7 @@ struct NextFeedLiveActivity: Widget {
             } compactTrailing: {
                 Group {
                     if let started = context.state.nursingStartedAt {
-                        nursingMinutes(since: started)
+                        nursingMinutes(since: started, compact: true)
                     } else {
                         compactCountdown(context)
                     }
@@ -95,41 +95,47 @@ struct NextFeedLiveActivity: Widget {
         return isDue(context) ? "Feed is due" : "Next feed"
     }
 
-    /// "12:00", counting up in whole minutes: the system updates it, the app
-    /// doesn't.
-    private func nursingMinutes(since start: Date) -> some View {
-        Text(.currentDate, format: .stopwatch(startingAt: start, showsHours: true, maxFieldCount: 2,
+    /// "12 minutes", counting up in whole minutes: the system updates it, the
+    /// app doesn't. At minute precision the stopwatch spells its units out,
+    /// so the compact island gets one unit, shrunk to fit if it has to.
+    private func nursingMinutes(since start: Date, compact: Bool = false) -> some View {
+        Text(.currentDate, format: .stopwatch(startingAt: start, showsHours: true, maxFieldCount: compact ? 1 : 2,
                                               maxPrecision: .seconds(60)))
             .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(compact ? 0.6 : 0.8)
     }
 
     private func clock(_ date: Date, _ context: ActivityViewContext<NextFeedActivityAttributes>) -> String {
         ClockText.time(date, in: context.state.timeZone)
     }
 
-    /// "in 1 hr, 20 min", updated by the system once a minute; "Due" once it's run out.
+    /// "1 hour, 20 minutes", updated by the system once a minute; "Due" once
+    /// it's run out.
     @ViewBuilder
     private func countdown(_ context: ActivityViewContext<NextFeedActivityAttributes>, due: Date) -> some View {
         if isDue(context) {
             Text("Due")
                 .foregroundStyle(.red)
         } else {
-            Text(.currentDate, format: .reference(to: due, allowedFields: [.hour, .minute], maxFieldCount: 2))
+            Text(.currentDate, format: FeedCountdown.timeLeftFormat(to: due))
                 .monospacedDigit()
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
         }
     }
 
-    /// The Dynamic Island's compact slot is narrow: "1:20", at minute precision.
+    /// The Dynamic Island's compact slot is narrow, so it shows when the feed
+    /// is due, "3:21 PM". A minute-precision countdown spells its units out
+    /// and came out as "3 hou…"; the expanded island and the Lock Screen keep
+    /// the countdown.
     @ViewBuilder
     private func compactCountdown(_ context: ActivityViewContext<NextFeedActivityAttributes>) -> some View {
-        if let due = context.state.dueTime, !isDue(context), context.state.lastFeedTime < due {
-            Text(.currentDate, format: .timer(
-                countingDownIn: context.state.lastFeedTime..<due,
-                showsHours: true,
-                maxFieldCount: 2,
-                maxPrecision: .seconds(60)
-            ))
-            .monospacedDigit()
+        if let due = context.state.dueTime, !isDue(context) {
+            Text(clock(due, context))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         } else {
             Text("Due")
                 .foregroundStyle(.red)

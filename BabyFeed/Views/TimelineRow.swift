@@ -70,7 +70,11 @@ struct TimelineRow: View {
                 tint: item.tint,
                 title: concern.title.isEmpty ? concern.kind.title : concern.title,
                 badge: concern.isOngoing ? "Ongoing" : nil,
-                subtitle: EntryRow.joined([ConcernStats.statusText(concern, now: .now, calendar: calendar),
+                // The badge already says it's ongoing; the subtitle only
+                // needs the day, not "ongoing · day 4" beside it.
+                subtitle: EntryRow.joined([concern.isOngoing
+                                               ? "day \(ConcernStats.dayNumber(concern, now: .now, calendar: calendar))"
+                                               : ConcernStats.statusText(concern, now: .now, calendar: calendar),
                                            concern.note, LoggedBy.text(concern.loggedByName)]),
                 value: nil,
                 time: when(concern.startedAt),
@@ -90,10 +94,13 @@ struct TimelineRow: View {
                 symbol: item.systemImage,
                 tint: item.tint,
                 title: visit.kind.title,
-                subtitle: EntryRow.joined([visit.provider, visit.reason, visit.doctorNotes]),
+                subtitle: EntryRow.joined([visit.provider, visit.reason, visit.doctorNotes,
+                                           LoggedBy.text(visit.loggedByName)]),
                 value: nil,
                 time: when(visit.date),
-                subtitleLines: 2
+                // Three, like notes: the doctor's words fill two, and "Logged
+                // by" comes after them.
+                subtitleLines: 3
             )
         }
     }

@@ -36,8 +36,10 @@ struct NursingHero: View {
 
             HStack(spacing: 12) {
                 Button(action: onSwitch) {
-                    Label("Switch side", systemImage: "arrow.left.arrow.right")
-                        .frame(maxWidth: .infinity)
+                    // Words only: with the arrows icon, "Switch side" either
+                    // broke onto two lines, taller than Done, or cut off.
+                    Text("Switch side")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .accessibilityLabel("Switch to the \(session.side == .left ? "right" : "left") side")
                 .buttonStyle(.bordered)
@@ -45,12 +47,14 @@ struct NursingHero: View {
                 .tint(FeedKind.nursing.color)
 
                 Button(action: onDone) {
-                    Text("Done").frame(maxWidth: .infinity)
+                    Text("Done").frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .tint(FeedKind.nursing.color)
             }
+            // Both buttons as tall as the taller one, even at large text sizes.
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 4)
 
             Button("Cancel timer", role: .destructive, action: onCancel)
@@ -61,11 +65,14 @@ struct NursingHero: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// "Started 2:10 PM · 4 min on this side"
+    /// "Started 2:10 PM · 4 min on this side", or "just switched" in the first
+    /// minute, which used to read "0 min" beside a total that never shows less
+    /// than one.
     private var detail: String {
         var parts = ["Started \(ClockText.time(session.startedAt, in: timeZone))"]
         if !session.switches.isEmpty {
-            parts.append("\(session.minutesOnCurrentSide(at: now)) min on this side")
+            let onSide = session.minutesOnCurrentSide(at: now)
+            parts.append(onSide < 1 ? "just switched" : "\(onSide) min on this side")
         }
         return parts.joined(separator: " · ")
     }

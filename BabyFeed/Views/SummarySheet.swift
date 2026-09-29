@@ -150,7 +150,10 @@ struct SummarySheet: View {
             if let age = report.ageText {
                 LabeledContent("Age", value: age)
             }
-            LabeledContent("Period", value: report.windowText)
+        } footer: {
+            // The dates the picker's choice works out to. It was a second row
+            // also called "Period", right under the picker.
+            Text(report.windowText)
         }
     }
 

@@ -88,7 +88,7 @@ struct LastFeedWidgetView: View {
             header
             switch countdown {
             case .upcoming(let due, _):
-                Text(.currentDate, format: .reference(to: due, allowedFields: [.hour, .minute], maxFieldCount: 2))
+                Text(.currentDate, format: FeedCountdown.timeLeftFormat(to: due))
                     .font(.title2.weight(.bold))
                     .lineLimit(2)
                     .minimumScaleFactor(0.6)
@@ -121,10 +121,12 @@ struct LastFeedWidgetView: View {
             }
             Spacer(minLength: 0)
             if let last = snapshot.lastFeed {
+                // Two lines: on one, "Nursing · 1 min · Both · 11:51 AM" lost
+                // its time, the part that matters most.
                 Text("\(last.title) · \(last.detail) · \(clock(last.time))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .minimumScaleFactor(0.8)
             }
         }
@@ -184,18 +186,13 @@ struct LastFeedWidgetView: View {
                     .font(.caption)
                 switch countdown {
                 case .upcoming(let due, _):
-                    if let last = snapshot.lastFeed, last.time < due {
-                        Text(.currentDate, format: .timer(
-                            countingDownIn: last.time..<due,
-                            showsHours: true,
-                            maxFieldCount: 2,
-                            maxPrecision: .seconds(60)
-                        ))
+                    // The due time: a minute-precision countdown spells its
+                    // units out ("3 hours, 9 minutes"), far too wide for a circle.
+                    Text(clock(due))
                         .font(.headline)
                         .monospacedDigit()
                         .minimumScaleFactor(0.5)
                         .lineLimit(1)
-                    }
                 case .overdue:
                     Text("Due")
                         .font(.headline)
@@ -215,10 +212,10 @@ struct LastFeedWidgetView: View {
                 Text("Next feed · \(clock(due))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                Text(.currentDate, format: .reference(to: due, allowedFields: [.hour, .minute], maxFieldCount: 2))
+                Text(.currentDate, format: FeedCountdown.timeLeftFormat(to: due))
                     .font(.headline)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(0.6)
                     .widgetAccentable()
             case .overdue(let due, _):
                 Text("was due \(clock(due))")

@@ -55,7 +55,8 @@ struct HealthView: View {
                                     .foregroundStyle(Color.secondary)
                             }
                         } icon: {
-                            Image(systemName: "doc.text.magnifyingglass")
+                            // The same icon as the Timeline's button for it.
+                            Image(systemName: "stethoscope")
                         }
                     }
                 }

@@ -23,7 +23,7 @@ enum FeedAlarmScheduler {
     static func cancelPending() async {
         UserDefaults.standard.removeObject(forKey: dateKey)
         guard let raw = UserDefaults.standard.string(forKey: idKey), let id = UUID(uuidString: raw) else { return }
-        try? await AlarmManager.shared.cancel(id: id)
+        try? AlarmManager.shared.cancel(id: id)
         UserDefaults.standard.removeObject(forKey: idKey)
     }
 

@@ -9,6 +9,13 @@ enum ElapsedText {
         return compact(minutes: totalMinutes)
     }
 
+    /// "1h 23m ago", or "just now" for the first minute, where adding "ago"
+    /// to "Just now" read "Just now ago".
+    static func ago(since start: Date, now: Date = .now) -> String {
+        let elapsed = compact(since: start, now: now)
+        return elapsed == "Just now" ? "just now" : "\(elapsed) ago"
+    }
+
     /// "45m", "1h 23m", "2h", "1d 3h" from a plain minute count.
     /// Used for gaps and stretches, where "Just now" would make no sense.
     static func compact(minutes totalMinutes: Int) -> String {
