@@ -363,6 +363,11 @@ enum CareCharts {
         var visits: [VisitMark] = []
         var feedDays: [IntakeDay] = []
         var diaperDays: [DiaperDay] = []
+
+        /// Nothing in any lane, so there's no chart worth drawing under the sentence.
+        var isEmpty: Bool {
+            concerns.isEmpty && doses.isEmpty && visits.isEmpty && feedDays.isEmpty && diaperDays.isEmpty
+        }
     }
 
     static func overview(
