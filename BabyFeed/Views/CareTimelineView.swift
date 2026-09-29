@@ -153,6 +153,10 @@ private struct TimelineQueryView<ModePicker: View>: View {
 
     /// Older days the parent has tapped open.
     @State private var expandedDays: Set<Date> = []
+    /// Whether some chips are past the right edge. The row scrolls sideways
+    /// with no indicator, so Growth used to sit out of sight with no sign it
+    /// was there; a fade at the edge says there's more.
+    @State private var chipsContinue = false
 
     /// Building the days is on the main thread on every change; this marks it
     /// in Instruments so it can be held to its budget (under 16 ms for 30 days).
@@ -380,6 +384,18 @@ private struct TimelineQueryView<ModePicker: View>: View {
                 }
             }
             .padding(.horizontal, 2)
+        }
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.x + geometry.containerSize.width < geometry.contentSize.width - 1
+        } action: { _, continues in
+            chipsContinue = continues
+        }
+        .mask {
+            HStack(spacing: 0) {
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: chipsContinue ? 36 : 0)
+            }
         }
     }
 

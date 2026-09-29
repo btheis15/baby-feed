@@ -94,6 +94,20 @@ struct CareChartsTests {
         #expect(chart.birthGrams == 3300, "still the first weeks, and not back yet: the birth line shows")
     }
 
+    /// The weight chart leads with its number too: the latest weigh-in, and
+    /// its percentile once sex is known.
+    @Test func theWeightSentenceStatesTheLatestWeighIn() {
+        let weights = [WeightEntry(date: day(12, hour: 8), grams: 3300), WeightEntry(date: day(2, hour: 8), grams: 3700)]
+        let sentence = CareCharts.weightSentence(weights: weights, profile: profile, weightUnit: .kilograms, calendar: calendar)
+        #expect(sentence.hasPrefix("\(WeightUnit.kilograms.format(grams: 3700)) on Sep 26"))
+        #expect(sentence.contains("percentile"))
+        let unknown = BabyProfile(name: "Nora", birthDate: day(20, hour: 6), sex: .unspecified, dueDate: nil)
+        #expect(!CareCharts.weightSentence(weights: weights, profile: unknown, weightUnit: .kilograms, calendar: calendar)
+            .contains("percentile"))
+        #expect(CareCharts.weightSentence(weights: [], profile: profile, weightUnit: .kilograms, calendar: calendar)
+                == "No weigh-ins yet.")
+    }
+
     @Test func noBandsWithoutSex() {
         let unknown = BabyProfile(name: "Nora", birthDate: day(20, hour: 6), sex: .unspecified, dueDate: nil)
         let chart = CareCharts.weight(weights: [WeightEntry(date: day(3, hour: 8), grams: 3500)], profile: unknown,
@@ -164,6 +178,52 @@ struct CareChartsTests {
         #expect(overview.concerns.map(\.title) == ["Red left eye", "Stuffy nose"])
         #expect(CareCharts.overviewSentence(overview, range: .twoWeeks)
                 == "1 concern ongoing, 1 that cleared up, 1 dose and 1 visit over the last 2 weeks.")
+    }
+
+    /// "Since the last visit" already has its preposition.
+    @Test func sentencesReadRightForEveryRange() {
+        let diaperDays = [CareCharts.DiaperDay(day: day(1, hour: 0), wet: 6, dirty: 3)]
+        #expect(CareCharts.intakeSentence([], unit: .ounces, name: "Nora", range: .sinceLastVisit)
+                == "No feeds logged since the last visit.")
+        #expect(CareCharts.diaperSentence([], range: .sinceLastVisit) == "No diapers logged since the last visit.")
+        #expect(CareCharts.overviewSentence(CareCharts.Overview(), range: .sinceLastVisit)
+                == "No concerns, medicines or visits since the last visit.")
+        let feeds = [1, 1].map { FeedEntry(startTime: day($0, hour: 8 + $0), kind: .formula, amountML: 100) }
+        let intake = CareCharts.intake(feeds: feeds, weights: [], profile: profile, style: .formula, feedsPerDay: 0,
+                                       range: range, calendar: calendar)
+        #expect(CareCharts.intakeSentence(intake, unit: .milliliters, name: "Nora", range: .sinceLastVisit)
+                .contains("a day since the last visit"))
+        #expect(!CareCharts.diaperSentence(diaperDays, range: .sinceLastVisit).contains("over since"))
+        #expect(ChartRange.twoWeeks.overPhrase == "over the last 2 weeks")
+    }
+
+    /// Today isn't over, so it doesn't pull the averages down, unless it's
+    /// all there is.
+    @Test func averagesLeaveOutTheDayThatIsntOver() {
+        let today = calendar.startOfDay(for: now)
+        let feeds = [
+            FeedEntry(startTime: day(1, hour: 8), kind: .formula, amountML: 100),
+            FeedEntry(startTime: day(1, hour: 11), kind: .formula, amountML: 100),
+            FeedEntry(startTime: day(1, hour: 14), kind: .formula, amountML: 100),
+            FeedEntry(startTime: day(1, hour: 17), kind: .formula, amountML: 100),
+            FeedEntry(startTime: day(0, hour: 2), kind: .formula, amountML: 100),
+        ]
+        let intake = CareCharts.intake(feeds: feeds, weights: [], profile: profile, style: .formula, feedsPerDay: 0,
+                                       range: range, calendar: calendar)
+        #expect(CareCharts.intakeSentence(intake, unit: .milliliters, name: "Nora", range: .twoWeeks, today: today)
+                .hasPrefix("Nora averaged 4.0 feeds"))
+        #expect(CareCharts.intakeSentence(intake, unit: .milliliters, name: "Nora", range: .twoWeeks)
+                .hasPrefix("Nora averaged 2.5 feeds"), "without a today, every day counts, as before")
+        let todayOnly = CareCharts.intake(feeds: [feeds[4]], weights: [], profile: profile, style: .formula,
+                                          feedsPerDay: 0, range: range, calendar: calendar)
+        #expect(CareCharts.intakeSentence(todayOnly, unit: .milliliters, name: "Nora", range: .twoWeeks, today: today)
+                .hasPrefix("Nora averaged 1.0 feeds"))
+
+        let diaperDays = [CareCharts.DiaperDay(day: day(2, hour: 0), wet: 6, dirty: 3),
+                          CareCharts.DiaperDay(day: day(1, hour: 0), wet: 8, dirty: 3),
+                          CareCharts.DiaperDay(day: today, wet: 1, dirty: 0)]
+        #expect(CareCharts.diaperSentence(diaperDays, range: .twoWeeks, today: today)
+                == "7.0 wet and 3.0 dirty diapers a day, on the 2 full days logged.")
     }
 
     @Test func sinceTheLastVisitStartsThatDay() {

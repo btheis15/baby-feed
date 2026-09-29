@@ -109,9 +109,29 @@ struct RootView: View {
         .overlay(alignment: .bottom) {
             if let toast = toasts.current {
                 LogToastView(toast: toast) { toasts.dismiss() }
+                    // Alongside the buttons, not instead of them: a finger
+                    // resting on the toast keeps it up.
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { _ in toasts.hold(true) }
+                            .onEnded { _ in toasts.hold(false) }
+                    )
                     .padding(.bottom, 150)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .id(toast.id)
+            } else if let shield = toasts.shielding {
+                // Invisible, the same size and place as the toast that just
+                // left, swallowing a late tap on Undo rather than letting it
+                // log whatever sits underneath.
+                LogToastView(toast: shield) {}
+                    .opacity(0)
+                    .overlay {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {}
+                    }
+                    .padding(.bottom, 150)
+                    .accessibilityHidden(true)
             }
         }
         .sensoryFeedback(.success, trigger: toasts.current?.id) { _, new in new != nil }

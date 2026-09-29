@@ -21,21 +21,61 @@ final class ToastCenter {
     }
 
     private(set) var current: Toast?
+    /// The toast that just timed out, kept for a moment as an invisible shield
+    /// in its place. An Undo tap already on its way when the toast left used
+    /// to land on whatever was under it, which on Today is the diaper row:
+    /// reaching for Undo logged a diaper.
+    private(set) var shielding: Toast?
     private var dismissal: Task<Void, Never>?
+    private var shieldRemoval: Task<Void, Never>?
+    /// Touching the toast holds it up, so reading it doesn't cost the Undo.
+    private var isHeld = false
+
+    static let shieldSeconds = 1.5
 
     func show(_ toast: Toast, for seconds: Double = 5) {
+        shieldRemoval?.cancel()
+        shielding = nil
         withAnimation(.snappy) { current = toast }
+        scheduleDismissal(after: seconds)
+    }
+
+    private func scheduleDismissal(after seconds: Double) {
         dismissal?.cancel()
         dismissal = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled, let self, !self.isHeld else { return }
+            self.timeOut()
+        }
+    }
+
+    /// Gone on its own: leave the shield behind for a moment.
+    private func timeOut() {
+        shielding = current
+        dismiss()
+        shieldRemoval = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.shieldSeconds))
             guard !Task.isCancelled else { return }
-            self?.dismiss()
+            self?.shielding = nil
         }
     }
 
     func dismiss() {
         dismissal?.cancel()
+        isHeld = false
         withAnimation(.snappy) { current = nil }
+    }
+
+    /// A finger down on the toast pauses its clock; lifting it gives a few
+    /// seconds more, enough to move to Undo.
+    func hold(_ held: Bool) {
+        guard current != nil, held != isHeld else { return }
+        isHeld = held
+        if held {
+            dismissal?.cancel()
+        } else {
+            scheduleDismissal(after: 4)
+        }
     }
 
     /// The toast after logging something new: "Wet diaper · 2:14 PM" with

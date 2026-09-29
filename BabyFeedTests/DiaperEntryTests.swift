@@ -94,9 +94,11 @@ struct DiaperEntryTests {
         let today = report.days.first { calendar.isDate($0.id, inSameDayAs: now) }
         #expect(today?.diaperText == "2 wet · 1 dirty")
 
-        // Averaged over the two days that have diapers, and in the shared text.
-        #expect(report.averageItems.contains { $0.id == "wetDiapers" && $0.value == "1.0" })
+        // Today's row is in the table and the shared text, but the averages
+        // divide by full days: yesterday's one dirty, and no wet to average.
+        #expect(!report.averageItems.contains { $0.id == "wetDiapers" })
         #expect(report.averageItems.contains { $0.id == "dirtyDiapers" && $0.value == "1.0" })
+        #expect(report.averagesFootnote?.hasSuffix(", not counting today.") == true)
         #expect(DaySummaryGenerator.plainText(from: report).contains("diapers 2 wet · 1 dirty"))
     }
 

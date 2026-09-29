@@ -119,6 +119,9 @@ enum DaySummaryGenerator {
         /// True when feeds and diapers were logged on exactly the same days,
         /// so one "averaged over" covers both.
         var feedsAndDiapersShareDays = false
+        /// True when today was logged but left out of the averages, because a
+        /// day that isn't over would pull them down.
+        var averagesLeaveOutToday = false
 
         var hasFeeds: Bool { feedDayCount > 0 }
         var hasDiapers: Bool { diaperDayCount > 0 }
@@ -130,18 +133,20 @@ enum DaySummaryGenerator {
         /// day nobody logged is left out rather than counted as a zero.
         var averagesFootnote: String? {
             func days(_ count: Int) -> String { count == 1 ? "the 1 day" : "the \(count) days" }
+            let base: String
             switch (hasFeeds, hasDiapers) {
             case (true, true) where feedsAndDiapersShareDays:
-                return "Averaged over \(days(feedDayCount)) with feeds and diapers logged."
+                base = "Averaged over \(days(feedDayCount)) with feeds and diapers logged"
             case (true, true):
-                return "Feeds averaged over \(days(feedDayCount)) with feeds logged, diapers over \(days(diaperDayCount)) with diapers logged."
+                base = "Feeds averaged over \(days(feedDayCount)) with feeds logged, diapers over \(days(diaperDayCount)) with diapers logged"
             case (true, false):
-                return "Averaged over \(days(feedDayCount)) with feeds logged."
+                base = "Averaged over \(days(feedDayCount)) with feeds logged"
             case (false, true):
-                return "Averaged over \(days(diaperDayCount)) with diapers logged."
+                base = "Averaged over \(days(diaperDayCount)) with diapers logged"
             case (false, false):
                 return nil
             }
+            return base + (averagesLeaveOutToday ? ", not counting today." : ".")
         }
     }
 
@@ -202,25 +207,33 @@ enum DaySummaryGenerator {
         var totalItems: [Report.Item] = []
         var dayRows: [Report.Day] = []
 
+        // Per-day averages divide by full days: today isn't over, and counting
+        // it would make every average read low. The totals and the day table
+        // still include it.
+        let today = calendar.startOfDay(for: now)
+        let averagedGroups = CareCharts.completeDays(groups, day: \.day, today: today)
+        let averagedDiaperDays = CareCharts.completeDays(Array(diapersByDay), day: { $0.key }, today: today)
+
         if !groups.isEmpty {
-            let dayCount = Double(groups.count)
+            let dayCount = Double(averagedGroups.count)
+            let averaged = FeedSummary(averagedGroups.flatMap(\.entries))
             averageItems.append(.init(
                 id: "feeds",
                 label: "Feeds",
-                value: (Double(total.feedCount) / dayCount).formatted(.number.precision(.fractionLength(1)))
+                value: (Double(averaged.feedCount) / dayCount).formatted(.number.precision(.fractionLength(1)))
             ))
-            if total.bottleCount > 0 {
+            if averaged.bottleCount > 0 {
                 averageItems.append(.init(
                     id: "bottle",
                     label: "By bottle",
-                    value: unit.format(milliliters: total.totalML / dayCount)
+                    value: unit.format(milliliters: averaged.totalML / dayCount)
                 ))
             }
-            if total.nursingMinutes > 0 {
+            if averaged.nursingMinutes > 0 {
                 averageItems.append(.init(
                     id: "nursing",
                     label: "Nursing",
-                    value: "\(Int((Double(total.nursingMinutes) / dayCount).rounded())) min"
+                    value: "\(Int((Double(averaged.nursingMinutes) / dayCount).rounded())) min"
                 ))
             }
             if let gap = FeedStats.averageGapHours(recent) {
@@ -254,9 +267,9 @@ enum DaySummaryGenerator {
         if !diapersByDay.isEmpty {
             // Averaged over days with diapers logged, same reasoning as
             // feeds: a day nobody logged shouldn't read as a dry day.
-            let diaperDayCount = Double(diapersByDay.count)
-            let totalWet = diapersByDay.values.reduce(0) { $0 + $1.wet }
-            let totalDirty = diapersByDay.values.reduce(0) { $0 + $1.dirty }
+            let diaperDayCount = Double(averagedDiaperDays.count)
+            let totalWet = averagedDiaperDays.reduce(0) { $0 + $1.value.wet }
+            let totalDirty = averagedDiaperDays.reduce(0) { $0 + $1.value.dirty }
             if totalWet > 0 {
                 averageItems.append(.init(
                     id: "wetDiapers",
@@ -392,9 +405,10 @@ enum DaySummaryGenerator {
             concerns: concernLines,
             medicines: medicineLines,
             byWeek: byWeek,
-            feedDayCount: groups.count,
-            diaperDayCount: diapersByDay.count,
-            feedsAndDiapersShareDays: Set(feedsByDay.keys) == Set(diapersByDay.keys)
+            feedDayCount: averagedGroups.count,
+            diaperDayCount: averagedDiaperDays.count,
+            feedsAndDiapersShareDays: Set(averagedGroups.map(\.day)) == Set(averagedDiaperDays.map(\.key)),
+            averagesLeaveOutToday: averagedGroups.count < groups.count || averagedDiaperDays.count < diapersByDay.count
         )
     }
 

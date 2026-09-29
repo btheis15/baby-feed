@@ -25,6 +25,12 @@ enum ChartRange: String, CaseIterable, Identifiable {
         }
     }
 
+    /// "over the last 2 weeks", or "since the last visit": the phrase with its
+    /// preposition, so a sentence never reads "over since the last visit".
+    var overPhrase: String {
+        self == .sinceLastVisit ? phrase : "over \(phrase)"
+    }
+
     /// From the start of the first day to the end of today. Since the last
     /// visit falls back to two weeks when there hasn't been one, and nothing
     /// starts before the day the baby was born: three months of axis for a
@@ -126,24 +132,36 @@ enum CareCharts {
         showsVolume(days) && !days.contains { $0.nursing > 0 } && days.contains { $0.targetML != nil }
     }
 
+    /// The days an average should divide by: the ones before `today`, which
+    /// isn't over yet and would pull every average down. Today alone still
+    /// counts when it's all there is.
+    static func completeDays<Day>(_ days: [Day], day: (Day) -> Date, today: Date?) -> [Day] {
+        guard let today else { return days }
+        let complete = days.filter { day($0) < today }
+        return complete.isEmpty ? days : complete
+    }
+
     /// "Nora averaged 7.4 feeds and 20 oz a day over the last 2 weeks, against
     /// a target of about 19 oz." Averaged over the days with feeds, like every
-    /// other average in the app. With nursing in the mix, the volume is what
-    /// the bottles added up to, and says so.
-    static func intakeSentence(_ days: [IntakeDay], unit: VolumeUnit, name: String, range: ChartRange) -> String {
-        guard !days.isEmpty else { return "No feeds logged over \(range.phrase)." }
-        let count = Double(days.count)
-        let feeds = Double(days.reduce(0) { $0 + $1.feeds }) / count
-        let volume = days.reduce(0) { $0 + $1.volumeML } / count
-        let minutes = Int((Double(days.reduce(0) { $0 + $1.nursingMinutes }) / count).rounded())
+    /// other average in the app, leaving out `today` (the start of it) when
+    /// there are full days to go on. With nursing in the mix, the volume is
+    /// what the bottles added up to, and says so.
+    static func intakeSentence(_ days: [IntakeDay], unit: VolumeUnit, name: String, range: ChartRange,
+                               today: Date? = nil) -> String {
+        guard !days.isEmpty else { return "No feeds logged \(range.overPhrase)." }
+        let averaged = completeDays(days, day: \.day, today: today)
+        let count = Double(averaged.count)
+        let feeds = Double(averaged.reduce(0) { $0 + $1.feeds }) / count
+        let volume = averaged.reduce(0) { $0 + $1.volumeML } / count
+        let minutes = Int((Double(averaged.reduce(0) { $0 + $1.nursingMinutes }) / count).rounded())
         let nursed = days.contains { $0.nursing > 0 }
         let lead = "\(name) averaged \(feeds.formatted(.number.precision(.fractionLength(1)))) feeds"
 
         guard nursed else {
             var sentence = lead
             if volume > 0 { sentence += " and \(unit.format(milliliters: volume))" }
-            sentence += " a day over \(range.phrase)"
-            let targets = days.compactMap(\.targetML)
+            sentence += " a day \(range.overPhrase)"
+            let targets = averaged.compactMap(\.targetML)
             if showsTarget(days), !targets.isEmpty {
                 sentence += ", against a target of about \(unit.format(milliliters: targets.reduce(0, +) / Double(targets.count)))"
             }
@@ -152,8 +170,8 @@ enum CareCharts {
         var parts: [String] = []
         if volume > 0 { parts.append("\(unit.format(milliliters: volume)) from bottles") }
         if minutes > 0 { parts.append("about \(minutesText(minutes)) of nursing") }
-        guard !parts.isEmpty else { return "\(lead) a day over \(range.phrase)." }
-        return "\(lead) a day over \(range.phrase), with \(parts.joined(separator: " and "))."
+        guard !parts.isEmpty else { return "\(lead) a day \(range.overPhrase)." }
+        return "\(lead) a day \(range.overPhrase), with \(parts.joined(separator: " and "))."
     }
 
     /// "15 min", "1 hr 5 min": a duration that sits in a sentence.
@@ -197,13 +215,19 @@ enum CareCharts {
     }
 
     /// "5.8 wet and 3.1 dirty diapers a day, on the 14 days they were logged."
-    static func diaperSentence(_ days: [DiaperDay], range: ChartRange) -> String {
-        guard !days.isEmpty else { return "No diapers logged over \(range.phrase)." }
-        let count = Double(days.count)
-        let wet = Double(days.reduce(0) { $0 + $1.wet }) / count
-        let dirty = Double(days.reduce(0) { $0 + $1.dirty }) / count
-        let one = days.count == 1
-        return "\(wet.formatted(.number.precision(.fractionLength(1)))) wet and \(dirty.formatted(.number.precision(.fractionLength(1)))) dirty diapers a day, on the \(one ? "day" : "\(days.count) days") they were logged."
+    /// Leaving out `today` makes it "on the 13 full days logged".
+    static func diaperSentence(_ days: [DiaperDay], range: ChartRange, today: Date? = nil) -> String {
+        guard !days.isEmpty else { return "No diapers logged \(range.overPhrase)." }
+        let averaged = completeDays(days, day: \.day, today: today)
+        let count = Double(averaged.count)
+        let wet = Double(averaged.reduce(0) { $0 + $1.wet }) / count
+        let dirty = Double(averaged.reduce(0) { $0 + $1.dirty }) / count
+        let one = averaged.count == 1
+        let lead = "\(wet.formatted(.number.precision(.fractionLength(1)))) wet and \(dirty.formatted(.number.precision(.fractionLength(1)))) dirty diapers a day"
+        if averaged.count < days.count {
+            return "\(lead), on the \(one ? "1 full day" : "\(averaged.count) full days") logged."
+        }
+        return "\(lead), on the \(one ? "day" : "\(days.count) days") they were logged."
     }
 
     // MARK: Feed rhythm
@@ -399,8 +423,8 @@ enum CareCharts {
         if ended > 0 { parts.append(ended == 1 ? "1 that cleared up" : "\(ended) that cleared up") }
         if !overview.doses.isEmpty { parts.append(overview.doses.count == 1 ? "1 dose" : "\(overview.doses.count) doses") }
         if !overview.visits.isEmpty { parts.append(overview.visits.count == 1 ? "1 visit" : "\(overview.visits.count) visits") }
-        guard !parts.isEmpty else { return "No concerns, medicines or visits over \(range.phrase)." }
+        guard !parts.isEmpty else { return "No concerns, medicines or visits \(range.overPhrase)." }
         let list = parts.count == 1 ? parts[0] : parts.dropLast().joined(separator: ", ") + " and " + parts.last!
-        return "\(list.prefix(1).uppercased())\(list.dropFirst()) over \(range.phrase)."
+        return "\(list.prefix(1).uppercased())\(list.dropFirst()) \(range.overPhrase)."
     }
 }

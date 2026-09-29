@@ -154,4 +154,11 @@ struct ElapsedTextTests {
         #expect(ElapsedText.compact(since: start, now: now) == "3h 7m")
         #expect(FeedStats.elapsedText(since: start, now: now) == ElapsedText.compact(since: start, now: now))
     }
+
+    /// Never "Just now ago".
+    @Test func agoReadsNaturallyInTheFirstMinute() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        #expect(ElapsedText.ago(since: now.addingTimeInterval(-20), now: now) == "just now")
+        #expect(ElapsedText.ago(since: now.addingTimeInterval(-(77 * 60)), now: now) == "1h 17m ago")
+    }
 }

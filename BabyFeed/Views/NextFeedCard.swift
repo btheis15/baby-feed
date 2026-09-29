@@ -93,7 +93,7 @@ struct NextFeedCard: View {
             detailRow {
                 Image(systemName: lastFeed.kind.systemImage)
                     .foregroundStyle(lastFeed.kind.color)
-                Text("Last fed \(ClockText.time(lastFeed.startTime, in: timeZone)) · \(lastFeed.kind.title) \(unbroken(lastFeed.detailText(unit: unit))) · \(unbroken(ElapsedText.compact(since: lastFeed.startTime, now: now) + " ago"))")
+                Text("Last fed \(ClockText.time(lastFeed.startTime, in: timeZone)) · \(lastFeed.kind.title) \(unbroken(lastFeed.detailText(unit: unit))) · \(unbroken(ElapsedText.ago(since: lastFeed.startTime, now: now)))")
                     .fixedSize(horizontal: false, vertical: true)
             }
             .font(.subheadline)

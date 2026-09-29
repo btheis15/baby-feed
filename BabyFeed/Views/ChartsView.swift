@@ -161,13 +161,13 @@ private struct ChartsList<ModePicker: View>: View {
                     }
                 }
             } footer: {
-                if let rangeNote {
-                    Text(rangeNote)
-                }
+                Text([rangeNote, "Averages count full days, so today is left out until it's over."]
+                    .compactMap { $0 }.joined(separator: " "))
             }
 
             Section {
-                ChartRow(sentence: CareCharts.intakeSentence(intake, unit: unit, name: profile.displayName, range: range)) {
+                ChartRow(sentence: CareCharts.intakeSentence(intake, unit: unit, name: profile.displayName, range: range,
+                                                             today: calendar.startOfDay(for: now))) {
                     if !intake.isEmpty {
                         FeedsChart(days: intake, unit: unit, interval: interval, calendar: calendar)
                     }
@@ -181,7 +181,8 @@ private struct ChartsList<ModePicker: View>: View {
             }
 
             Section {
-                ChartRow(sentence: CareCharts.diaperSentence(diaperDays, range: range)) {
+                ChartRow(sentence: CareCharts.diaperSentence(diaperDays, range: range,
+                                                             today: calendar.startOfDay(for: now))) {
                     if !diaperDays.isEmpty {
                         DiapersChart(days: diaperDays, floorStart: showsFloor ? floorStart : nil,
                                      interval: interval, calendar: calendar)
@@ -421,13 +422,16 @@ private struct DiapersChart: View {
                     // Not in the wet colour: it runs across the wet bars.
                     .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
                     .foregroundStyle(Color.primary.opacity(0.6))
-                    .annotation(position: .top, alignment: .leading) {
-                        Text("6 wet")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 4)
-                            .background(Color(.secondarySystemGroupedBackground).opacity(0.85), in: Capsule())
-                    }
+            }
+        }
+        .chartYAxis {
+            AxisMarks()
+            // Named at the edge, outside the plot: a label on the line itself
+            // sat on top of whichever bar was under it.
+            if floorStart != nil {
+                AxisMarks(position: .leading, values: [CareCharts.wetFloor]) { _ in
+                    AxisValueLabel("6 wet")
+                }
             }
         }
         .chartForegroundStyleScale(["Wet": DiaperKind.wet.color, "Dirty": DiaperKind.dirty.color])
