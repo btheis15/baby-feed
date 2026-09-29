@@ -25,8 +25,15 @@ struct TrendsView: View {
         VStack(alignment: .leading, spacing: 28) {
             todayBlock
             weekBlock
-            clusteringBlock
-            dayByDayBlock
+            // Left out until there's something to break down: an empty log would
+            // otherwise read "0 feeds over the last 0 days" over a table of zeros,
+            // and "Day by day" would be a heading with nothing under it.
+            if breakdown.total > 0 {
+                clusteringBlock
+            }
+            if !recentGroups.isEmpty {
+                dayByDayBlock
+            }
         }
     }
 

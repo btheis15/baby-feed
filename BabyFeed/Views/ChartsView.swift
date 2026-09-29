@@ -209,8 +209,10 @@ private struct ChartsList<ModePicker: View>: View {
 
             Section {
                 ChartRow(sentence: CareCharts.overviewSentence(overview, range: range)) {
-                    CareOverviewChart(overview: overview, interval: interval, now: now, calendar: calendar,
-                                      selection: $selection)
+                    if !overview.isEmpty {
+                        CareOverviewChart(overview: overview, interval: interval, now: now, calendar: calendar,
+                                          selection: $selection)
+                    }
                 }
                 if let day = selectedDay {
                     selectedDayRows(day)
@@ -218,7 +220,9 @@ private struct ChartsList<ModePicker: View>: View {
             } header: {
                 Text("Care")
             } footer: {
-                Text("Concerns are bars, medicine doses diamonds and doctor visits crosses. Tap a day to see what was logged.")
+                if !overview.isEmpty {
+                    Text("Concerns are bars, medicine doses diamonds and doctor visits crosses. Tap a day to see what was logged.")
+                }
             }
 
             Section {

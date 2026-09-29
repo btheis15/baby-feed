@@ -164,6 +164,15 @@ struct CareChartsTests {
         #expect(overview.concerns.map(\.title) == ["Red left eye", "Stuffy nose"])
         #expect(CareCharts.overviewSentence(overview, range: .twoWeeks)
                 == "1 concern ongoing, 1 that cleared up, 1 dose and 1 visit over the last 2 weeks.")
+        #expect(!overview.isEmpty)
+    }
+
+    @Test func anEmptyStretchHasNoCareChart() {
+        let nothing = CareCharts.overview(concerns: [], doses: [], visits: [],
+                                          feedDays: [], diaperDays: [], range: range, now: now)
+        #expect(nothing.isEmpty)
+        #expect(CareCharts.overviewSentence(nothing, range: .twoWeeks)
+                == "No concerns, medicines or visits over the last 2 weeks.")
     }
 
     @Test func sinceTheLastVisitStartsThatDay() {
