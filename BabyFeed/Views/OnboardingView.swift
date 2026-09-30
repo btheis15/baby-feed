@@ -20,14 +20,7 @@ struct OnboardingView: View {
     @State private var path: [Step] = []
 
     // The baby
-    @State private var babyName = ""
-    @State private var birthDate = Date.now
-    @State private var sex: BabySex = .unspecified
-    @State private var bornEarly = false
-    @State private var dueDate = Date.now
-    @State private var poundsText = ""
-    @State private var ouncesText = ""
-    @State private var kilogramsText = ""
+    @State private var draft = NewBabyDraft()
 
     // The parent
     @State private var yourName = AppSettings.displayName
@@ -40,7 +33,7 @@ struct OnboardingView: View {
     @State private var errorMessage: String?
 
     private var weightUnit: WeightUnit { WeightUnit(rawValue: weightUnitRaw) ?? .poundsOunces }
-    private var trimmedBabyName: String { babyName.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var trimmedBabyName: String { draft.trimmedName }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -115,37 +108,7 @@ struct OnboardingView: View {
 
     private var addBaby: some View {
         Form {
-            Section {
-                TextField("Name", text: $babyName)
-                    .textInputAutocapitalization(.words)
-                DatePicker("Birthday", selection: $birthDate, in: ...Date.now, displayedComponents: .date)
-            } footer: {
-                Text("The birthday sets what's typical to feed at each age.")
-            }
-
-            Section {
-                birthWeightField
-            } header: {
-                Text("Birth weight (optional)")
-            } footer: {
-                Text("Most babies lose a little in the first days and are back by about two weeks. With a birth weight, the app can show that.")
-            }
-
-            Section {
-                Picker("Sex", selection: $sex) {
-                    ForEach(BabySex.allCases) { sex in
-                        Text(sex.title).tag(sex)
-                    }
-                }
-                Toggle("Born before the due date", isOn: $bornEarly.animation())
-                if bornEarly {
-                    DatePicker("Due date", selection: $dueDate, displayedComponents: .date)
-                }
-            } header: {
-                Text("For the growth charts (optional)")
-            } footer: {
-                Text("The WHO charts are measured separately for girls and boys, and a baby born early is compared at their corrected age.")
-            }
+            NewBabyFields(draft: $draft, weightUnit: weightUnit)
         }
         .navigationTitle("Your baby")
         .navigationBarTitleDisplayMode(.inline)
@@ -155,48 +118,6 @@ struct OnboardingView: View {
                     .disabled(trimmedBabyName.isEmpty)
             }
         }
-    }
-
-    @ViewBuilder
-    private var birthWeightField: some View {
-        switch weightUnit {
-        case .poundsOunces:
-            HStack {
-                TextField("7", text: $poundsText)
-                    .keyboardType(.numberPad)
-                    .frame(maxWidth: 60)
-                Text("lb").foregroundStyle(.secondary)
-                TextField("8", text: $ouncesText)
-                    .keyboardType(.decimalPad)
-                    .frame(maxWidth: 60)
-                Text("oz").foregroundStyle(.secondary)
-                Spacer()
-            }
-        case .kilograms:
-            HStack {
-                TextField("3.40", text: $kilogramsText)
-                    .keyboardType(.decimalPad)
-                Text("kg").foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    /// Nil when nothing sensible was typed.
-    private var birthWeightGrams: Double? {
-        func number(_ text: String) -> Double? {
-            Double(text.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespaces))
-        }
-        let grams: Double?
-        switch weightUnit {
-        case .poundsOunces:
-            guard let pounds = number(poundsText) else { return nil }
-            grams = WeightUnit.grams(pounds: Int(pounds), ounces: number(ouncesText) ?? 0)
-        case .kilograms:
-            grams = number(kilogramsText).map { $0 * 1000 }
-        }
-        // Anywhere from a very early baby to a big one; outside that it's a typo.
-        guard let grams, (300...7000).contains(grams) else { return nil }
-        return grams
     }
 
     // MARK: The parent's name
@@ -279,14 +200,7 @@ struct OnboardingView: View {
 
     @discardableResult
     private func addTheBaby() -> Baby {
-        BabyStore.createBaby(
-            name: trimmedBabyName,
-            birthDate: AppSettings.calendar.startOfDay(for: birthDate),
-            sex: sex,
-            dueDate: bornEarly ? dueDate : nil,
-            birthWeightGrams: birthWeightGrams,
-            in: modelContext
-        )
+        draft.create(weightUnit: weightUnit, in: modelContext)
     }
 
     private func addAndBackUp() async {

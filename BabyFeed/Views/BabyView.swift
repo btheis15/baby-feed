@@ -24,6 +24,8 @@ struct BabyView: View {
 
     @State private var showAddWeight = false
     @State private var showAddBirthWeight = false
+    @State private var showAddBaby = false
+    @State private var showRemoveConfirm = false
     /// Typing the name used to save, sync and refresh every widget on each
     /// keystroke. Now it waits for a second of quiet.
     @State private var nameSaveTask: Task<Void, Never>?
@@ -59,6 +61,7 @@ struct BabyView: View {
         return FeedSummary(recent).totalML
     }
     private var activeBabies: [Baby] { babies.filter { $0.deletedAt == nil } }
+    private var currentBaby: Baby? { activeBabies.first { $0.uuid.uuidString == currentBabyIDRaw } }
 
     private var birthDateBinding: Binding<Date> {
         Binding(
@@ -76,6 +79,7 @@ struct BabyView: View {
                 guidanceSection
                 foodsSection
                 caregiversSection
+                babiesSection
             }
             .navigationTitle(profile.displayName)
             .toolbar {
@@ -111,6 +115,9 @@ struct BabyView: View {
             }
             .sheet(isPresented: $showAddBirthWeight) {
                 AddWeightSheet(weightUnit: weightUnit, initialDate: profile.birthDate, initialNote: "Birth weight")
+            }
+            .sheet(isPresented: $showAddBaby) {
+                AddBabySheet()
             }
             .onChange(of: birthInterval) { _, _ in
                 BabyStore.profileDefaultsChanged(in: modelContext)
@@ -568,6 +575,66 @@ struct BabyView: View {
             }
         } footer: {
             Text("Who else can see \(profile.displayName)'s log, and your name, so each entry shows who logged it.")
+        }
+    }
+
+    /// Adding another baby, switching between them, and taking one off this
+    /// phone.
+    private var babiesSection: some View {
+        Section {
+            if activeBabies.count > 1 {
+                ForEach(activeBabies) { baby in
+                    Button {
+                        BabyStore.setCurrent(baby, in: modelContext)
+                    } label: {
+                        LabeledContent(baby.displayName) {
+                            if baby.uuid.uuidString == currentBabyIDRaw {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                    .tint(.primary)
+                }
+            }
+            Button {
+                showAddBaby = true
+            } label: {
+                Label("Add a baby", systemImage: "plus")
+            }
+            if let baby = currentBaby, canRemove(baby) {
+                Button("Remove \(baby.displayName) from this phone", role: .destructive) {
+                    showRemoveConfirm = true
+                }
+                .disabled(baby.isShared)
+            }
+        } header: {
+            Text("Babies on this phone")
+        } footer: {
+            if currentBaby?.isShared == true {
+                Text("\(profile.displayName)'s log is shared through your Mac mini, so it would come back on the next sync. Only a log kept on this phone alone can be removed here.")
+            }
+        }
+        .confirmationDialog("Remove \(profile.displayName)?", isPresented: $showRemoveConfirm, titleVisibility: .visible) {
+            Button("Remove", role: .destructive) { removeCurrentBaby() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Every feed, diaper, weight, note and health record for \(profile.displayName) is deleted from this iPhone. This can't be undone.")
+        }
+    }
+
+    /// Everything but a lone, empty baby: removing that would only put
+    /// another empty one in its place.
+    private func canRemove(_ baby: Baby) -> Bool {
+        activeBabies.count > 1 || !BabyStore.isPlaceholder(baby, in: modelContext)
+    }
+
+    private func removeCurrentBaby() {
+        guard let baby = currentBaby, !baby.isShared else { return }
+        BabyStore.removeLocally(baby, in: modelContext)
+        FeedCoordinator.feedsDidChange(in: modelContext, triggerSync: false)
+        // With nobody left, start over the way a fresh install does.
+        if BabyStore.realBabies(in: modelContext).isEmpty {
+            router.sheet = .onboarding
         }
     }
 
