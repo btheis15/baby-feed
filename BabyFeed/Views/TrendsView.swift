@@ -41,11 +41,13 @@ struct TrendsView: View {
 
     private var todayBlock: some View {
         block("Today so far") {
-            statRow(
-                "Volume",
-                value: unit.format(milliliters: today.totalML),
-                detail: targetProgressText
-            )
+            if !today.isNursingOnly {
+                statRow(
+                    "Volume",
+                    value: unit.format(milliliters: today.totalML),
+                    detail: targetProgressText
+                )
+            }
             statRow("Feeds", value: "\(today.feedCount)")
             if today.nursingMinutes > 0 {
                 statRow("Nursing", value: ElapsedText.compact(minutes: today.nursingMinutes))
@@ -68,15 +70,22 @@ struct TrendsView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
-                statRow(
-                    "Volume a day",
-                    value: unit.format(milliliters: lastWeek.mlPerDay),
-                    trend: trend(
-                        lastWeek.mlPerDay,
-                        priorWeek.isEmpty ? nil : priorWeek.mlPerDay,
-                        format: { unit.format(milliliters: abs($0)) }
+                if lastWeek.isNursingOnly {
+                    if lastWeek.nursingMinutes > 0 {
+                        statRow("Nursing a day",
+                                value: ElapsedText.compact(minutes: lastWeek.nursingMinutes / max(lastWeek.daysWithData, 1)))
+                    }
+                } else {
+                    statRow(
+                        "Volume a day",
+                        value: unit.format(milliliters: lastWeek.mlPerDay),
+                        trend: trend(
+                            lastWeek.mlPerDay,
+                            priorWeek.isEmpty ? nil : priorWeek.mlPerDay,
+                            format: { unit.format(milliliters: abs($0)) }
+                        )
                     )
-                )
+                }
                 statRow(
                     "Feeds a day",
                     value: lastWeek.feedsPerDay.formatted(.number.precision(.fractionLength(0...1))),

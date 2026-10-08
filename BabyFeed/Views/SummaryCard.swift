@@ -13,12 +13,18 @@ struct SummaryCard: View {
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
 
+            // Only the kinds that happened: a nursed-only day showed "0 oz
+            // bottles", which reads as not eating rather than not measured.
             HStack(alignment: .top) {
                 stat(value: "\(summary.feedCount)", label: summary.feedCount == 1 ? "feed" : "feeds")
-                Divider()
-                stat(value: unit.format(milliliters: summary.totalML), label: "bottles")
-                Divider()
-                stat(value: "\(summary.nursingMinutes) min", label: "nursing")
+                if summary.bottleCount > 0 || summary.nursingCount == 0 {
+                    Divider()
+                    stat(value: unit.format(milliliters: summary.totalML), label: "bottles")
+                }
+                if let nursing = summary.nursingText {
+                    Divider()
+                    stat(value: nursing, label: summary.nursingMinutes > 0 ? "nursing" : "no length logged")
+                }
             }
         }
         .padding(.vertical, 6)

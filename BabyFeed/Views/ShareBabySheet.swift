@@ -50,11 +50,19 @@ struct ShareBabySheet: View {
                     case .ready(let invite, let link):
                         ready(invite: invite, link: link)
                     case .away:
-                        problem(
-                            symbol: "wifi.exclamationmark",
-                            title: "Sharing needs your home Wi‑Fi",
-                            detail: "Both phones need to be on the same Wi‑Fi as your Mac mini. Everything logged here is saved, and syncs once you're home."
-                        )
+                        if SyncEngine.syncsAwayFromHome {
+                            problem(
+                                symbol: "wifi.exclamationmark",
+                                title: "Can't reach your Mac mini",
+                                detail: "Check this phone is online and try again. Everything logged here is saved, and syncs once it can."
+                            )
+                        } else {
+                            problem(
+                                symbol: "wifi.exclamationmark",
+                                title: "Sharing needs your home Wi‑Fi",
+                                detail: "Both phones need to be on the same Wi‑Fi as your Mac mini. Everything logged here is saved, and syncs once you're home."
+                            )
+                        }
                     case .failed(let message):
                         problem(symbol: "exclamationmark.triangle", title: "Couldn't get a code", detail: message)
                     }
@@ -104,7 +112,7 @@ struct ShareBabySheet: View {
             VStack(spacing: 6) {
                 Text("On the other iPhone, open the Camera and point it here.")
                     .font(.headline)
-                Text("They need Baby Feed installed first, and both phones on your home Wi‑Fi.")
+                Text("They need Baby Feed installed first. It works from anywhere.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -196,9 +204,10 @@ struct ShareBabySheet: View {
                 invite = try await sync.invite(for: baby)
                 Self.cachedInvites[babyID] = invite
             }
-            guard let server = SyncCredentials.serverURL,
-                  let link = SyncLink.url(code: invite.code, server: server) else {
-                phase = .failed("This phone isn't connected to a server.")
+            guard let link = sync.link(for: invite, baby: baby) else {
+                phase = .failed(SyncEngine.joinAddress == nil
+                                ? "Sharing needs your Mac mini's address from outside the house. Set BABYFEED_PUBLIC_URL on the server, then open Baby Feed once on your home Wi‑Fi."
+                                : "This iPhone doesn't have \(baby.displayName)'s key, so it can't share the log. Share it from the phone that added it.")
                 return
             }
             phase = .ready(invite, link: link)

@@ -14,7 +14,7 @@ import { stamp } from './db.js'
 
 /** Column lists, in the order the DTOs declare them. */
 const COLUMNS = {
-  babies: ['id', 'name', 'birth_date', 'sex', 'due_date', 'created_by', 'updated_at', 'deleted_at'],
+  babies: ['id', 'name', 'birth_date', 'sex', 'due_date', 'created_by', 'updated_at', 'deleted_at', 'sealed'],
   feeds: ['id', 'baby_id', 'start_time', 'kind', 'amount_ml', 'duration_minutes', 'side', 'note',
     'logged_by', 'logged_by_name', 'updated_at', 'deleted_at'],
   weights: ['id', 'baby_id', 'date', 'grams', 'note', 'logged_by', 'logged_by_name',
@@ -128,6 +128,9 @@ export function normalizeRow(table, raw, { userID }) {
     row.sex = normalizeText(raw.sex, 'sex', 20)
     row.due_date = normalizeDate(raw.due_date, 'due_date')
     row.created_by = raw.created_by ? normalizeUUID(raw.created_by, 'created_by') : userID
+    // Only a request: whether a baby is sealed is decided once, when it first
+    // arrives, and the push route holds it to that (see sealBabyRow).
+    row.sealed = raw.sealed === true ? 1 : 0
     return row
   }
 
@@ -225,6 +228,79 @@ export function normalizeRow(table, raw, { userID }) {
     row.note = normalizeText(raw.note, 'note') ?? ''
   }
   return row
+}
+
+// ------------------------------------------------------------ sealed rows
+
+/**
+ * Holds a baby row to what it was when it arrived: an older app never sends
+ * `sealed`, and editing a sealed baby must never make it readable. A sealed
+ * baby's name and dates travel encrypted, in sealed_rows; if a phone sent
+ * them here as well, they aren't kept.
+ */
+export function sealBabyRow(row, storedSealed) {
+  if (storedSealed !== undefined && storedSealed !== null) row.sealed = storedSealed ? 1 : 0
+  if (row.sealed === 1) {
+    row.name = ''
+    row.birth_date = null
+    row.sex = null
+    row.due_date = null
+  }
+  return row
+}
+
+/** Base64 or base64url, as the phone's AES-GCM "combined" box comes out. */
+const SEALED_RE = /^[A-Za-z0-9+/_-]+={0,2}$/
+/** Far above any real row (a long note is a few KB), well below the 2 MB body cap. */
+export const MAX_SEALED_LENGTH = 64 * 1024
+
+/**
+ * One encrypted row from a phone. There is nothing in it to validate but the
+ * shape: the kind, the times and the deletion are all inside the ciphertext.
+ */
+export function normalizeSealedRow(raw) {
+  if (!raw || typeof raw !== 'object') throw new RowError('row is not an object')
+  const sealed = String(raw.sealed ?? '')
+  if (!sealed) throw new RowError('sealed is required')
+  if (sealed.length > MAX_SEALED_LENGTH) throw new RowError('sealed is too long')
+  if (!SEALED_RE.test(sealed)) throw new RowError('sealed is not base64')
+  return {
+    id: normalizeUUID(raw.id, 'id'),
+    baby_id: normalizeUUID(raw.baby_id, 'baby_id'),
+    updated_at: normalizeDate(raw.updated_at, 'updated_at', { required: true }),
+    sealed,
+  }
+}
+
+/** The same last-writer-wins rule as upsertRow, for a sealed row. */
+export function upsertSealedRow(db, row, { userID }) {
+  const stored = db.prepare('SELECT updated_at, server_updated_at FROM sealed_rows WHERE id = ?').get(row.id)
+  if (stored && !incomingWins(row.updated_at, stored.updated_at)) {
+    return { status: 'kept', server_updated_at: stored.server_updated_at }
+  }
+  const at = stamp()
+  db.prepare(
+    `INSERT INTO sealed_rows (id, baby_id, sealed, logged_by, updated_at, server_updated_at, server_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET sealed = excluded.sealed, logged_by = excluded.logged_by,
+       updated_at = excluded.updated_at, server_updated_at = excluded.server_updated_at,
+       server_ms = excluded.server_ms`
+  ).run(row.id, row.baby_id, row.sealed, userID, row.updated_at, at.iso, at.ms)
+  // No actor name and no kind of row: both would say more than the server
+  // should know. Which caregiver, and that something changed, is all.
+  recordChange(db, {
+    babyID: row.baby_id, table: 'sealed', rowID: row.id, userID, actorName: '',
+    kind: stored ? 'update' : 'insert', at,
+  })
+  return { status: stored ? 'updated' : 'inserted', server_updated_at: at.iso }
+}
+
+/** A sealed baby's rows since a watermark. */
+export function sealedRowsSince(db, babyID, sinceMs, limit) {
+  return db.prepare(
+    `SELECT id, baby_id, sealed, updated_at, server_updated_at FROM sealed_rows
+     WHERE baby_id = ? AND server_ms > ? ORDER BY server_ms ASC LIMIT ?`
+  ).all(babyID, sinceMs, limit)
 }
 
 /** Mirror of SyncMerge.remoteWins, read from the server's side of the wire. */

@@ -53,6 +53,7 @@ after each.
 | 6 | Charts, numbers first | app | **Done** 2026-09-28: Timeline \| Charts with feeds, diapers, feed rhythm and a care overview, each led by the sentence stating its number; the weight chart with the WHO bands on the Baby tab; the numbers stay underneath; 312 tests |
 | 7 | Copy and docs refresh | app, docs | **Done** 2026-09-28: the last stale strings in Settings; README and PLAN.md rewritten for what the app is now |
 | 8 | Rename to "Baby Care" | app | Optional (decided to keep "Baby Feed" for now) |
+| 9 | Other families, encrypted, joined from anywhere | app, server | **Built** 2026-10-08, not deployed: sealed (end-to-end encrypted) logs for babies added from now on, open enrolment, joining only through the public address; 356 app and 79 server tests. Checked on a local server that a full demo log goes up with nothing readable. Still owed: two real phones, through the DuckDNS address. [Phase 9](#phase-9--other-families-encrypted-joined-from-anywhere) |
 | Later | Sync away from home, push notifications, sleep, more | | [Later](#later-directional) |
 
 ## Decisions already made
@@ -64,7 +65,10 @@ These were settled with Brian. Don't reopen them in a phase; raise a question in
 - **One recovery phrase per parent**, shown once when you add your baby. It uses the same
   24-character format as today's recovery key.
 - **The name stays "Baby Feed"** for now (Phase 8 is optional).
-- **Sync is home‑Wi‑Fi only for now.** Away-from-home sync is a later phase.
+- **Sync is home‑Wi‑Fi only for now.** Away-from-home sync is a later phase. *Changed 2026-10-08
+  (Phase 9):* joining is now only ever through the public address, other families can set up from
+  their own homes, and babies added from then on are end-to-end encrypted. Existing babies are left
+  exactly as they were.
 - **No in-app QR scanner.** The Camera app reads the QR and opens Baby Feed, so no camera
   permission is needed.
 - **Charts come back numbers-first.** Commit `ce11c14` removed Swift Charts because "charts made a
@@ -1312,16 +1316,62 @@ Feeds & Health" in the store can sit beside "Baby Care" on the home screen.
 
 ---
 
+## Phase 9 — Other families, encrypted, joined from anywhere
+
+Asked for on 2026-10-08: share the app with friends so they can add their own baby, without anyone
+(the person running the Mac mini included) being able to read another family's log, and without
+needing the home Wi‑Fi to share. And: **nothing already logged may change.**
+
+What was built:
+
+- **Sealed logs.** A baby created from this build on (`Baby.isSealed`) gets a random 256-bit key when
+  it's first shared (`BabyKey`). Every row goes up as `SealedLog.Row`: id, baby id, `updated_at` and
+  an AES-GCM box holding the table name and the usual DTO, bound to its row and baby. The server's
+  readable baby row is blank. Caregiver names on a sealed log are sealed with its key; a new phone
+  enrols with no name. `SealedSync` opens a pulled page into the ordinary lists, so the merge is
+  unchanged.
+- **Keys.** The QR link carries the key (`&key=`); the server never sees it. The parent's recovery
+  phrase makes a key (HKDF, distinct from the hash the server holds) that locks a copy of each sealed
+  baby's key, stored per caregiver in `baby_keys`, so restoring with the phrase reopens the logs.
+  A phone that joined by QR has the key only in its Keychain (synchronizable); losing it means
+  scanning again, as before.
+- **Existing babies are untouched.** `isSealed` defaults to false; a readable baby can't become
+  sealed and a sealed one can't become readable (the server holds both to how they arrived). Builds
+  without `X-BabyFeed-Sealed: 1` are never shown a sealed baby.
+- **From anywhere.** `BABYFEED_PUBLIC_URL` is reported by `/v1/health` and remembered by the phone;
+  Share links only ever carry it, and a link naming a home-network address isn't followed. The phone
+  falls back between its known addresses when one fails. `BABYFEED_ENROLL=open` lets a phone set
+  itself up through Caddy, within per-address and daily limits. Builds for other families need
+  `PublicHost` in `ServerConfig.plist`.
+
+**Deploy, in this order** (server first, as always):
+
+1. On the mini: update the checkout, `(cd server && npm test)`, back up the database, then add to
+   `~/baby-feed-data/.env`:
+   `BABYFEED_PUBLIC_URL=https://<your DuckDNS name>:4443` and `BABYFEED_ENROLL=open`. Restart the
+   job. `/v1/health` should list `sealed` in `features`, `"enroll":"open"` and the `public_url`.
+2. Check the port forward from outside the house (phone on cellular, Safari):
+   `https://<your DuckDNS name>:4443/v1/health`.
+3. Add `PublicHost` to `BabyFeed/ServerConfig.plist` (gitignored; never commit the hostname), build,
+   install on both of your phones. Your existing baby keeps syncing as it does today.
+4. The two-phone check: on one phone add a test baby, log a feed, Share; on the other, on cellular,
+   scan. The feed should arrive, the name too, and the server's database should hold no readable
+   row for that baby (`SELECT name, sealed FROM babies`, `SELECT COUNT(*) FROM feeds WHERE baby_id = …`).
+5. Restore check: a third device (or a wiped simulator pointed at the public address) restoring with
+   the first phone's phrase gets the test baby back, readable.
+
+**Known limits:** the server still sees when rows change and how many there are; rows of an
+encrypted log can't be read by an older build; a phone that has never been home learns the public
+address only from its build or a QR.
+
 ## Later (directional)
 
-**Sync away from home.** The pieces exist: DuckDNS and Caddy (`server/scripts/install-caddy.sh`)
-plus one router port-forward, external 4443 to the mini's 9444.
-- Add `BABYFEED_PUBLIC_URL`, returned from `/v1/me`.
-- The app keeps the LAN and public addresses and falls back between them, using `server_id` to know
-  they're the same server.
-- Enrolment stays home-only by design: Caddy's requests arrive from loopback with
-  `X-Forwarded-For`.
-- Never forward 8791.
+**Sync away from home.** Built in [Phase 9](#phase-9--other-families-encrypted-joined-from-anywhere):
+`BABYFEED_PUBLIC_URL` (from `/v1/health`), fallback between addresses by `server_id`, and
+`BABYFEED_ENROLL=open` for setting up through Caddy. Still: never forward 8791.
+
+**Encrypting the logs from before Phase 9.** Opt-in only, never automatic: a new sealed copy of the
+baby, re-uploaded, then the readable rows deleted on the server once every phone has the new build.
 
 **"Annette logged a feed" notifications.** An APNs key for this bundle ID, plus the existing
 `/v1/changes` feed.

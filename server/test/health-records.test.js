@@ -4,6 +4,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { withServer, uuid, iso } from './support.js'
+import { SCHEMA_VERSION } from '../src/db.js'
 
 async function twoCaregivers({ call, enrol, pushBaby, invite }) {
   const brian = await enrol('Brian')
@@ -159,6 +160,6 @@ test('health says what this server can store', async () => {
     for (const table of ['concerns', 'medications', 'medication_doses', 'doctor_visits', 'care_notes']) {
       assert.ok(health.body.tables.includes(table), table)
     }
-    assert.equal(health.body.schema_version, 2)
+    assert.equal(health.body.schema_version, SCHEMA_VERSION)
   })
 })

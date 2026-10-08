@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Observation
 import SwiftData
@@ -63,6 +64,8 @@ final class SyncEngine {
     /// Whether this sync brought anything down, so everything derived from
     /// the log is refreshed once at the end rather than after every page.
     private var pulledChanges = false
+    /// Sealed rows this sync couldn't open: tampered with, or for another key.
+    private var unreadableRows = 0
     private var lastSyncDateValue: Date?
     /// `syncNow()` callers waiting on a sync that was already running.
     private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -80,6 +83,15 @@ final class SyncEngine {
     /// Set when there are health records the Mac mini is too old to store:
     /// they wait on this phone, and Caregivers and Health say so.
     private(set) var serverNeedsUpdateForHealth = false
+    /// Whether the server can keep sealed (end-to-end encrypted) logs, asked
+    /// once per launch. A sealed baby never goes to one that can't: it waits
+    /// here instead, rather than go up readable.
+    private var serverSupportsSealed: Bool?
+    /// Sealed logs this phone can't open, because it has no key for them:
+    /// joined from an old link, say. They don't sync until it does.
+    private(set) var babiesWithoutKey: [String] = []
+    /// Set when there's a sealed baby and the Mac mini is too old to keep it.
+    private(set) var serverNeedsUpdateForSealed = false
 
     /// The tables every server has had, for one too old to list them.
     static let baseTables: Set<String> = ["babies", "feeds", "weights", "care_notes", "diapers", "solid_foods"]
@@ -89,6 +101,11 @@ final class SyncEngine {
     var isConfigured: Bool { SyncCredentials.isPaired }
 
     var lastSyncDate: Date? { lastSyncDateValue }
+
+    /// Whether this phone can reach the server from outside the house: the
+    /// server has told it a public address, or this build was made with one.
+    /// The copy that says "be on your home Wi‑Fi" only shows when it can't.
+    static var syncsAwayFromHome: Bool { SyncCredentials.publicURL ?? ServerConfig.publicURL != nil }
 
     /// Whether this build knows a server to use.
     var hasServer: Bool { SyncCredentials.serverURL != nil || ServerConfig.current != nil }
@@ -224,10 +241,7 @@ final class SyncEngine {
     /// The saved address, or the one this build was made for, whichever
     /// answers first.
     private func findServer(context: ModelContext) async throws -> (URL, SyncClient.Health) {
-        var candidates: [URL] = []
-        for url in [SyncCredentials.serverURL, ServerConfig.current].compactMap({ $0 }) where !candidates.contains(url) {
-            candidates.append(url)
-        }
+        let candidates = Self.candidateAddresses()
         guard !candidates.isEmpty else { throw SyncError.notConfigured }
 
         var failure = SyncError.away
@@ -238,6 +252,7 @@ final class SyncEngine {
                     status = .needsUpdate
                     throw SyncError.serverNeedsUpdate
                 }
+                if let publicURL = health.publicURL { SyncCredentials.publicURL = publicURL }
                 return (url, health)
             } catch SyncError.serverNeedsUpdate {
                 throw SyncError.serverNeedsUpdate
@@ -261,7 +276,10 @@ final class SyncEngine {
         let phrase = RecoveryPhrase.pendingOrNew()
         let client = SyncClient(baseURL: url, token: nil)
         do {
-            let pairing = try await client.enroll(displayName: AppSettings.displayName,
+            // No name: a phone set up now only adds sealed babies, where the
+            // name travels encrypted (see secureSealedBabies), and the server
+            // has no reason to know who anyone is.
+            let pairing = try await client.enroll(displayName: "",
                                                   deviceName: Self.deviceName,
                                                   keyHash: RecoveryKey.hash(phrase))
             guard let token = pairing.token else { throw SyncError.badResponse("No token in the enrolment") }
@@ -288,17 +306,35 @@ final class SyncEngine {
         isSyncing = true
         syncAgain = false
         pulledChanges = false
+        unreadableRows = 0
         status = .syncing
         let context = container.mainContext
 
         do {
-            if serverTables == nil {
+            if serverTables == nil || serverSupportsSealed == nil {
                 let health = try await client.health()
                 serverTables = health.tables.map(Set.init) ?? Self.baseTables
+                serverSupportsSealed = health.supportsSealed
+                if let publicURL = health.publicURL { SyncCredentials.publicURL = publicURL }
             }
             try await adoptBabies(using: client, context: context)
-            try await push(using: client, context: context)
-            let failures = try await pullAll(using: client, context: context)
+            let newSealed = try await push(using: client, context: context)
+            // A sealed log that just reached the server: lock its key with the
+            // phrase straight away, rather than wait for the next check.
+            if newSealed {
+                let account = try await client.me()
+                await secureSealedBabies(account.babies, using: client, phrase: recoveryPhrase, in: context)
+            }
+            var failures = try await pullAll(using: client, context: context)
+            if serverNeedsUpdateForSealed {
+                failures.append("Your Mac mini's Baby Feed server needs an update to keep encrypted logs. Until then they stay on this iPhone.")
+            }
+            if unreadableRows > 0 {
+                failures.append("\(unreadableRows == 1 ? "An entry" : "\(unreadableRows) entries") from the server couldn't be opened with this log's key, so \(unreadableRows == 1 ? "it was" : "they were") left out.")
+            }
+            if let name = babiesWithoutKey.first {
+                failures.append("This iPhone can't open \(name)'s encrypted log. Scan the Share code from the other phone again.")
+            }
             lastSyncDateValue = .now
             status = failures.isEmpty
                 ? .idle(lastSync: lastSyncDateValue)
@@ -315,6 +351,9 @@ final class SyncEngine {
         } catch SyncError.away {
             lastAutomaticAttempt = .now
             status = .away(pending: pendingCount(in: context))
+            // Left the house, or came home: the same server may answer at its
+            // other address. Switch to it and go again.
+            if await moveToReachableAddress(from: client.baseURL) { syncAgain = true }
         } catch {
             status = .error((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
         }
@@ -374,6 +413,7 @@ final class SyncEngine {
         lastAdoption = .now
         if SyncCredentials.serverID == nil, let id = account.serverID { SyncCredentials.serverID = id }
         adopt(account.babies, in: context)
+        await secureSealedBabies(account.babies, using: client, phrase: recoveryPhrase, in: context)
         if let key = account.recoveryKey { updatePhraseState(serverHasPhrase: key.exists) }
     }
 
@@ -383,14 +423,33 @@ final class SyncEngine {
     /// backup of a few months is thousands of rows, so it goes up in batches.
     static let pushBatchSize = 400
 
-    private func push(using client: SyncClient, context: ModelContext) async throws {
+    /// Returns whether a sealed baby reached the server for the first time,
+    /// so its key can be locked with the phrase straight away.
+    @discardableResult
+    private func push(using client: SyncClient, context: ModelContext) async throws -> Bool {
         let userID = SyncCredentials.userID
         let shared = sharedBabies(in: context)
-        guard !shared.isEmpty else { return }
+        guard !shared.isEmpty else { return false }
         let sharedIDs = Set(shared.map(\.uuid))
         func queued<T: PersistentModel & SyncableRow & CareEntry>(_ type: T.Type) -> [T] {
             fetch(type, in: context).filter { $0.needsUpload && $0.babyID.map(sharedIDs.contains) == true }
         }
+
+        // Sealed logs go up only as boxes: never to a server that can't keep
+        // them, and never without their key. Either way they wait here.
+        let sealedIDs = Set(shared.filter(\.isSealed).map(\.uuid))
+        var keys: [UUID: SymmetricKey] = [:]
+        var withoutKey: [String] = []
+        for baby in shared where baby.isSealed {
+            if let key = BabyKey.stored(for: baby.uuid) {
+                keys[baby.uuid] = key
+            } else {
+                withoutKey.append(baby.displayName)
+            }
+        }
+        babiesWithoutKey = withoutKey
+        let canSeal = serverSupportsSealed == true
+        func isSealedRow(_ row: any SyncableRow & CareEntry) -> Bool { row.babyID.map(sealedIDs.contains) == true }
 
         let babies = shared.filter(\.needsUpload)
         var rows: [any SyncableRow & CareEntry] = []
@@ -401,37 +460,68 @@ final class SyncEngine {
         rows += queued(SolidFoodEntry.self) as [any SyncableRow & CareEntry]
         // Health records only go to a server that stores them. One that
         // doesn't would drop them without a word, and they'd be sent again on
-        // every sync, forever; so they wait here, and the app says why.
+        // every sync, forever; so they wait here, and the app says why. A
+        // sealed log's go up sealed, which any server with sealed logs keeps.
         let tables = serverTables ?? Self.baseTables
         let health: [any SyncableRow & CareEntry] = (queued(HealthConcern.self) as [any SyncableRow & CareEntry])
             + (queued(Medication.self) as [any SyncableRow & CareEntry])
             + (queued(MedicationDose.self) as [any SyncableRow & CareEntry])
             + (queued(DoctorVisit.self) as [any SyncableRow & CareEntry])
-        let storable = health.filter { tables.contains(Self.table(of: $0)) }
-        serverNeedsUpdateForHealth = storable.count < health.count
+        let readableHealth = health.filter { !isSealedRow($0) }
+        let storable = readableHealth.filter { tables.contains(Self.table(of: $0)) }
+        serverNeedsUpdateForHealth = storable.count < readableHealth.count
         rows += storable
-        guard !babies.isEmpty || !rows.isEmpty else { return }
+        rows += health.filter(isSealedRow)
+
+        let plainRows = rows.filter { !isSealedRow($0) }
+        let sealedRows = canSeal ? rows.filter { row in row.babyID.flatMap { keys[$0] } != nil } : []
+        let plainBabies = babies.filter { !$0.isSealed }
+        let sealedBabies = canSeal ? babies.filter { keys[$0.uuid] != nil } : []
+        guard !plainBabies.isEmpty || !plainRows.isEmpty || !sealedBabies.isEmpty || !sealedRows.isEmpty else {
+            return false
+        }
 
         // What was sent, by when it was last changed. A row edited again while
         // this push was in flight has a newer stamp by the time the answer
         // comes, and has to stay queued; clearing it regardless is how an edit
         // made mid-sync used to never reach the other phone.
         var sentAt: [UUID: Date] = [:]
-        for baby in babies { sentAt[baby.uuid] = baby.updatedAt }
-        for row in rows {
+        for baby in plainBabies + sealedBabies { sentAt[baby.uuid] = baby.updatedAt }
+        for row in plainRows + sealedRows {
             if let id = row.uuid { sentAt[id] = row.updatedAt }
         }
 
+        // Sealed: a blank readable baby (so the server makes the log) and
+        // its real details boxed, then every row boxed.
+        var sealedBabyBlanks: [BabyDTO] = []
+        var sealedBabyBoxes: [SealedLog.Row] = []
+        for baby in sealedBabies {
+            guard let key = keys[baby.uuid] else { continue }
+            let (blank, box) = try SealedSync.seal(baby, userID: userID, key: key)
+            sealedBabyBlanks.append(blank)
+            sealedBabyBoxes.append(box)
+        }
+        var boxes: [(row: any SyncableRow & CareEntry, box: SealedLog.Row)] = []
+        for row in sealedRows {
+            guard let babyID = row.babyID, let key = keys[babyID],
+                  let box = try SealedSync.seal(row, userID: userID, key: key) else { continue }
+            boxes.append((row, box))
+        }
+
         var rejected: [SyncClient.PushResult.Rejected] = []
+        var insertedSealedBaby = false
         var next = 0
         var isFirstBatch = true
         repeat {
-            let batch = Array(rows[next..<min(rows.count, next + Self.pushBatchSize)])
+            let batch = Array(plainRows[next..<min(plainRows.count, next + Self.pushBatchSize)])
             next += batch.count
             var payload = SyncPushPayload()
             // Babies go in the first batch, ahead of their rows: a log starts
             // on the server when it first sees the baby.
-            if isFirstBatch { payload.babies = babies.map { BabyDTO(baby: $0, createdBy: userID) } }
+            if isFirstBatch {
+                payload.babies = plainBabies.map { BabyDTO(baby: $0, createdBy: userID) } + sealedBabyBlanks
+                payload.sealed = sealedBabyBoxes
+            }
             payload.feeds = batch.compactMap { ($0 as? FeedEntry).flatMap { FeedDTO(entry: $0, userID: userID ?? UUID()) } }
             payload.weights = batch.compactMap { ($0 as? WeightEntry).flatMap { WeightDTO(entry: $0, userID: userID ?? UUID()) } }
             payload.careNotes = batch.compactMap { ($0 as? CareNote).flatMap { CareNoteDTO(entry: $0, userID: userID) } }
@@ -441,7 +531,7 @@ final class SyncEngine {
             payload.medications = batch.compactMap { ($0 as? Medication).flatMap { MedicationDTO(entry: $0, userID: userID) } }
             payload.medicationDoses = batch.compactMap { ($0 as? MedicationDose).flatMap { MedicationDoseDTO(entry: $0, userID: userID) } }
             payload.doctorVisits = batch.compactMap { ($0 as? DoctorVisit).flatMap { DoctorVisitDTO(entry: $0, userID: userID) } }
-            let sentBabies = isFirstBatch ? babies : []
+            let sentBabies = isFirstBatch ? plainBabies + sealedBabies : []
             isFirstBatch = false
             guard !payload.isEmpty else { continue }
 
@@ -450,24 +540,50 @@ final class SyncEngine {
             // Clear the queue only for rows the server confirmed. "kept"
             // counts: it means the server holds a newer copy, which the pull
             // just below is about to bring back, so there's nothing to upload.
+            // A sealed baby is confirmed when both its halves are.
             let accepted = Set(result.applied.map(\.id))
+            let acceptedSealed = Set(result.applied.filter { $0.table == "sealed" }.map(\.id))
             func settle(_ id: UUID?, _ updatedAt: Date, _ clear: () -> Void) {
                 guard let id, accepted.contains(id), sentAt[id] == updatedAt else { return }
                 clear()
             }
-            for baby in sentBabies { settle(baby.uuid, baby.updatedAt) { baby.needsUpload = false } }
+            for baby in sentBabies {
+                guard !baby.isSealed || acceptedSealed.contains(baby.uuid) else { continue }
+                settle(baby.uuid, baby.updatedAt) { baby.needsUpload = false }
+            }
             for row in batch {
                 settle(row.uuid, row.updatedAt) { row.needsUpload = false }
             }
+            insertedSealedBaby = insertedSealedBaby || result.applied.contains { applied in
+                applied.table == "babies" && applied.status == "inserted" && sealedIDs.contains(applied.id)
+            }
             try? context.save()
             rejected += result.rejected
-        } while next < rows.count
+        } while next < plainRows.count
+
+        // The sealed rows, in their own batches.
+        var nextBox = 0
+        while nextBox < boxes.count {
+            let batch = Array(boxes[nextBox..<min(boxes.count, nextBox + Self.pushBatchSize)])
+            nextBox += batch.count
+            var payload = SyncPushPayload()
+            payload.sealed = batch.map(\.box)
+            let result = try await client.push(payload)
+            let accepted = Set(result.applied.map(\.id))
+            for item in batch {
+                guard let id = item.row.uuid, accepted.contains(id), sentAt[id] == item.row.updatedAt else { continue }
+                item.row.needsUpload = false
+            }
+            try? context.save()
+            rejected += result.rejected
+        }
 
         // Taken off a log by its owner: stop sending its rows, keep them here.
         var rowBabies: [UUID: UUID] = [:]
         for row in rows {
             if let id = row.uuid, let babyID = row.babyID { rowBabies[id] = babyID }
         }
+        for baby in sealedBabies { rowBabies[baby.uuid] = baby.uuid }
         let dropped = SyncPlan.babiesNoLongerShared(rejected: rejected) { table, id in
             table == "babies" ? id : rowBabies[id]
         }
@@ -489,6 +605,10 @@ final class SyncEngine {
             // other phone.
             throw SyncError.rejected(count: other.count, reason: other.first?.reason ?? "unknown")
         }
+        // Not an error that stops the sync: the readable logs went up and
+        // still come down. The status says it once the pull is done.
+        serverNeedsUpdateForSealed = !sealedIDs.isEmpty && !canSeal
+        return insertedSealedBaby
     }
 
     // MARK: Pull
@@ -498,6 +618,8 @@ final class SyncEngine {
     private func pullAll(using client: SyncClient, context: ModelContext) async throws -> [String] {
         var failures: [String] = []
         for baby in sharedBabies(in: context) {
+            // A sealed log comes down only where it can be opened.
+            if baby.isSealed && (serverSupportsSealed != true || BabyKey.stored(for: baby.uuid) == nil) { continue }
             do {
                 try await pull(babyID: baby.uuid, using: client, context: context)
             } catch SyncError.server(403, _, _) {
@@ -521,7 +643,16 @@ final class SyncEngine {
         // at 500 rows a page that's still a year of a busy newborn's log.
         for _ in 0..<100 {
             let since = Self.watermark(for: babyID)
-            let result = try await client.pull(babyID: babyID, since: since)
+            var result = try await client.pull(babyID: babyID, since: since)
+            if let key = BabyKey.stored(for: babyID), BabyStore.baby(withID: babyID, in: context)?.isSealed == true {
+                let opened = SealedSync.open(result, babyID: babyID, key: key)
+                result = opened.page
+                // A box that won't open is never applied. The watermark still
+                // moves past it: it can't be read on any later pull either.
+                if opened.unreadable > 0 {
+                    unreadableRows += opened.unreadable
+                }
+            }
             apply(result, babyID: babyID, in: context)
 
             // The server's own cursor when it gives one: exact, so a long log
@@ -652,9 +783,11 @@ final class SyncEngine {
         let sameServer = SyncCredentials.serverURL == url
             || (health.serverID != nil && health.serverID == SyncCredentials.serverID)
         let existingToken = sameServer ? SyncCredentials.token : nil
+        // An encrypted log's invite carries its key; then the name stays off
+        // the server too, and goes on sealed with that key below.
         let pairing = try await SyncClient(baseURL: url, token: existingToken)
             .join(code: SyncMerge.normalizedInviteCode(invitation.code),
-                  displayName: AppSettings.displayName,
+                  displayName: invitation.key == nil ? AppSettings.displayName : "",
                   deviceName: Self.deviceName)
         guard let token = pairing.token ?? existingToken else {
             throw SyncError.badResponse("The server didn't hand this phone a token.")
@@ -665,17 +798,28 @@ final class SyncEngine {
             AppSettings.displayName = pairing.displayName
         }
 
+        // The key first: everything after it, the baby's own name included,
+        // is sealed with it.
+        if let dto = pairing.baby, dto.sealed == true {
+            guard let text = invitation.key, let key = BabyKey.fromLinkText(text) else {
+                throw SyncError.server(status: 409,
+                                       message: "That code is for an encrypted log but didn't bring its key. Ask for the Share code again from the latest Baby Feed.",
+                                       code: "missing_key")
+            }
+            BabyKey.store(key, for: dto.id)
+        }
         adopt(pairing.babies, in: context)
-        var joinedName: String?
+        var joined: Baby?
         if let dto = pairing.baby {
             let baby = upsert(dto, in: context)
-            joinedName = baby.displayName
+            joined = baby
             BabyStore.setCurrent(baby, in: context)
             BabyStore.removePlaceholders(keeping: baby.uuid, in: context)
         }
-        lastAdoption = .now
+        lastAdoption = nil
         await syncNow()
-        return Joined(babyName: joinedName, needsName: AppSettings.displayName.isEmpty)
+        // Read after the sync: a sealed log's name only arrives with its rows.
+        return Joined(babyName: joined?.displayName, needsName: AppSettings.displayName.isEmpty)
     }
 
     /// Takes a written-down phrase and gets every log it covers back. Works on
@@ -717,6 +861,9 @@ final class SyncEngine {
         }
 
         adopt(pairing.babies, in: context)
+        // The phrase also unlocks this person's copies of their sealed logs' keys.
+        await secureSealedBabies(pairing.babies, using: SyncClient(baseURL: url, token: token),
+                                 phrase: pairing.wasPersonalPhrase ? normalized : nil, in: context)
         let restored = pairing.baby.map { upsert($0, in: context) }
             ?? BabyStore.currentBaby(in: context).flatMap { $0.isShared ? $0 : nil }
             ?? BabyStore.allBabies(in: context).first(where: \.isShared)
@@ -738,11 +885,15 @@ final class SyncEngine {
 
     private func upsert(_ dto: BabyDTO, in context: ModelContext) -> Baby {
         let baby = BabyStore.baby(withID: dto.id, in: context) ?? {
-            let fresh = Baby(uuid: dto.id, name: dto.name, birthDate: dto.birthDate)
+            let fresh = Baby(uuid: dto.id, name: dto.name, birthDate: dto.birthDate, isSealed: dto.sealed == true)
             context.insert(fresh)
             return fresh
         }()
-        if !baby.needsUpload || dto.updatedAt >= baby.updatedAt {
+        // A sealed log's readable row is blank on purpose; its details come
+        // down sealed with the next pull, and must not be blanked here.
+        if dto.sealed == true {
+            baby.isSealed = true
+        } else if !baby.needsUpload || dto.updatedAt >= baby.updatedAt {
             dto.apply(to: baby)
             BabyStore.mirrorToDefaults(baby)
         }
@@ -757,6 +908,11 @@ final class SyncEngine {
     /// create them and this caregiver their owner.
     func share(_ babies: [Baby], in context: ModelContext) {
         for baby in babies where !baby.isShared {
+            // An encrypted log's key is made the moment it's first shared, on
+            // this phone, and never leaves it except in a QR or phrase-locked.
+            if baby.isSealed, BabyKey.stored(for: baby.uuid) == nil {
+                BabyKey.store(BabyKey.generate(), for: baby.uuid)
+            }
             baby.isShared = true
             baby.markChanged()
             // Rows created before sharing existed have never been uploaded.
@@ -773,18 +929,116 @@ final class SyncEngine {
         share([baby], in: container.mainContext)
         await syncNow()
         guard let client else { throw SyncError.notConfigured }
+        if baby.isSealed && serverSupportsSealed == false {
+            throw SyncError.server(status: 409,
+                                   message: "Your Mac mini's Baby Feed server needs an update before it can share an encrypted log.",
+                                   code: "needs_update")
+        }
         return try await client.createInvite(babyID: baby.uuid)
+    }
+
+    /// The address a Share QR sends the other phone to: only ever the public
+    /// one, so joining works from anywhere and never depends on being on the
+    /// same Wi‑Fi. Nil until the server or this build says what it is.
+    static var joinAddress: URL? { SyncCredentials.publicURL ?? ServerConfig.publicURL }
+
+    /// The link the Share QR holds: the public address, and an encrypted
+    /// log's key. Nil without a public address, and for a sealed log this
+    /// phone has no key for, which it couldn't hand on anyway.
+    func link(for invite: SyncClient.Invite, baby: Baby) -> URL? {
+        guard let server = Self.joinAddress else { return nil }
+        guard baby.isSealed else { return SyncLink.url(code: invite.code, server: server) }
+        guard let key = BabyKey.stored(for: baby.uuid) else { return nil }
+        return SyncLink.url(code: invite.code, server: server, key: BabyKey.linkText(key))
     }
 
     func refreshMembers(babyID: UUID) async {
         guard let client else { return }
-        members = (try? await client.members(babyID: babyID)) ?? members
+        guard var list = try? await client.members(babyID: babyID) else { return }
+        if let key = BabyKey.stored(for: babyID) { list = SealedSync.openNames(list, babyID: babyID, key: key) }
+        members = list
     }
 
     func updateDisplayName(_ name: String) async {
         AppSettings.displayName = name
-        guard let client else { return }
-        try? await client.setDisplayName(name)
+        guard let client, let container else { return }
+        let shared = sharedBabies(in: container.mainContext)
+        // The readable name is only for readable logs; a sealed log gets it
+        // sealed, on the next check.
+        if shared.contains(where: { !$0.isSealed }) { try? await client.setDisplayName(name) }
+        if shared.contains(where: \.isSealed) {
+            lastAdoption = nil
+            requestSync()
+        }
+    }
+
+    // MARK: Sealed logs
+
+    /// For each sealed log this person is on: get its key from the phrase if
+    /// this phone hasn't got it, lock it with the phrase if the server has no
+    /// copy (or one from an older phrase), and set this person's name on it,
+    /// sealed. Cheap when nothing needs doing; failures wait for the next go.
+    private func secureSealedBabies(_ memberships: [MembershipDTO], using client: SyncClient, phrase: String?,
+                                    in context: ModelContext) async {
+        guard let userID = SyncCredentials.userID else { return }
+        for membership in memberships where membership.isSealed && membership.deletedAt == nil {
+            let babyID = membership.id
+            BabyStore.baby(withID: babyID, in: context)?.isSealed = true
+            if BabyKey.stored(for: babyID) == nil, let phrase, let wrapped = membership.wrappedKey,
+               let key = try? SealedLog.unlock(wrapped, babyID: babyID, phrase: phrase) {
+                BabyKey.store(key, for: babyID)
+            }
+            guard let key = BabyKey.stored(for: babyID) else { continue }
+
+            if let phrase {
+                let current = membership.wrappedKey.flatMap { try? SealedLog.unlock($0, babyID: babyID, phrase: phrase) }
+                if current == nil, let wrapped = try? SealedLog.lock(key, babyID: babyID, phrase: phrase) {
+                    try? await client.putBabyKey(babyID: babyID, wrapped: wrapped)
+                }
+            }
+
+            let name = AppSettings.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let stored = membership.sealedName.flatMap { SealedLog.openName($0, babyID: babyID, userID: userID, key: key) }
+            if !name.isEmpty, stored != name,
+               let sealed = try? SealedLog.sealName(name, babyID: babyID, userID: userID, key: key) {
+                try? await client.putSealedName(babyID: babyID, sealedName: sealed)
+            }
+        }
+        try? context.save()
+    }
+
+    // MARK: Addresses
+
+    /// Every address this server might answer at, most likely first: the one
+    /// that worked last, the home one this build was made for, then the ones
+    /// that work from anywhere.
+    static func candidateAddresses() -> [URL] {
+        var candidates: [URL] = []
+        for url in [SyncCredentials.serverURL, ServerConfig.current, SyncCredentials.publicURL, ServerConfig.publicURL]
+            .compactMap({ $0 }) where !candidates.contains(url) {
+            candidates.append(url)
+        }
+        return candidates
+    }
+
+    /// After the saved address failed: tries the others, and moves to the
+    /// first that answers as the same server. Once a minute at most.
+    private var lastRelocation: Date?
+
+    private func moveToReachableAddress(from failed: URL) async -> Bool {
+        if let last = lastRelocation, Date.now.timeIntervalSince(last) < 60 { return false }
+        lastRelocation = .now
+        for url in Self.candidateAddresses() where url != failed {
+            guard let health = try? await SyncClient(baseURL: url, token: nil).probe(),
+                  SyncPlan.isCompatible(health) else { continue }
+            guard SyncPlan.identity(stored: SyncCredentials.serverID, reported: health.serverID) != .reset else {
+                continue
+            }
+            if let publicURL = health.publicURL { SyncCredentials.publicURL = publicURL }
+            SyncCredentials.serverURL = url
+            return true
+        }
+        return false
     }
 
     /// Unpairs this phone. The log stays; only the link to the server goes,
@@ -854,6 +1108,8 @@ final class SyncEngine {
         RecoveryPhrase.store(phrase, account: RecoveryPhrase.account(for: userID))
         RecoveryPhrase.forget(account: RecoveryPhrase.pendingAccount)
         phraseState = .matches
+        lastAdoption = nil
+        requestSync()
         return phrase
     }
 
@@ -864,6 +1120,10 @@ final class SyncEngine {
         try await client.setRecoveryPhraseHash(RecoveryKey.hash(phrase), replace: true)
         RecoveryPhrase.store(phrase, account: RecoveryPhrase.account(for: userID))
         phraseState = .matches
+        // The sealed logs' keys were locked with the old phrase: lock them
+        // again with this one on the next check.
+        lastAdoption = nil
+        requestSync()
         return phrase
     }
 
@@ -1038,7 +1298,9 @@ enum SyncError: LocalizedError, Equatable {
         case .badServerURL:
             "That server address doesn't look right."
         case .away:
-            "Can't reach your Mac mini. Connect to your home Wi‑Fi and try again."
+            SyncCredentials.publicURL ?? ServerConfig.publicURL != nil
+                ? "Can't reach your Mac mini right now. Everything is saved on this iPhone and goes up when it's back."
+                : "Can't reach your Mac mini. Connect to your home Wi‑Fi and try again."
         case .unreachable(let detail):
             "Couldn't reach the server. \(detail)"
         case .server(_, let message, _):

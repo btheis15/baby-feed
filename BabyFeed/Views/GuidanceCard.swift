@@ -6,6 +6,9 @@ struct GuidanceCard: View {
     let target: FeedingGuidance.DailyTarget?
     let consumedML: Double
     let nursingMinutes: Int
+    /// Nursing feeds in the window, so a nursed-only day leads with them
+    /// instead of "0 oz".
+    var nursingCount = 0
     let unit: VolumeUnit
     let weightText: String?
     let babyName: String
@@ -25,19 +28,37 @@ struct GuidanceCard: View {
             if let target {
                 let fraction = min(consumedML / max(target.targetML, 1), 1.5)
 
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(unit.format(milliliters: consumedML))
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                    Text("of ~\(unit.format(milliliters: target.targetML)) in the last 24 h")
-                        .font(.subheadline)
+                if consumedML == 0 && nursingCount > 0 {
+                    // Nursing isn't measured in oz, so there's no amount to
+                    // put against the target: say what there was instead.
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(nursingMinutes > 0 ? "\(nursingMinutes) min" : "\(nursingCount)")
+                            .font(.system(size: 34, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                        Text(nursingMinutes > 0
+                             ? "nursing over \(nursingCount == 1 ? "1 feed" : "\(nursingCount) feeds") in the last 24 h"
+                             : "\(nursingCount == 1 ? "nursing feed" : "nursing feeds") in the last 24 h")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("Nursing isn't measured, so it isn't counted against the volume below, which is for bottles.")
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(unit.format(milliliters: consumedML))
+                            .font(.system(size: 34, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                        Text("of ~\(unit.format(milliliters: target.targetML)) in the last 24 h")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    ProgressView(value: min(fraction, 1))
+                        .tint(fraction >= 1 ? .green : .accentColor)
                 }
 
-                ProgressView(value: min(fraction, 1))
-                    .tint(fraction >= 1 ? .green : .accentColor)
-
-                Text("About \(unit.format(milliliters: target.perFeedML)) per feed at \(target.feedsPerDay) feeds a day.")
+                Text("About \(unit.formatWithOther(milliliters: target.perFeedML)) per feed at \(target.feedsPerDay) feeds a day.")
                     .font(.subheadline)
 
                 if let range = target.rangeML {
@@ -46,7 +67,7 @@ struct GuidanceCard: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if nursingMinutes > 0 {
+                if nursingMinutes > 0 && consumedML > 0 {
                     Text("Plus \(nursingMinutes) min nursing, which isn't counted in the volume.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -105,6 +126,9 @@ struct GuidanceCard: View {
         let centile = GrowthProjector.ordinal(percentile: projection.anchorPercentile)
         let weighed = projection.anchorDate.formatted(date: .abbreviated, time: .omitted)
         let anchor = weightUnit.format(grams: projection.anchorGrams)
+        if projection.followsNewbornDip {
+            return "Estimated for today at about \(weightUnit.format(grams: projection.estimatedGrams)): \(NewbornWeight.explanation) Last weighed \(anchor) on \(weighed)."
+        }
         return "Estimated for today from the \(centile) percentile · last weighed \(anchor) on \(weighed)."
     }
 }

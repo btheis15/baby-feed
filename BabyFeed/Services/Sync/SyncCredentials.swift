@@ -17,6 +17,7 @@ enum SyncCredentials {
     private static let optedOutKey = "sync.optedOut"
     private static let connectedBeforeKey = "sync.hasConnectedBefore"
     private static let connectionRequestedKey = "sync.connectionRequested"
+    nonisolated private static let publicURLKey = "sync.publicURL"
     private static let keychainAccount = "sync.deviceToken"
     private static let keychainService = "com.babyfeed.BabyFeed"
 
@@ -99,6 +100,14 @@ enum SyncCredentials {
     /// Whether this phone should reconnect by itself when it can.
     static var wantsSync: Bool { hasConnectedBefore || connectionRequested }
 
+    /// The same server from outside the house, as it last said (its
+    /// BABYFEED_PUBLIC_URL), so this phone syncs away from home and the QR it
+    /// shows works from anywhere.
+    nonisolated static var publicURL: URL? {
+        get { UserDefaults.standard.string(forKey: publicURLKey).flatMap(URL.init(string:)) }
+        set { UserDefaults.standard.set(newValue?.absoluteString, forKey: publicURLKey) }
+    }
+
     static var isPaired: Bool { serverURL != nil && token != nil }
 
     static func save(serverURL: URL, token: String, userID: UUID?, serverID: String? = nil) {
@@ -118,6 +127,7 @@ enum SyncCredentials {
         userID = nil
         token = nil
         serverID = nil
+        publicURL = nil
         UserDefaults.standard.removeObject(forKey: "sync.watermarks")
     }
 

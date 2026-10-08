@@ -290,7 +290,7 @@ struct HealthView: View {
     private func notesSubtitle(notes: [CareNote], visits: [DoctorVisit], now: Date) -> String {
         let window = ReportWindow.defaultWindow(visits: visits, now: now, calendar: calendar)
         let start = window.start(now: now, calendar: calendar)
-        let count = notes.filter { $0.date >= start }.count
+        let count = notes.writtenNotes.filter { $0.date >= start }.count
         guard case .since = window else {
             return count == 0 ? "Nothing this week" : "\(count) this week"
         }

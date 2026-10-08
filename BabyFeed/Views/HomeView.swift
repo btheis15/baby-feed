@@ -262,7 +262,7 @@ struct HomeView: View {
         if fixTime {
             router.sheet = .editEntry(.feed(feed.persistentModelID))
         } else {
-            toasts.logged(.feed(feed), detail: feed.detailText(unit: unit), context: modelContext, router: router)
+            toasts.logged(.feed(feed), detail: feed.detailText(unit: unit, showsOther: true), context: modelContext, router: router)
         }
     }
 

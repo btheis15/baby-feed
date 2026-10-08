@@ -14,6 +14,16 @@ enum AddEntryKind: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Food only once the AAP stages open anything beyond milk: before four
+    /// months, or with no birthday set, there is nothing to log.
+    static func available(birthInterval: Double, calendar: Calendar) -> [AddEntryKind] {
+        allCases.filter { kind in
+            guard kind == .food else { return true }
+            guard let months = NewEntrySheet.ageMonths(birthInterval: birthInterval, calendar: calendar) else { return false }
+            return !FoodTexture.available(atMonths: months).isEmpty
+        }
+    }
+
     var title: String {
         switch self {
         case .note: "Note"
@@ -66,14 +76,8 @@ struct AddEntrySheet: View {
     @Environment(AppRouter.self) private var router
     @AppStorage(BabyProfile.birthDateKey) private var birthInterval: Double = 0
 
-    /// Food only once the AAP stages open anything beyond milk: before four
-    /// months, or with no birthday set, there is nothing to log.
     private var kinds: [AddEntryKind] {
-        AddEntryKind.allCases.filter { kind in
-            guard kind == .food else { return true }
-            guard let months = NewEntrySheet.ageMonths(birthInterval: birthInterval, calendar: calendar) else { return false }
-            return !FoodTexture.available(atMonths: months).isEmpty
-        }
+        AddEntryKind.available(birthInterval: birthInterval, calendar: calendar)
     }
 
     var body: some View {

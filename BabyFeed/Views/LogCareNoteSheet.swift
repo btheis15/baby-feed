@@ -73,7 +73,7 @@ struct LogCareNoteSheet: View {
             Form {
                 Section {
                     Picker("What kind", selection: $kind) {
-                        ForEach(CareNoteKind.allCases) { kind in
+                        ForEach(CareNoteKind.pickable) { kind in
                             Label(kind.title, systemImage: kind.systemImage).tag(kind)
                         }
                     }

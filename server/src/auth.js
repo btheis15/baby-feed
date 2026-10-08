@@ -138,12 +138,20 @@ export function hasProxyHeaders(headers) {
   return PROXY_HEADERS.some((name) => headers?.[name] !== undefined)
 }
 
-/** 'lan' is the default; 'lan+loopback' exists for the tests, which can only connect over loopback. */
-export const ENROLL_MODES = ['lan', 'off', 'lan+loopback']
+/**
+ * 'lan' is the default; 'lan+loopback' exists for the tests, which can only
+ * connect over loopback. 'open' lets a phone set itself up from anywhere,
+ * through Caddy: for sharing the server with other families. What a stranger
+ * gets from it is an empty caregiver who can read nothing, behind a per-address
+ * and a per-day limit; with sealed babies, nobody else's log is readable here
+ * anyway, including by whoever runs the Mac.
+ */
+export const ENROLL_MODES = ['lan', 'off', 'lan+loopback', 'open']
 
 /** Why this request may not enrol a new phone, or null when it may. */
 export function enrollRefusal(req, mode) {
   if (mode === 'off') return 'enroll_off'
+  if (mode === 'open') return null
   if (hasProxyHeaders(req.headers)) return 'enroll_lan_only'
   if (!isLanAddress(req.socket?.remoteAddress, { allowLoopback: mode === 'lan+loopback' })) {
     return 'enroll_lan_only'

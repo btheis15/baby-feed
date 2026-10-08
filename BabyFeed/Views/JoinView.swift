@@ -158,7 +158,7 @@ struct JoinView: View {
         switch error {
         case .away:
             .failed(title: "Can't reach the other phone's Mac mini",
-                    detail: "Connect to the same Wi‑Fi as the other phone, then try again.",
+                    detail: "Check this phone is online, then try again.",
                     canRetry: true)
         case .serverNeedsUpdate:
             .failed(title: "The server needs an update",

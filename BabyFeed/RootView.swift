@@ -67,6 +67,12 @@ struct RootView: View {
             switch sheet {
             case .log(let kind):
                 LogFeedSheet(mode: .new(kind))
+            case .logDiaper(let kind):
+                LogDiaperSheet(mode: .new(kind))
+            case .quickLog:
+                QuickLogSheet()
+            case .fineDays:
+                FineDaysSheet(babyID: AppSettings.currentBabyID)
             case .join(let invitation):
                 JoinView(invitation: invitation)
             case .pairing(let code):

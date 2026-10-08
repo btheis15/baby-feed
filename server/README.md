@@ -79,7 +79,8 @@ when you get back.
 
 **Never forward a router port to 8791.** That is the plain-http server itself.
 If it's ever reachable from outside, it's only through Caddy on 9444, which
-terminates TLS — and enrolment refuses anything that comes through Caddy.
+terminates TLS. With `BABYFEED_ENROLL=lan` (the default), enrolment refuses
+anything that comes through Caddy.
 
 **Anywhere**, with HTTPS and a hostname of its own:
 
@@ -99,6 +100,39 @@ That starts two more jobs — `com.babyfeed.caddy` and `com.babyfeed.duckdns`,
 which keeps the hostname pointed at the house as the residential IP rotates —
 gets a certificate, and prints the address to type into the app
 (`https://yourname.duckdns.org:4443`).
+
+### Sharing with other families, encrypted
+
+To let friends add their own baby from their own house, and to make sharing
+work without being on the same Wi-Fi, add to `~/baby-feed-data/.env`:
+
+```
+BABYFEED_PUBLIC_URL=https://yourname.duckdns.org:4443
+BABYFEED_ENROLL=open
+```
+
+- `BABYFEED_PUBLIC_URL` is told to every phone (`/v1/health`), and every Share
+  QR carries it, so joining always goes through the public address, never the
+  home one. Builds for other families should also have `PublicHost` in their
+  `ServerConfig.plist`, since their phones are never on your Wi-Fi.
+- `BABYFEED_ENROLL=open` lets any phone that reaches the server set itself up,
+  limited per address (5 a minute) and in total (`BABYFEED_ENROLL_DAILY`,
+  50 a day by default). What it gets is an empty caregiver that can read
+  nothing.
+- **Babies added by this build on are end-to-end encrypted ("sealed").** The
+  phone that adds one makes its key; rows are encrypted with it before they
+  leave the phone. The server keeps, per sealed row, only its id, which baby,
+  when it last changed and an opaque box: no kind, no times, no names, no
+  notes. Caregiver names on a sealed log are encrypted too, and a new phone
+  enrols with no name at all. The key reaches a second caregiver inside the
+  QR, and comes back after a lost phone through the parent's recovery phrase,
+  which locks a copy of it (`baby_keys`). Whoever runs this Mac can't read a
+  sealed log, and neither can a copy of the database. Lose the phrase and
+  every phone, and that log can't be recovered by anyone.
+- **Babies from before stay as they were**, readable on the server, and sync
+  exactly as they always have. Nothing is migrated.
+- A build from before sealed logs is never shown one (it doesn't send
+  `X-BabyFeed-Sealed: 1`), and can't join or pull one.
 
 ### Why a port number in the address, and why a custom Caddy
 

@@ -352,22 +352,32 @@ struct SettingsView: View {
 
     private func amountStepper(_ title: String, ml: Binding<Double>) -> some View {
         let currentML = ml.wrappedValue > 0 ? ml.wrappedValue : unit.toMilliliters(unit.defaultAmount)
-        let current = unit.rounded(unit.fromMilliliters(currentML))
+        let current = unit.roundedToPrecision(unit.fromMilliliters(currentML))
+        // Typed exactly, 75 ml say; the stepper still moves in steps from there.
+        let typed = Binding<Double>(
+            get: { current },
+            set: { ml.wrappedValue = unit.toMilliliters(min(unit.maximum, max(unit.precision, unit.roundedToPrecision($0)))) }
+        )
 
         return Stepper(
             onIncrement: {
-                ml.wrappedValue = unit.toMilliliters(min(unit.maximum, current + unit.step))
+                ml.wrappedValue = unit.toMilliliters(min(unit.maximum, unit.roundedToPrecision(current + unit.step)))
             },
             onDecrement: {
-                ml.wrappedValue = unit.toMilliliters(max(unit.step, current - unit.step))
+                ml.wrappedValue = unit.toMilliliters(max(unit.step, unit.roundedToPrecision(current - unit.step)))
             }
         ) {
             HStack {
                 Text(title)
                 Spacer()
-                Text(unit.format(milliliters: currentML))
+                TextField(title, value: typed, format: .number.precision(.fractionLength(0...2)))
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: 70)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                Text(unit.symbol)
+                    .foregroundStyle(.secondary)
             }
         }
     }

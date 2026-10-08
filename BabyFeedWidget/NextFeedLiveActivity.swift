@@ -11,10 +11,16 @@ import WidgetKit
 struct NextFeedLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: NextFeedActivityAttributes.self) { context in
-            lockScreen(context)
-                .padding()
-                .activityBackgroundTint(Color(.systemBackground).opacity(0.85))
-                .widgetURL(DeepLink.log(kindRaw: nil))
+            ActivityFamilyContent {
+                watch(context)
+            } medium: {
+                lockScreen(context)
+                    .padding()
+            }
+            .activityBackgroundTint(Color(.systemBackground).opacity(0.85))
+            // The quick menu, not straight into a formula sheet: a tap here is
+            // as often a diaper as a feed.
+            .widgetURL(DeepLink.quickLog)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
@@ -28,7 +34,7 @@ struct NextFeedLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     if let started = context.state.nursingStartedAt {
-                        nursingMinutes(since: started)
+                        nursingMinutes(context, since: started)
                             .font(.headline)
                     } else if let due = context.state.dueTime {
                         VStack(alignment: .trailing, spacing: 0) {
@@ -46,7 +52,7 @@ struct NextFeedLiveActivity: Widget {
                              ?? "Last fed \(clock(context.state.lastFeedTime, context)) · \(context.state.lastFeedText)")
                             .lineLimit(1)
                         Spacer()
-                        Link(destination: DeepLink.log(kindRaw: nil)) {
+                        Link(destination: DeepLink.quickLog) {
                             Label("Log", systemImage: "plus.circle.fill")
                                 .font(.caption.weight(.semibold))
                         }
@@ -58,7 +64,7 @@ struct NextFeedLiveActivity: Widget {
             } compactTrailing: {
                 Group {
                     if let started = context.state.nursingStartedAt {
-                        nursingMinutes(since: started, compact: true)
+                        nursingMinutes(context, since: started, compact: true)
                     } else {
                         compactCountdown(context)
                     }
@@ -68,8 +74,11 @@ struct NextFeedLiveActivity: Widget {
             } minimal: {
                 icon(context)
             }
-            .widgetURL(DeepLink.log(kindRaw: nil))
+            .widgetURL(DeepLink.quickLog)
         }
+        // The Watch's Smart Stack gets its own layout: by default it showed
+        // only the compact island's two ends, the due time and no last feed.
+        .supplementalActivityFamilies([.small])
     }
 
     // MARK: Pieces
@@ -98,12 +107,24 @@ struct NextFeedLiveActivity: Widget {
     /// "12 minutes", counting up in whole minutes: the system updates it, the
     /// app doesn't. At minute precision the stopwatch spells its units out,
     /// so the compact island gets one unit, shrunk to fit if it has to.
-    private func nursingMinutes(since start: Date, compact: Bool = false) -> some View {
-        Text(.currentDate, format: .stopwatch(startingAt: start, showsHours: true, maxFieldCount: compact ? 1 : 2,
-                                              maxPrecision: .seconds(60)))
-            .monospacedDigit()
-            .lineLimit(1)
-            .minimumScaleFactor(compact ? 0.6 : 0.8)
+    ///
+    /// The first minute would read "0 minutes", so until the activity goes
+    /// stale (a minute after the start, see `LiveActivityManager`) it says
+    /// "Just started" instead, the way Today's hero never shows a zero.
+    @ViewBuilder
+    private func nursingMinutes(_ context: ActivityViewContext<NextFeedActivityAttributes>, since start: Date,
+                                compact: Bool = false) -> some View {
+        if !context.isStale {
+            Text(compact ? "Now" : "Just started")
+                .lineLimit(1)
+                .minimumScaleFactor(compact ? 0.6 : 0.8)
+        } else {
+            Text(.currentDate, format: .stopwatch(startingAt: start, showsHours: true, maxFieldCount: compact ? 1 : 2,
+                                                  maxPrecision: .seconds(60)))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(compact ? 0.6 : 0.8)
+        }
     }
 
     private func clock(_ date: Date, _ context: ActivityViewContext<NextFeedActivityAttributes>) -> String {
@@ -142,6 +163,47 @@ struct NextFeedLiveActivity: Widget {
         }
     }
 
+    /// The Apple Watch Smart Stack: the same three things as the Lock Screen,
+    /// what's next, how long until it, and the last feed, stacked to fit about
+    /// 170 × 75 points.
+    private func watch(_ context: ActivityViewContext<NextFeedActivityAttributes>) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                icon(context)
+                Text(title(context))
+                    .foregroundStyle(isDue(context) ? Color.red : Color.primary)
+            }
+            .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+
+            Group {
+                if let started = context.state.nursingStartedAt {
+                    nursingMinutes(context, since: started)
+                } else if let due = context.state.dueTime {
+                    if isDue(context) {
+                        Text("Due")
+                            .foregroundStyle(.red)
+                    } else {
+                        Text("\(clock(due, context)) · \(Text(.currentDate, format: FeedCountdown.timeLeftFormat(to: due)))")
+                    }
+                }
+            }
+            .font(.headline)
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+
+            Text(context.state.nursingStartedAt.map { "Started \(clock($0, context))" }
+                 ?? "Last \(clock(context.state.lastFeedTime, context)) · \(context.state.lastFeedText)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+    }
+
     private func lockScreen(_ context: ActivityViewContext<NextFeedActivityAttributes>) -> some View {
         HStack(spacing: 14) {
             Image(systemName: kind(context).systemImage)
@@ -176,7 +238,7 @@ struct NextFeedLiveActivity: Widget {
             Spacer(minLength: 8)
 
             if let started = context.state.nursingStartedAt {
-                nursingMinutes(since: started)
+                nursingMinutes(context, since: started)
                     .font(.title3.weight(.semibold))
                     .multilineTextAlignment(.trailing)
             } else if let due = context.state.dueTime {
@@ -184,6 +246,21 @@ struct NextFeedLiveActivity: Widget {
                     .font(.title3.weight(.semibold))
                     .multilineTextAlignment(.trailing)
             }
+        }
+    }
+}
+
+/// Picks the layout for where the activity is showing: `.small` is the Apple
+/// Watch Smart Stack (and CarPlay), `.medium` the iPhone Lock Screen.
+private struct ActivityFamilyContent<Small: View, Medium: View>: View {
+    @Environment(\.activityFamily) private var family
+    @ViewBuilder let small: Small
+    @ViewBuilder let medium: Medium
+
+    var body: some View {
+        switch family {
+        case .small: small
+        default: medium
         }
     }
 }

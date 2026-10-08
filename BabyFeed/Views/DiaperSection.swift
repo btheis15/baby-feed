@@ -81,6 +81,16 @@ struct DiaperSection: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Log \(kind.entryTitle.lowercased())")
+        // The tap logs it now; a long press picks a time, for the change
+        // that's logged after the fact.
+        .contextMenu {
+            Button {
+                router.sheet = .logDiaper(kind)
+            } label: {
+                Label("Log at another time…", systemImage: "clock")
+            }
+        }
+        .accessibilityAction(named: "Log at another time") { router.sheet = .logDiaper(kind) }
     }
 
     private func log(_ kind: DiaperKind) {
@@ -108,15 +118,44 @@ struct DiaperSection: View {
     }
 }
 
-/// Fixing a stray tap: the kind, the time, delete. Nothing else to a diaper.
-struct EditDiaperSheet: View {
+/// A diaper at a time other than now – changed in the night and logged in the
+/// morning – or fixing a stray tap. The one-tap buttons stay the fast path; this
+/// is behind a long press on them, the quick menu, and Edit.
+struct LogDiaperSheet: View {
+    enum Mode {
+        case new(DiaperKind)
+        case edit(DiaperEntry)
+    }
+
+    let mode: Mode
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
-    let entry: DiaperEntry
+    @Environment(AppRouter.self) private var router
+    @Environment(ToastCenter.self) private var toasts
 
-    @State private var kind: DiaperKind = .wet
-    @State private var time: Date = .now
+    @State private var kind: DiaperKind
+    @State private var time: Date
     @State private var showDeleteConfirmation = false
+
+    private static let timeChips = [0, 15, 30, 60]
+
+    init(mode: Mode) {
+        self.mode = mode
+        switch mode {
+        case .new(let kind):
+            _kind = State(initialValue: kind)
+            _time = State(initialValue: .now)
+        case .edit(let entry):
+            _kind = State(initialValue: entry.kind)
+            _time = State(initialValue: entry.time)
+        }
+    }
+
+    private var isEditing: Bool {
+        if case .edit = mode { return true }
+        return false
+    }
 
     var body: some View {
         NavigationStack {
@@ -128,11 +167,31 @@ struct EditDiaperSheet: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                }
 
-                    DatePicker("When", selection: $time, in: ...Date.now)
+                Section("When") {
+                    HStack(spacing: 8) {
+                        ForEach(Self.timeChips, id: \.self) { minutesBack in
+                            let selected = abs(minutesAgo - minutesBack) <= 1
+                            Button {
+                                time = Date.now.addingTimeInterval(-Double(minutesBack) * 60)
+                            } label: {
+                                Text(Self.chipLabel(minutesBack))
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
+                                    .padding(.vertical, 8)
+                                    .frame(maxWidth: .infinity)
+                                    .background(selected ? kind.color : Color(.tertiarySystemFill), in: Capsule())
+                                    .foregroundStyle(selected ? Color.white : Color.primary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    DatePicker("Exact time", selection: $time, in: ...Date.now.addingTimeInterval(60))
                 }
             }
-            .navigationTitle("Edit diaper")
+            .navigationTitle(isEditing ? "Edit diaper" : "Log diaper")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -141,30 +200,55 @@ struct EditDiaperSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
                 }
-                ToolbarItem(placement: .destructiveAction) {
-                    Button("Delete", role: .destructive) { showDeleteConfirmation = true }
+                if isEditing {
+                    ToolbarItem(placement: .destructiveAction) {
+                        Button("Delete", role: .destructive) { showDeleteConfirmation = true }
+                    }
                 }
             }
             .confirmationDialog("Delete this diaper?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
                 Button("Delete Diaper", role: .destructive) {
-                    entry.softDelete()
-                    FeedCoordinator.feedsDidChange(in: modelContext)
+                    if case .edit(let entry) = mode {
+                        entry.softDelete()
+                        FeedCoordinator.feedsDidChange(in: modelContext)
+                    }
                     dismiss()
                 }
-            }
-            .onAppear {
-                kind = entry.kind
-                time = entry.time
             }
         }
         .presentationDetents([.medium])
     }
 
+    private var minutesAgo: Int {
+        Int(Date.now.timeIntervalSince(time) / 60)
+    }
+
+    static func chipLabel(_ minutesBack: Int) -> String {
+        switch minutesBack {
+        case 0: "Now"
+        case 60: "1 hr ago"
+        default: "\(minutesBack) min ago"
+        }
+    }
+
     private func save() {
-        entry.kind = kind
-        entry.time = time
-        entry.markChanged()
-        FeedCoordinator.feedsDidChange(in: modelContext)
+        switch mode {
+        case .new:
+            let entry = DiaperEntry(
+                babyID: AppSettings.currentBabyID,
+                time: time,
+                kind: kind,
+                loggedByName: AppSettings.displayName
+            )
+            modelContext.insert(entry)
+            FeedCoordinator.feedsDidChange(in: modelContext)
+            toasts.logged(.diaper(entry), context: modelContext, router: router)
+        case .edit(let entry):
+            entry.kind = kind
+            entry.time = time
+            entry.markChanged()
+            FeedCoordinator.feedsDidChange(in: modelContext)
+        }
         dismiss()
     }
 }

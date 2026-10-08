@@ -20,8 +20,15 @@ struct LogFeedSheet: View {
     @AppStorage(BabyProfile.nameKey) private var babyName = ""
 
     @State private var kind: FeedKind
-    /// Bottle amount in the display unit (oz or ml).
+    /// Bottle amount in `entryUnit`.
     @State private var amount: Double
+    /// The unit this one feed is entered in. Starts as the one in Settings;
+    /// switching it is for the odd bottle marked only in the other. It's
+    /// saved in ml either way, so totals still show in the Settings unit.
+    @State private var entryUnit: VolumeUnit
+    /// What's typed while the amount field has the keyboard.
+    @State private var amountText = ""
+    @FocusState private var amountFocused: Bool
     @State private var minutes: Int
     @State private var side: NursingSide?
     @State private var time: Date
@@ -44,6 +51,7 @@ struct LogFeedSheet: View {
             isEditing = false
             _kind = State(initialValue: kind)
             _amount = State(initialValue: Self.defaultAmount(for: kind, unit: unit))
+            _entryUnit = State(initialValue: unit)
             _minutes = State(initialValue: FeedDefaults.defaultNursingMinutes())
             _side = State(initialValue: nil)
             _time = State(initialValue: .now)
@@ -51,9 +59,12 @@ struct LogFeedSheet: View {
         case .edit(let entry):
             isEditing = true
             _kind = State(initialValue: entry.kind)
-            let amount = entry.amountML.map { unit.rounded(unit.fromMilliliters($0)) }
+            // To the unit's precision, not its step: an exact 75 ml reopens as
+            // 75, not 80.
+            let amount = entry.amountML.map { unit.roundedToPrecision(unit.fromMilliliters($0)) }
                 ?? Self.defaultAmount(for: entry.kind, unit: unit)
             _amount = State(initialValue: amount)
+            _entryUnit = State(initialValue: unit)
             _minutes = State(initialValue: entry.durationMinutes ?? FeedDefaults.defaultNursingMinutes())
             _side = State(initialValue: entry.side)
             _time = State(initialValue: entry.startTime)
@@ -63,7 +74,7 @@ struct LogFeedSheet: View {
 
     private static func defaultAmount(for kind: FeedKind, unit: VolumeUnit) -> Double {
         let bottleKind: FeedKind = kind.usesVolume ? kind : .formula
-        return unit.rounded(unit.fromMilliliters(FeedDefaults.defaultAmountML(for: bottleKind, unit: unit)))
+        return unit.roundedToPrecision(unit.fromMilliliters(FeedDefaults.defaultAmountML(for: bottleKind, unit: unit)))
     }
 
     var body: some View {
@@ -113,7 +124,28 @@ struct LogFeedSheet: View {
             .onChange(of: kind) { _, newKind in
                 // Switching bottle kinds on a new entry picks up that kind's usual amount.
                 if !isEditing, newKind.usesVolume {
-                    amount = Self.defaultAmount(for: newKind, unit: unit)
+                    amount = entryUnit.converted(Self.defaultAmount(for: newKind, unit: unit), from: unit)
+                }
+            }
+            .onChange(of: entryUnit) { oldUnit, newUnit in
+                amount = newUnit.converted(amount, from: oldUnit)
+                amountText = newUnit.formatValue(amount)
+            }
+            .onChange(of: amount, initial: true) { _, newAmount in
+                if !amountFocused { amountText = entryUnit.formatValue(newAmount) }
+            }
+            .onChange(of: amountFocused) { _, focused in
+                // Typing starts from what's showing, and leaving the field
+                // tidies it to the unit's precision.
+                if !focused {
+                    amount = entryUnit.roundedToPrecision(amount)
+                    amountText = entryUnit.formatValue(amount)
+                }
+            }
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { amountFocused = false }
                 }
             }
         }
@@ -127,32 +159,73 @@ struct LogFeedSheet: View {
 
             HStack(spacing: 20) {
                 stepButton("minus") {
-                    amount = max(0, unit.rounded(amount - unit.step))
+                    amountFocused = false
+                    amount = max(0, entryUnit.roundedToPrecision(amount - entryUnit.adjustStep))
                 }
-                VStack(spacing: 0) {
-                    Text(unit.formatValue(amount))
+                VStack(spacing: 4) {
+                    // Tap the number to type an exact amount: 75 ml, 2.3 oz.
+                    TextField("Amount", text: $amountText)
+                        .focused($amountFocused)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.center)
                         .font(.system(size: 56, weight: .bold, design: .rounded))
                         .monospacedDigit()
-                        .contentTransition(.numericText())
-                    Text(unit.symbol)
-                        .font(.title3)
+                        .minimumScaleFactor(0.6)
+                        .onChange(of: amountText) { _, text in
+                            guard amountFocused else { return }
+                            if let value = Self.parseAmount(text) {
+                                amount = min(entryUnit.maximum, max(0, value))
+                            }
+                        }
+                        .accessibilityLabel("Amount in \(entryUnit == .ounces ? "ounces" : "milliliters")")
+                    Picker("Unit", selection: $entryUnit) {
+                        ForEach(VolumeUnit.allCases) { unit in
+                            Text(unit.symbol).tag(unit)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 110)
+                    Text(entryUnit.other.format(milliliters: entryUnit.toMilliliters(amount)))
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .accessibilityLabel("Same as \(entryUnit.other.format(milliliters: entryUnit.toMilliliters(amount)))")
                 }
                 .frame(minWidth: 130)
                 stepButton("plus") {
-                    amount = min(unit.maximum, unit.rounded(amount + unit.step))
+                    amountFocused = false
+                    amount = min(entryUnit.maximum, entryUnit.roundedToPrecision(amount + entryUnit.adjustStep))
                 }
             }
             .frame(maxWidth: .infinity)
 
-            chips(unit.presets,
+            chips(entryUnit.presets,
                   isSelected: { abs($0 - amount) < 0.001 },
-                  label: { unit.formatValue($0) }) { amount = $0 }
+                  label: { entryUnit.formatValue($0) }) { amountFocused = false; amount = $0 }
+
+            if entryUnit == .ounces {
+                // The part of an ounce on top of the whole ones: 3, then ½,
+                // is 3½ oz. Tapping the chosen one again goes back to 3.
+                chips(VolumeUnit.ounceFractions.map(\.value),
+                      isSelected: { abs(fraction - $0) < 0.001 },
+                      label: { value in VolumeUnit.ounceFractions.first { $0.value == value }?.label ?? "" }) { value in
+                    amountFocused = false
+                    let whole = amount.rounded(.down)
+                    amount = min(entryUnit.maximum, abs(fraction - value) < 0.001 ? whole : whole + value)
+                }
+            }
+
+            if entryUnit != unit {
+                Text("Just this feed. Totals still show in \(unit.symbol), as set in Settings.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             // The recommendation invites reading a small feed as a failure, so
             // say plainly that it isn't one, right where the doubt happens.
             if let comparison = IntakeGuidance.compare(
-                loggedML: unit.toMilliliters(amount),
+                loggedML: entryUnit.toMilliliters(amount),
                 recommendedML: recommendedPerFeedML > 0 ? recommendedPerFeedML : nil
             ), let note = IntakeGuidance.note(for: comparison, babyName: babyDisplayName) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -278,6 +351,20 @@ struct LogFeedSheet: View {
 
     // MARK: Pieces
 
+    /// What's past the whole ounces, to the quarter: 0.5 for 3½ oz.
+    private var fraction: Double {
+        let quarters = VolumeUnit.ounces.roundedToPrecision(amount)
+        return quarters - quarters.rounded(.down)
+    }
+
+    /// "75", "2.5" or "2,5": the decimal pad gives the locale's separator.
+    static func parseAmount(_ text: String, locale: Locale = .current) -> Double? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        if let value = try? Double(trimmed, format: .number.locale(locale)) { return value }
+        return Double(trimmed.replacingOccurrences(of: ",", with: "."))
+    }
+
     private var minutesAgo: Int {
         Int(Date.now.timeIntervalSince(time) / 60)
     }
@@ -340,7 +427,7 @@ struct LogFeedSheet: View {
     // MARK: Actions
 
     private func save() {
-        let amountML: Double? = kind.usesVolume ? unit.toMilliliters(amount) : nil
+        let amountML: Double? = kind.usesVolume ? entryUnit.toMilliliters(entryUnit.roundedToPrecision(amount)) : nil
         let duration: Int? = kind.usesVolume ? nil : minutes
         let nursingSide: NursingSide? = kind.usesVolume ? nil : side
         let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -379,7 +466,7 @@ struct LogFeedSheet: View {
 
         FeedCoordinator.feedsDidChange(in: modelContext)
         if let logged {
-            toasts.logged(.feed(logged), detail: logged.detailText(unit: unit), context: modelContext, router: router)
+            toasts.logged(.feed(logged), detail: logged.detailText(unit: unit, showsOther: true), context: modelContext, router: router)
         }
         dismiss()
     }

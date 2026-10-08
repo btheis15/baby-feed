@@ -18,7 +18,7 @@ struct FeedRow: View {
             // necessarily the person who held the bottle. The attribution comes
             // first so any truncation eats the note instead.
             subtitle: EntryRow.joined([LoggedBy.text(entry.loggedByName), entry.note]),
-            value: entry.detailText(unit: unit),
+            value: entry.detailText(unit: unit, showsOther: true),
             time: showsDay
                 ? ClockText.since(entry.startTime, now: .now, in: timeZone)
                 : ClockText.time(entry.startTime, in: timeZone)

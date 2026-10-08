@@ -15,6 +15,25 @@ enum ServerConfig {
     /// This build's server, read once: screens ask on every redraw.
     static let current: URL? = defaultURL()
 
+    /// The same server from outside the house, from the optional `PublicHost`
+    /// ("your-name.duckdns.org:4443"). Always https. Nil when not set, and a
+    /// phone that has been home learns it from the server anyway.
+    nonisolated static let publicURL: URL? = readPublicURL()
+
+    nonisolated static func readPublicURL(bundle: Bundle = .main) -> URL? {
+        guard let url = bundle.url(forResource: resourceName, withExtension: "plist"),
+              let data = try? Data(contentsOf: url),
+              let values = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        else { return nil }
+        return publicURL(from: values)
+    }
+
+    nonisolated static func publicURL(from values: [String: Any]) -> URL? {
+        let host = (values["PublicHost"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+        guard !host.isEmpty, !host.contains("$(") else { return nil }
+        return SyncLink.normalizedServerURL("https://\(host)")
+    }
+
     static func defaultURL(bundle: Bundle = .main) -> URL? {
         guard let url = bundle.url(forResource: resourceName, withExtension: "plist"),
               let data = try? Data(contentsOf: url),

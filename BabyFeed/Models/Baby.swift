@@ -20,8 +20,14 @@ final class Baby {
     var updatedAt: Date = Date()
     var deletedAt: Date?
     var needsUpload: Bool = false
+    /// End-to-end encrypted on the server (`SealedLog`). Set for babies added
+    /// from this version on; false, and so readable on the server exactly as
+    /// before, for every baby that existed already. Never changes after.
+    var isSealed: Bool = false
 
-    init(uuid: UUID = UUID(), name: String, birthDate: Date?, sex: BabySex = .unspecified, dueDate: Date? = nil) {
+    init(uuid: UUID = UUID(), name: String, birthDate: Date?, sex: BabySex = .unspecified, dueDate: Date? = nil,
+         isSealed: Bool = false) {
+        self.isSealed = isSealed
         self.uuid = uuid
         self.name = name
         self.birthDate = birthDate

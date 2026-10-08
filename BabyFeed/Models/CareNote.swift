@@ -93,8 +93,15 @@ enum CareNoteKind: String, CaseIterable, Identifiable, Codable {
     case teething
     case injury
     case other
+    /// Not a note anyone writes: the marker for a day with nothing logged
+    /// that a parent said was fine (`FineDays`). Older builds read the kind
+    /// as `other` and still show its sentence.
+    case allFine
 
     var id: String { rawValue }
+
+    /// The kinds a parent picks from when writing a note or a concern.
+    static var pickable: [CareNoteKind] { allCases.filter { $0 != .allFine } }
 
     var title: String {
         switch self {
@@ -114,6 +121,7 @@ enum CareNoteKind: String, CaseIterable, Identifiable, Codable {
         case .teething: "Teething"
         case .injury: "Bump or injury"
         case .other: "Something else"
+        case .allFine: "Everything was fine"
         }
     }
 
@@ -134,7 +142,7 @@ enum CareNoteKind: String, CaseIterable, Identifiable, Codable {
         case .sleep: "Sleep"
         case .teething: "Teething"
         case .injury: "Bump"
-        case .other: ""
+        case .other, .allFine: ""
         }
     }
 
@@ -155,6 +163,7 @@ enum CareNoteKind: String, CaseIterable, Identifiable, Codable {
         case .teething: "mouth.fill"
         case .injury: "bandage.fill"
         case .other: "square.and.pencil"
+        case .allFine: "checkmark.seal"
         }
     }
 
@@ -177,6 +186,7 @@ enum CareNoteKind: String, CaseIterable, Identifiable, Codable {
         case .teething: "Drooling a lot, chewing everything…"
         case .injury: "Rolled off the changing mat, cried straight away…"
         case .other: "What happened, and anything that seemed to help…"
+        case .allFine: FineDays.noteText
         }
     }
 
@@ -184,7 +194,7 @@ enum CareNoteKind: String, CaseIterable, Identifiable, Codable {
     var usesSeverity: Bool {
         switch self {
         case .breathing, .cough, .eye, .crying, .spitUp, .vomiting, .rash, .sleep, .teething, .injury: true
-        case .jaundice, .cord, .stool, .temperature, .other: false
+        case .jaundice, .cord, .stool, .temperature, .other, .allFine: false
         }
     }
 }
@@ -203,4 +213,10 @@ enum CareNoteSeverity: Int, CaseIterable, Identifiable, Codable {
         case .severe: "Severe"
         }
     }
+}
+
+extension Array where Element == CareNote {
+    /// The notes written about the baby, without the "everything was fine"
+    /// day markers, for the Health tab's lists and counts.
+    var writtenNotes: [CareNote] { filter { $0.kind != .allFine } }
 }

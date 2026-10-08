@@ -19,7 +19,7 @@ struct CareNotesView: View {
     let babyName: String
 
     private var careNotes: [CareNote] {
-        allCareNotes.active(for: UUID(uuidString: currentBabyIDRaw))
+        allCareNotes.active(for: UUID(uuidString: currentBabyIDRaw)).writtenNotes
     }
 
     var body: some View {

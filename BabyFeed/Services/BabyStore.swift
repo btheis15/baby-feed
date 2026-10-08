@@ -15,11 +15,14 @@ enum BabyStore {
         if current == nil {
             // First launch (or upgrade from the profile-in-defaults version).
             let profile = BabyProfile.load()
+            // A first launch on this version: the baby added here will be
+            // encrypted when it's shared.
             let baby = Baby(
                 name: profile.name,
                 birthDate: profile.birthDate,
                 sex: profile.sex,
-                dueDate: profile.dueDate
+                dueDate: profile.dueDate,
+                isSealed: true
             )
             context.insert(baby)
             current = baby
@@ -118,7 +121,7 @@ enum BabyStore {
         dueDate: Date? = nil,
         in context: ModelContext
     ) -> Baby {
-        let baby = Baby(name: name, birthDate: birthDate, sex: sex, dueDate: dueDate)
+        let baby = Baby(name: name, birthDate: birthDate, sex: sex, dueDate: dueDate, isSealed: true)
         context.insert(baby)
         try? context.save()
         setCurrent(baby, in: context)
@@ -171,9 +174,12 @@ enum BabyStore {
         if existing.count == 1, let only = existing.first, isPlaceholder(only, in: context) {
             baby = only
         } else {
-            baby = Baby(name: name, birthDate: birthDate)
+            baby = Baby(name: name, birthDate: birthDate, isSealed: true)
             context.insert(baby)
         }
+        // A baby added now is encrypted once shared. The placeholder it may
+        // fill in has never been on the server, so it can be too.
+        if !baby.isShared { baby.isSealed = true }
         baby.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         baby.birthDate = birthDate
         baby.sex = sex
@@ -214,7 +220,7 @@ enum BabyStore {
             if let next = allBabies(in: context).first(where: { $0.uuid != id }) {
                 setCurrent(next, in: context)
             } else {
-                let fresh = Baby(name: "", birthDate: nil)
+                let fresh = Baby(name: "", birthDate: nil, isSealed: true)
                 context.insert(fresh)
                 try? context.save()
                 setCurrent(fresh, in: context)

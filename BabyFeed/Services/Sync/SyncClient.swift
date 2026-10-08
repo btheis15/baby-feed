@@ -92,6 +92,9 @@ struct SyncClient: Sendable {
         request.httpBody = body
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        // This build can open sealed logs; without this, the server leaves
+        // them out rather than hand over a log the app couldn't read.
+        request.setValue("1", forHTTPHeaderField: "X-BabyFeed-Sealed")
         return request
     }
 
@@ -151,15 +154,19 @@ struct SyncClient: Sendable {
         /// The tables this server stores. Nil from servers that don't say,
         /// which are from before the health records.
         let tables: [String]?
+        /// The address that reaches this server from outside the house.
+        let publicURL: URL?
 
         enum CodingKeys: String, CodingKey {
             case ok, service, api, features, enroll, tables
             case serverID = "server_id"
             case enrollAvailable = "enroll_available"
+            case publicURL = "public_url"
         }
 
         init(ok: Bool, service: String, api: Int?, serverID: String?, features: [String], enroll: String?,
-             enrollAvailable: Bool?, tables: [String]? = nil) {
+             enrollAvailable: Bool?, tables: [String]? = nil, publicURL: URL? = nil) {
+            self.publicURL = publicURL
             self.ok = ok
             self.service = service
             self.api = api
@@ -180,9 +187,17 @@ struct SyncClient: Sendable {
             enroll = try container.decodeIfPresent(String.self, forKey: .enroll)
             enrollAvailable = try container.decodeIfPresent(Bool.self, forKey: .enrollAvailable)
             tables = try container.decodeIfPresent([String].self, forKey: .tables)
+            // Only an https address is taken: a token never goes over plain
+            // http to the internet.
+            publicURL = try container.decodeIfPresent(String.self, forKey: .publicURL)
+                .flatMap(SyncLink.normalizedServerURL)
+                .flatMap { $0.scheme == "https" ? $0 : nil }
         }
 
         func supports(_ feature: String) -> Bool { features.contains(feature) }
+
+        /// Whether this server can keep sealed (end-to-end encrypted) logs.
+        var supportsSealed: Bool { supports("sealed") }
     }
 
     /// Checks an address is a Baby Feed server before saving it, so a typo
@@ -346,6 +361,21 @@ struct SyncClient: Sendable {
                               as: Invite.self)
     }
 
+    private struct Stored: Decodable { let stored: Bool }
+
+    /// This person's copy of a sealed log's key, locked with their phrase.
+    func putBabyKey(babyID: UUID, wrapped: String) async throws {
+        let body = try Self.encoder.encode(["wrapped": wrapped])
+        _ = try await send(try request("PUT", "/v1/babies/\(babyID.uuidString)/key", body: body), as: Stored.self)
+    }
+
+    /// This person's name on a sealed log, encrypted with the log's key.
+    func putSealedName(babyID: UUID, sealedName: String) async throws {
+        let body = try Self.encoder.encode(["sealed_name": sealedName])
+        _ = try await send(try request("PUT", "/v1/babies/\(babyID.uuidString)/members/me", body: body),
+                           as: Stored.self)
+    }
+
     private struct MembersResponse: Decodable { let members: [MemberDTO] }
 
     func members(babyID: UUID) async throws -> [MemberDTO] {
@@ -385,30 +415,55 @@ struct SyncClient: Sendable {
     }
 
     struct PullResult: Decodable {
-        let babies: [BabyDTO]
-        let feeds: [FeedDTO]
-        let weights: [WeightDTO]
-        let careNotes: [CareNoteDTO]
-        let diapers: [DiaperDTO]
-        let solidFoods: [SolidFoodDTO]
-        let concerns: [HealthConcernDTO]
-        let medications: [MedicationDTO]
-        let medicationDoses: [MedicationDoseDTO]
-        let doctorVisits: [DoctorVisitDTO]
-        let members: [MemberDTO]
+        // Variables so a sealed log's rows, once opened, join the readable
+        // ones and go through exactly the same merge (see SealedPull).
+        var babies: [BabyDTO]
+        var feeds: [FeedDTO]
+        var weights: [WeightDTO]
+        var careNotes: [CareNoteDTO]
+        var diapers: [DiaperDTO]
+        var solidFoods: [SolidFoodDTO]
+        var concerns: [HealthConcernDTO]
+        var medications: [MedicationDTO]
+        var medicationDoses: [MedicationDoseDTO]
+        var doctorVisits: [DoctorVisitDTO]
+        var members: [MemberDTO]
+        /// A sealed log's rows, still sealed.
+        var sealed: [SealedLog.Row]
         let hasMore: Bool
         /// Exactly where the next page starts. Nil from servers that don't
         /// say, where the app falls back to the newest stamp it saw.
         let nextSince: Date?
 
         enum CodingKeys: String, CodingKey {
-            case babies, feeds, weights, diapers, members, concerns, medications
+            case babies, feeds, weights, diapers, members, concerns, medications, sealed
             case careNotes = "care_notes"
             case solidFoods = "solid_foods"
             case medicationDoses = "medication_doses"
             case doctorVisits = "doctor_visits"
             case hasMore = "has_more"
             case nextSince = "next_since"
+        }
+
+        init(babies: [BabyDTO] = [], feeds: [FeedDTO] = [], weights: [WeightDTO] = [],
+             careNotes: [CareNoteDTO] = [], diapers: [DiaperDTO] = [], solidFoods: [SolidFoodDTO] = [],
+             concerns: [HealthConcernDTO] = [], medications: [MedicationDTO] = [],
+             medicationDoses: [MedicationDoseDTO] = [], doctorVisits: [DoctorVisitDTO] = [],
+             members: [MemberDTO] = [], sealed: [SealedLog.Row] = [], hasMore: Bool = false, nextSince: Date? = nil) {
+            self.babies = babies
+            self.feeds = feeds
+            self.weights = weights
+            self.careNotes = careNotes
+            self.diapers = diapers
+            self.solidFoods = solidFoods
+            self.concerns = concerns
+            self.medications = medications
+            self.medicationDoses = medicationDoses
+            self.doctorVisits = doctorVisits
+            self.members = members
+            self.sealed = sealed
+            self.hasMore = hasMore
+            self.nextSince = nextSince
         }
 
         // A server from before diapers or solid foods existed omits those
@@ -427,6 +482,7 @@ struct SyncClient: Sendable {
             medicationDoses = try container.decodeIfPresent([MedicationDoseDTO].self, forKey: .medicationDoses) ?? []
             doctorVisits = try container.decodeIfPresent([DoctorVisitDTO].self, forKey: .doctorVisits) ?? []
             members = try container.decode([MemberDTO].self, forKey: .members)
+            sealed = try container.decodeIfPresent([SealedLog.Row].self, forKey: .sealed) ?? []
             hasMore = try container.decode(Bool.self, forKey: .hasMore)
             nextSince = try container.decodeIfPresent(Date.self, forKey: .nextSince)
         }
@@ -438,13 +494,14 @@ struct SyncClient: Sendable {
             stamps += diapers.compactMap(\.serverUpdatedAt) + solidFoods.compactMap(\.serverUpdatedAt)
             stamps += concerns.compactMap(\.serverUpdatedAt) + medications.compactMap(\.serverUpdatedAt)
             stamps += medicationDoses.compactMap(\.serverUpdatedAt) + doctorVisits.compactMap(\.serverUpdatedAt)
+            stamps += sealed.compactMap(\.serverUpdatedAt)
             return stamps
         }
 
         var isEmpty: Bool {
             babies.isEmpty && feeds.isEmpty && weights.isEmpty && careNotes.isEmpty
                 && diapers.isEmpty && solidFoods.isEmpty && concerns.isEmpty && medications.isEmpty
-                && medicationDoses.isEmpty && doctorVisits.isEmpty
+                && medicationDoses.isEmpty && doctorVisits.isEmpty && sealed.isEmpty
         }
     }
 
@@ -475,9 +532,11 @@ struct SyncPushPayload: Encodable {
     var medications: [MedicationDTO]?
     var medicationDoses: [MedicationDoseDTO]?
     var doctorVisits: [DoctorVisitDTO]?
+    /// Every row of a sealed log, already encrypted.
+    var sealed: [SealedLog.Row]?
 
     enum CodingKeys: String, CodingKey {
-        case babies, feeds, weights, diapers, concerns, medications
+        case babies, feeds, weights, diapers, concerns, medications, sealed
         case careNotes = "care_notes"
         case solidFoods = "solid_foods"
         case medicationDoses = "medication_doses"
@@ -490,5 +549,6 @@ struct SyncPushPayload: Encodable {
             && (diapers?.isEmpty ?? true) && (solidFoods?.isEmpty ?? true)
             && (concerns?.isEmpty ?? true) && (medications?.isEmpty ?? true)
             && (medicationDoses?.isEmpty ?? true) && (doctorVisits?.isEmpty ?? true)
+            && (sealed?.isEmpty ?? true)
     }
 }
