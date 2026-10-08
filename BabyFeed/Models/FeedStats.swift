@@ -10,6 +10,16 @@ struct FeedSummary: Equatable {
 
     init() {}
 
+    /// Nursing and no bottles: see `PeriodAverages.isNursingOnly`.
+    var isNursingOnly: Bool { nursingCount > 0 && bottleCount == 0 }
+
+    /// "3 nursing" or "45 min": what nursing came to, never a zero. A feed
+    /// logged without a length still counts as a feed.
+    var nursingText: String? {
+        guard nursingCount > 0 else { return nil }
+        return nursingMinutes > 0 ? "\(nursingMinutes) min" : (nursingCount == 1 ? "1 nursing" : "\(nursingCount) nursing")
+    }
+
     init(_ entries: [FeedEntry]) {
         for entry in entries {
             feedCount += 1
@@ -52,7 +62,12 @@ struct PeriodAverages: Equatable {
     var daysWithData = 0
     var feedCount = 0
     var totalML: Double = 0
+    var nursingCount = 0
     var nursingMinutes = 0
+
+    /// Nursing and no bottle volume: a "0 oz" would read as not eating
+    /// rather than as not measured, so screens show the nursing instead.
+    var isNursingOnly: Bool { nursingCount > 0 && totalML == 0 }
 
     var mlPerDay: Double { daysWithData > 0 ? totalML / Double(daysWithData) : 0 }
     var feedsPerDay: Double { daysWithData > 0 ? Double(feedCount) / Double(daysWithData) : 0 }
@@ -249,6 +264,7 @@ enum FeedStats {
             result.daysWithData += 1
             result.feedCount += summary.feedCount
             result.totalML += summary.totalML
+            result.nursingCount += summary.nursingCount
             result.nursingMinutes += summary.nursingMinutes
         }
         return result

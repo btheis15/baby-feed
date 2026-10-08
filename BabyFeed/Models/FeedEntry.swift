@@ -71,11 +71,13 @@ final class FeedEntry {
     }
 
     /// "3 oz" / "15 min · Left" – the short description used in lists.
-    func detailText(unit: VolumeUnit) -> String {
+    /// `showsOther` adds the other unit in parentheses, "3 oz (89 ml)", where
+    /// there's room for it: rows and toasts, not the widget.
+    func detailText(unit: VolumeUnit, showsOther: Bool = false) -> String {
         switch kind {
         case .formula, .breastMilk:
             if let amountML {
-                return unit.format(milliliters: amountML)
+                return showsOther ? unit.formatWithOther(milliliters: amountML) : unit.format(milliliters: amountML)
             }
             return "Bottle"
         case .nursing:

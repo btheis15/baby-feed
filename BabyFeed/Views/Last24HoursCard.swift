@@ -63,6 +63,8 @@ struct Last24HoursCard: View {
         }
         if summary.nursingMinutes > 0 {
             parts.append("\(summary.nursingMinutes) min nursing")
+        } else if summary.nursingCount > 0 {
+            parts.append(summary.nursingCount == 1 ? "1 nursing" : "\(summary.nursingCount) nursing")
         }
         parts.append(diapers.isEmpty ? "no diapers" : diapers.text)
         return parts.joined(separator: " · ")
@@ -90,6 +92,7 @@ struct Last24HoursView: View {
                     target: target,
                     consumedML: summary.totalML,
                     nursingMinutes: summary.nursingMinutes,
+                    nursingCount: summary.nursingCount,
                     unit: unit,
                     weightText: weightText,
                     babyName: babyName,

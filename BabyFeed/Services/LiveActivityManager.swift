@@ -24,7 +24,9 @@ enum LiveActivityManager {
                 nursingStartedAt: session.startedAt,
                 nursingSideRaw: session.side.rawValue
             )
-            let content = ActivityContent(state: state, staleDate: nil)
+            // Stale a minute in: until then the views say "Just started"
+            // rather than a stopwatch reading "0 minutes".
+            let content = ActivityContent(state: state, staleDate: session.startedAt.addingTimeInterval(60))
             if let current = running.first {
                 if current.content.state != state { await current.update(content) }
                 for extra in running.dropFirst() { await extra.end(nil, dismissalPolicy: .immediate) }

@@ -144,6 +144,12 @@ private struct ChartsList<ModePicker: View>: View {
         let rhythm = CareCharts.rhythm(feeds, range: interval, calendar: calendar)
         let overview = CareCharts.overview(concerns: concerns, doses: doses, visits: visits,
                                            feedDays: intake, diaperDays: diaperDays, range: interval, now: now)
+        // Days marked fine, filled in faded beside the logged ones; the
+        // sentences and the care overview keep to what was logged.
+        let fine = FineDays.marked(notes, calendar: calendar)
+        let shownIntake = FineDays.filled(intake, fine: fine)
+        let shownDiapers = FineDays.filled(diaperDays, fine: fine)
+        let unlogged = unloggedDays
         let floorStart = CareCharts.wetFloorStart(birthDate: profile.birthDate, calendar: calendar)
         let showsFloor = !diaperDays.isEmpty && (floorStart.map { $0 < interval.end } ?? false)
 
@@ -167,24 +173,38 @@ private struct ChartsList<ModePicker: View>: View {
 
             Section {
                 ChartRow(sentence: CareCharts.intakeSentence(intake, unit: unit, name: profile.displayName, range: range,
-                                                             today: calendar.startOfDay(for: now))) {
+                                                             today: calendar.startOfDay(for: now))
+                         + FineDays.sentenceSuffix(estimatedDays: shownIntake.filter(\.isEstimated).count)) {
                     if !intake.isEmpty {
-                        FeedsChart(days: intake, unit: unit, interval: interval, calendar: calendar)
+                        FeedsChart(days: shownIntake, unit: unit, interval: interval, calendar: calendar)
+                    }
+                }
+                if !unlogged.isEmpty {
+                    let unmarked = unlogged.filter { !fine.contains($0) }.count
+                    Button {
+                        router.sheet = .fineDays
+                    } label: {
+                        Label(unmarked == 0
+                              ? "\(unlogged.count == 1 ? "1 day" : "\(unlogged.count) days") marked fine, nothing logged"
+                              : "\(unmarked == 1 ? "1 day" : "\(unmarked) days") with nothing logged · mark the fine ones",
+                              systemImage: "checkmark.seal")
                     }
                 }
             } header: {
                 Text("Feeds")
             } footer: {
-                if CareCharts.showsTarget(intake) {
-                    Text("The dashed line is each day's target, from the weight known by then.")
-                }
+                Text([CareCharts.showsTarget(intake) ? "The dashed line is each day's target, from the weight known by then." : nil,
+                      shownIntake.contains(where: \.isEstimated) || shownDiapers.contains(where: \.isEstimated)
+                        ? "Faded bars marked est. are days marked fine with nothing logged, estimated from the days around them." : nil]
+                    .compactMap { $0 }.joined(separator: " "))
             }
 
             Section {
                 ChartRow(sentence: CareCharts.diaperSentence(diaperDays, range: range,
-                                                             today: calendar.startOfDay(for: now))) {
+                                                             today: calendar.startOfDay(for: now))
+                         + FineDays.sentenceSuffix(estimatedDays: shownDiapers.filter(\.isEstimated).count)) {
                     if !diaperDays.isEmpty {
-                        DiapersChart(days: diaperDays, floorStart: showsFloor ? floorStart : nil,
+                        DiapersChart(days: shownDiapers, floorStart: showsFloor ? floorStart : nil,
                                      interval: interval, calendar: calendar)
                     }
                 }
@@ -240,6 +260,15 @@ private struct ChartsList<ModePicker: View>: View {
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
+    }
+
+    /// Days in the range with no feed or diaper logged, from the first thing
+    /// ever logged (the days before it aren't missing) to yesterday.
+    private var unloggedDays: [Date] {
+        let firstLogged = (feeds.map(\.startTime) + diapers.map(\.time)).min()
+        guard let firstLogged else { return [] }
+        return FineDays.unlogged(feeds: feeds, diapers: diapers, from: max(interval.start, firstLogged),
+                                 today: now, calendar: calendar)
     }
 
     /// Says where "since the last visit" starts, or that there isn't one yet.
@@ -349,6 +378,8 @@ private struct FeedsChart: View {
             ForEach(days) { day in
                 BarMark(x: .value("Day", day.day, unit: .day), y: .value("Volume", unit.fromMilliliters(day.volumeML)))
                     .foregroundStyle(Color.accentColor.gradient)
+                    .opacity(day.isEstimated ? CareChartStyle.estimatedOpacity : 1)
+                    .annotation(position: .top) { CareChartStyle.estimatedTag(day.isEstimated) }
             }
             if showsTarget {
                 ForEach(days) { day in
@@ -380,11 +411,16 @@ private struct FeedsChart: View {
                 if mixed {
                     BarMark(x: .value("Day", day.day, unit: .day), y: .value("Feeds", day.bottles))
                         .foregroundStyle(by: .value("Kind", "Bottle"))
+                        .opacity(day.isEstimated ? CareChartStyle.estimatedOpacity : 1)
                     BarMark(x: .value("Day", day.day, unit: .day), y: .value("Feeds", day.nursing))
                         .foregroundStyle(by: .value("Kind", "Nursing"))
+                        .opacity(day.isEstimated ? CareChartStyle.estimatedOpacity : 1)
+                        .annotation(position: .top) { CareChartStyle.estimatedTag(day.isEstimated) }
                 } else {
                     BarMark(x: .value("Day", day.day, unit: .day), y: .value("Feeds", day.feeds))
                         .foregroundStyle(showsVolume ? Color.accentColor.opacity(0.55) : FeedKind.nursing.color)
+                        .opacity(day.isEstimated ? CareChartStyle.estimatedOpacity : 1)
+                        .annotation(position: .top) { CareChartStyle.estimatedTag(day.isEstimated) }
                 }
             }
         }
@@ -394,10 +430,11 @@ private struct FeedsChart: View {
         .frame(height: showsVolume ? 120 : 170)
         .accessibilityChartDescriptor(ChartDescription(
             title: "Feeds a day",
-            summary: "One bar per day with feeds logged; a day with none is a gap.",
+            summary: "One bar per day with feeds logged; a day with none is a gap, unless it was marked fine, which is an estimate.",
             xTitle: "Day", yTitle: "Feeds",
             series: [.init(name: "Feeds", points: days.map {
-                .init(label: CareCharts.dayLabel($0.day, calendar: calendar), value: Double($0.feeds))
+                .init(label: CareCharts.dayLabel($0.day, calendar: calendar) + ($0.isEstimated ? ", estimated" : ""),
+                      value: Double($0.feeds))
             })]
         ))
     }
@@ -417,8 +454,11 @@ private struct DiapersChart: View {
             ForEach(days) { day in
                 BarMark(x: .value("Day", day.day, unit: .day), y: .value("Diapers", day.wet))
                     .foregroundStyle(by: .value("Kind", "Wet"))
+                    .opacity(day.isEstimated ? CareChartStyle.estimatedOpacity : 1)
                 BarMark(x: .value("Day", day.day, unit: .day), y: .value("Diapers", day.dirty))
                     .foregroundStyle(by: .value("Kind", "Dirty"))
+                    .opacity(day.isEstimated ? CareChartStyle.estimatedOpacity : 1)
+                    .annotation(position: .top) { CareChartStyle.estimatedTag(day.isEstimated) }
             }
             if let floorStart {
                 RuleMark(xStart: .value("From", max(floorStart, interval.start)), xEnd: .value("To", interval.end),
@@ -443,7 +483,7 @@ private struct DiapersChart: View {
         .frame(height: 180)
         .accessibilityChartDescriptor(ChartDescription(
             title: "Diapers a day",
-            summary: "Wet and dirty diapers per day, for the days they were logged.",
+            summary: "Wet and dirty diapers per day, for the days they were logged, and estimated for days marked fine.",
             xTitle: "Day", yTitle: "Diapers",
             series: [
                 .init(name: "Wet", points: days.map { .init(label: CareCharts.dayLabel($0.day, calendar: calendar), value: Double($0.wet)) }),
@@ -710,8 +750,27 @@ struct WeightChartView: View {
     var caption: String? {
         var parts: [String] = []
         if !chart.outer.isEmpty { parts.append("Shaded: the WHO 15th–85th and 3rd–97th percentiles, with the 50th as a line.") }
-        if !chart.projection.isEmpty { parts.append("Dashed: an estimate from the last weigh-in to today.") }
+        if chart.projection.count > 2 {
+            parts.append("Dashed: an estimate from the last weigh-in to today, following the usual newborn dip and regain. \(NewbornWeight.explanation)")
+        } else if !chart.projection.isEmpty {
+            parts.append("Dashed: an estimate from the last weigh-in to today.")
+        }
         return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+}
+
+/// How a day marked fine (`FineDays`) is drawn: faded, and tagged "est." on
+/// top so the estimate is told apart without relying on the fade alone.
+enum CareChartStyle {
+    static let estimatedOpacity = 0.35
+
+    @ViewBuilder
+    static func estimatedTag(_ isEstimated: Bool) -> some View {
+        if isEstimated {
+            Text("est.")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

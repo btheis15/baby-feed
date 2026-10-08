@@ -226,7 +226,7 @@ enum DaySummaryGenerator {
                 averageItems.append(.init(
                     id: "bottle",
                     label: "By bottle",
-                    value: unit.format(milliliters: averaged.totalML / dayCount)
+                    value: unit.formatWithOther(milliliters: averaged.totalML / dayCount)
                 ))
             }
             if averaged.nursingMinutes > 0 {
@@ -247,10 +247,10 @@ enum DaySummaryGenerator {
             let formulaML = recent.filter { $0.kind == .formula }.reduce(0) { $0 + ($1.amountML ?? 0) }
             let breastMilkML = recent.filter { $0.kind == .breastMilk }.reduce(0) { $0 + ($1.amountML ?? 0) }
             if formulaML > 0 {
-                totalItems.append(.init(id: "formula", label: "Formula", value: unit.format(milliliters: formulaML)))
+                totalItems.append(.init(id: "formula", label: "Formula", value: unit.formatWithOther(milliliters: formulaML)))
             }
             if breastMilkML > 0 {
-                totalItems.append(.init(id: "breastMilk", label: "Breast milk", value: unit.format(milliliters: breastMilkML)))
+                totalItems.append(.init(id: "breastMilk", label: "Breast milk", value: unit.formatWithOther(milliliters: breastMilkML)))
             }
             if total.nursingCount > 0 {
                 totalItems.append(.init(
@@ -299,7 +299,7 @@ enum DaySummaryGenerator {
                 shortTitle: shortDayTitle(for: day, calendar: calendar, now: now),
                 feedCount: summary.feedCount,
                 volumeText: summary.bottleCount > 0 ? unit.format(milliliters: summary.totalML) : nil,
-                nursingText: summary.nursingMinutes > 0 ? "\(summary.nursingMinutes) min" : nil,
+                nursingText: summary.nursingText,
                 diaperText: (tally?.isEmpty ?? true) ? nil : tally?.text,
                 wet: tally?.wet ?? 0,
                 dirty: tally?.dirty ?? 0,

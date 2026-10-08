@@ -74,6 +74,8 @@ enum CareCharts {
         let nursingMinutes: Int
         /// The daily target as it stood at the end of that day.
         let targetML: Double?
+        /// A day marked fine with nothing logged, filled in by `FineDays`.
+        var isEstimated = false
         var id: Date { day }
     }
 
@@ -195,6 +197,8 @@ enum CareCharts {
         let day: Date
         let wet: Int
         let dirty: Int
+        /// A day marked fine with nothing logged, filled in by `FineDays`.
+        var isEstimated = false
         var id: Date { day }
     }
 
@@ -338,8 +342,25 @@ enum CareCharts {
         let newestFirst = sorted.reversed().map { $0 }
         if let projection = GrowthProjector.project(weights: newestFirst, profile: profile, now: now, calendar: calendar),
            !projection.isMeasured {
-            chart.projection = [WeightPoint(date: projection.anchorDate, grams: projection.anchorGrams),
-                                WeightPoint(date: now, grams: projection.estimatedGrams)]
+            let anchorDay = profile.ageInDays(on: projection.anchorDate, calendar: calendar) ?? .max
+            if anchorDay < NewbornWeight.settledByDay {
+                // From a weigh-in in the first two weeks the estimate dips
+                // and comes back, so it's drawn a day at a time, not as one
+                // straight line that would hide the dip.
+                let anchorStart = calendar.startOfDay(for: projection.anchorDate)
+                var points = [WeightPoint(date: projection.anchorDate, grams: projection.anchorGrams)]
+                for offset in 1...max(1, projection.daysSinceAnchor) {
+                    guard let day = calendar.date(byAdding: .day, value: offset, to: anchorStart) else { continue }
+                    let moment = min(day.addingTimeInterval(12 * 3600), now)
+                    if let step = GrowthProjector.project(weights: newestFirst, profile: profile, now: moment, calendar: calendar) {
+                        points.append(WeightPoint(date: moment, grams: step.estimatedGrams))
+                    }
+                }
+                chart.projection = points
+            } else {
+                chart.projection = [WeightPoint(date: projection.anchorDate, grams: projection.anchorGrams),
+                                    WeightPoint(date: now, grams: projection.estimatedGrams)]
+            }
         }
         return chart
     }

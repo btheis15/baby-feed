@@ -34,7 +34,7 @@ struct EntryEditor: View {
             }
         case .diaper(let id):
             if let entry = modelContext.model(for: id) as? DiaperEntry {
-                EditDiaperSheet(entry: entry)
+                LogDiaperSheet(mode: .edit(entry))
             } else {
                 missing
             }
@@ -52,7 +52,12 @@ struct EntryEditor: View {
             }
         case .note(let id):
             if let entry = modelContext.model(for: id) as? CareNote {
-                LogCareNoteSheet(mode: .edit(entry))
+                if entry.kind == .allFine {
+                    // A marker, not a note: unmarking it happens where it was marked.
+                    FineDaysSheet(babyID: entry.babyID)
+                } else {
+                    LogCareNoteSheet(mode: .edit(entry))
+                }
             } else {
                 missing
             }

@@ -93,4 +93,7 @@ enum DeepLink {
     }
 
     static let home = URL(string: "\(scheme)://home")!
+
+    /// The quick menu: feed and diaper first, then everything else.
+    static let quickLog = URL(string: "\(scheme)://quick")!
 }

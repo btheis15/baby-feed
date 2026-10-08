@@ -149,7 +149,7 @@ enum TimelineItem: Identifiable {
         // list of coloured ones reads as disabled.
         case .food(let food, _): food.reaction.color == .secondary ? .green : food.reaction.color
         case .weight: .blue
-        case .note: .purple
+        case .note(let note): note.kind == .allFine ? .green : .purple
         case .concern: .orange
         case .dose: .mint
         case .visit: .indigo

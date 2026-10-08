@@ -58,7 +58,9 @@ struct TimelineRow: View {
                 symbol: item.systemImage,
                 tint: item.tint,
                 title: note.kind.title,
-                badge: note.severity?.title,
+                // A day marked fine is said to be one, so it never reads as
+                // something that was logged.
+                badge: note.kind == .allFine ? "Not logged" : note.severity?.title,
                 subtitle: EntryRow.joined([note.note, LoggedBy.text(note.loggedByName)]),
                 value: nil,
                 time: when(note.date),

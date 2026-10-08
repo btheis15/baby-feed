@@ -354,6 +354,11 @@ struct BabyView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                    if projection.followsNewbornDip {
+                        Text("\(NewbornWeight.explanation) The estimate follows that dip, so a lower number this week is expected, not a worry.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 if let days = GrowthProjector.daysUntilFreshWeight(projection) {

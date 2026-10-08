@@ -32,6 +32,14 @@ final class AppRouter {
     /// from outside the app, so it should win.
     enum Sheet: Identifiable {
         case log(FeedKind)
+        /// A diaper at a chosen time: a long press on Today's buttons, or the
+        /// quick menu.
+        case logDiaper(DiaperKind)
+        /// The quick menu a Live Activity tap opens: feed and diaper big,
+        /// everything else under them.
+        case quickLog
+        /// Days with nothing logged, to mark the ones that were fine.
+        case fineDays
         /// A scanned QR or a sent link: joins straight away. Opens over
         /// whatever is on screen, because the person didn't come here through
         /// the app and shouldn't be left on a tab to go hunting from.
@@ -63,6 +71,9 @@ final class AppRouter {
         var id: String {
             switch self {
             case .log: "log"
+            case .logDiaper(let kind): "diaper-\(kind.rawValue)"
+            case .quickLog: "quickLog"
+            case .fineDays: "fineDays"
             case .join: "join"
             case .pairing: "pairing"
             case .onboarding: "onboarding"
@@ -86,7 +97,7 @@ final class AppRouter {
         sheet = .log(kind ?? .formula)
     }
 
-    /// babyfeed://log, babyfeed://log/formula, babyfeed://home,
+    /// babyfeed://log, babyfeed://log/formula, babyfeed://home, babyfeed://quick,
     /// babyfeed://join?code=ABC123&server=https://…
     func handle(url: URL) {
         guard url.scheme == DeepLink.scheme else { return }
@@ -94,6 +105,9 @@ final class AppRouter {
         case "log":
             let kind = url.pathComponents.dropFirst().first.flatMap(FeedKind.init(rawValue:))
             openLog(kind: kind)
+        case DeepLink.quickLog.host:
+            tab = .today
+            sheet = .quickLog
         case SyncLink.host:
             openJoin(url: url)
         default:
