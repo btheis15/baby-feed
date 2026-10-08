@@ -16,9 +16,13 @@ struct BabyDTO: Codable, Equatable {
     var updatedAt: Date
     var deletedAt: Date?
     var serverUpdatedAt: Date?
+    /// True for a sealed (end-to-end encrypted) baby, whose readable row on
+    /// the server is blank and whose real details travel in a sealed row.
+    /// Nil from servers and babies from before.
+    var sealed: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
-        case id, name, sex
+        case id, name, sex, sealed
         case birthDate = "birth_date"
         case dueDate = "due_date"
         case createdBy = "created_by"
@@ -28,7 +32,8 @@ struct BabyDTO: Codable, Equatable {
     }
 
     init(id: UUID, name: String, birthDate: Date?, sex: String?, dueDate: Date?,
-         createdBy: UUID?, updatedAt: Date, deletedAt: Date?, serverUpdatedAt: Date?) {
+         createdBy: UUID?, updatedAt: Date, deletedAt: Date?, serverUpdatedAt: Date?, sealed: Bool? = nil) {
+        self.sealed = sealed
         self.id = id
         self.name = name
         self.birthDate = birthDate
@@ -181,6 +186,9 @@ struct MemberDTO: Codable, Equatable, Identifiable {
     var role: String
     var displayName: String
     var joinedAt: Date
+    /// On a sealed log, the name encrypted with its key; `displayName` is
+    /// filled in from it once opened.
+    var sealedName: String? = nil
 
     var id: UUID { userID }
     var isOwner: Bool { role == "owner" }
@@ -191,6 +199,7 @@ struct MemberDTO: Codable, Equatable, Identifiable {
         case userID = "user_id"
         case displayName = "display_name"
         case joinedAt = "joined_at"
+        case sealedName = "sealed_name"
     }
 }
 
@@ -689,22 +698,32 @@ struct MembershipDTO: Codable, Equatable, Identifiable {
     var updatedAt: Date
     var deletedAt: Date?
     var serverUpdatedAt: Date?
+    /// A sealed (end-to-end encrypted) log. Nil from servers from before.
+    var sealed: Bool? = nil
+    /// This person's copy of a sealed log's key, locked with their recovery
+    /// phrase, when they've made one.
+    var wrappedKey: String? = nil
+    /// This person's name on a sealed log, encrypted with its key.
+    var sealedName: String? = nil
 
     var isOwner: Bool { role == "owner" }
+    var isSealed: Bool { sealed == true }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, role, sex
+        case id, name, role, sex, sealed
         case birthDate = "birth_date"
         case dueDate = "due_date"
         case createdBy = "created_by"
         case updatedAt = "updated_at"
         case deletedAt = "deleted_at"
         case serverUpdatedAt = "server_updated_at"
+        case wrappedKey = "wrapped_key"
+        case sealedName = "sealed_name"
     }
 
     var baby: BabyDTO {
         BabyDTO(id: id, name: name, birthDate: birthDate, sex: sex, dueDate: dueDate,
                 createdBy: createdBy, updatedAt: updatedAt, deletedAt: deletedAt,
-                serverUpdatedAt: serverUpdatedAt)
+                serverUpdatedAt: serverUpdatedAt, sealed: sealed)
     }
 }

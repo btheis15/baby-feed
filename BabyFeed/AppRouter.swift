@@ -118,10 +118,10 @@ final class AppRouter {
     private func openJoin(url: URL) {
         if let complete = SyncLink.invitation(from: url) {
             sheet = .join(complete)
-        } else if let code = SyncLink.code(from: url),
-                  let server = SyncCredentials.serverURL ?? ServerConfig.current {
-            // A link with no server in it (an older one): usable because this
-            // phone, or this build, already knows one.
+        } else if let code = SyncLink.code(from: url), let server = SyncEngine.joinAddress {
+            // A link with no usable server in it (an older one, or one naming
+            // the home network): joined through the public address this
+            // phone or build already knows. Joining is never internal.
             sheet = .join(SyncLink.Invitation(code: code, server: server))
         } else {
             // Nothing usable in the link: the typed setup screen rather than

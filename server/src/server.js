@@ -16,7 +16,10 @@ import {
   isPlausibleRecoveryKey, normalizeRecoveryKey,
   enrollRefusal, isLoopbackAddress, ENROLL_MODES,
 } from './auth.js'
-import { normalizeRow, upsertRow, rowsSince, RowError } from './sync.js'
+import {
+  normalizeRow, upsertRow, rowsSince, RowError,
+  normalizeSealedRow, upsertSealedRow, sealedRowsSince, sealBabyRow,
+} from './sync.js'
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024 // a very long catch-up push is ~100 KB
 const MAX_PULL_LIMIT = 1000
@@ -27,7 +30,19 @@ const KEY_HASH_RE = /^[a-f0-9]{64}$/
 // older one before relying on a behaviour — sending a token with an invite to a
 // server that predates join_as_member would mint a second identity.
 const API_VERSION = 2
-const FEATURES = ['enroll', 'join_as_member', 'member_invites', 'account_keys']
+const FEATURES = ['enroll', 'join_as_member', 'member_invites', 'account_keys', 'sealed']
+
+/**
+ * Sent by every request from a build that can read sealed (end-to-end
+ * encrypted) babies. One without it is never shown one: it would list a baby
+ * with no name and pull rows it can't open.
+ */
+const SEALED_HEADER = 'x-babyfeed-sealed'
+const supportsSealed = (req) => req.headers[SEALED_HEADER] === '1'
+/** A baby key locked with a phrase: 32 bytes plus AES-GCM's nonce and tag, in base64. */
+const WRAPPED_KEY_RE = /^[A-Za-z0-9+/_-]{40,200}={0,2}$/
+/** A caregiver's name, sealed with the baby's key. */
+const SEALED_NAME_RE = /^[A-Za-z0-9+/_-]{20,2000}={0,2}$/
 
 class HttpError extends Error {
   constructor(status, message, code) {
@@ -73,6 +88,12 @@ export function createApp({
   // 'lan+loopback' (also this machine; the tests need it).
   enroll = 'lan',
   enrollRateLimit = { limit: 5, windowMs: 60_000 },
+  // With enroll 'open', the most new phones a day from anywhere, all told: a
+  // ceiling on what a stranger who finds the address can add to this Mac.
+  enrollDailyLimit = 50,
+  // The address phones use away from home (the DuckDNS one, through Caddy),
+  // told to every phone so the QR it shows works from anywhere.
+  publicURL = '',
 }) {
   if (!ENROLL_MODES.includes(enroll)) {
     throw new Error(`enroll must be one of ${ENROLL_MODES.join(', ')}, not "${enroll}"`)
@@ -84,6 +105,7 @@ export function createApp({
   // Only the unauthenticated routes are limited; see auth.js for why.
   const pairLimiter = createRateLimiter(pairRateLimit)
   const enrollLimiter = createRateLimiter(enrollRateLimit)
+  const enrollDailyLimiter = createRateLimiter({ limit: enrollDailyLimit, windowMs: 24 * 60 * 60_000 })
 
   function requireUser(req) {
     const auth = authenticate(db, req.headers.authorization)
@@ -114,14 +136,25 @@ export function createApp({
 
   function babyPayload(babyID) {
     const baby = db.prepare(
-      `SELECT id, name, birth_date, sex, due_date, created_by, updated_at, deleted_at, server_updated_at
+      `SELECT id, name, birth_date, sex, due_date, created_by, updated_at, deleted_at, server_updated_at, sealed
        FROM babies WHERE id = ?`).get(babyID)
-    return baby ?? null
+    return baby ? { ...baby, sealed: baby.sealed === 1 } : null
+  }
+
+  function isSealedBaby(babyID) {
+    return db.prepare('SELECT sealed FROM babies WHERE id = ?').get(babyID)?.sealed === 1
+  }
+
+  /** A sealed baby, asked for by a build that can't open it. */
+  function requireCanRead(req, babyID) {
+    if (isSealedBaby(babyID) && !supportsSealed(req)) {
+      throw new HttpError(409, 'This log is encrypted. Update Baby Feed on this phone to open it.', 'app_update_needed')
+    }
   }
 
   function membersOf(babyID) {
     return db.prepare(
-      `SELECT baby_id, user_id, role, display_name, joined_at FROM members
+      `SELECT baby_id, user_id, role, display_name, sealed_name, joined_at FROM members
        WHERE baby_id = ? ORDER BY joined_at ASC`).all(babyID)
   }
 
@@ -152,7 +185,7 @@ export function createApp({
     if (membership(invite.baby_id, userID)) return false
     db.prepare(`INSERT INTO members (baby_id, user_id, role, display_name, joined_at, server_ms)
                 VALUES (?, ?, 'caregiver', ?, ?, ?)`)
-      .run(invite.baby_id, userID, displayName, now, at.ms)
+      .run(invite.baby_id, userID, isSealedBaby(invite.baby_id) ? '' : displayName, now, at.ms)
     db.prepare('UPDATE invites SET uses = uses + 1 WHERE code = ?').run(invite.code)
     return true
   }
@@ -166,13 +199,21 @@ export function createApp({
     return token
   }
 
-  /** Every baby this caregiver is on, with their role on each. */
-  function membershipsOf(userID) {
-    return db.prepare(
-      `SELECT m.role, b.id, b.name, b.birth_date, b.sex, b.due_date, b.created_by,
-              b.updated_at, b.deleted_at, b.server_updated_at
+  /**
+   * Every log this person is on. A sealed one comes with this person's locked
+   * copy of its key, when they've made one, and is left out altogether for a
+   * build that couldn't open it.
+   */
+  function membershipsOf(userID, req) {
+    const rows = db.prepare(
+      `SELECT m.role, m.sealed_name, b.id, b.name, b.birth_date, b.sex, b.due_date, b.created_by,
+              b.updated_at, b.deleted_at, b.server_updated_at, b.sealed, k.wrapped AS wrapped_key
        FROM members m JOIN babies b ON b.id = m.baby_id
+       LEFT JOIN baby_keys k ON k.baby_id = b.id AND k.user_id = m.user_id
        WHERE m.user_id = ? ORDER BY b.name`).all(userID)
+    return rows
+      .filter((row) => row.sealed !== 1 || supportsSealed(req))
+      .map((row) => ({ ...row, sealed: row.sealed === 1 }))
   }
 
   /** Whether this person has a recovery phrase — never the phrase, never the hash. */
@@ -187,9 +228,9 @@ export function createApp({
    * log this caregiver is now on. `token` is null when the phone keeps the
    * token it already has.
    */
-  function pairingResponse(token, userID, babyID) {
+  function pairingResponse(token, userID, babyID, req) {
     const user = db.prepare('SELECT id, display_name FROM users WHERE id = ?').get(userID)
-    const babies = membershipsOf(userID)
+    const babies = membershipsOf(userID, req)
     const first = babyID ?? babies[0]?.id ?? null
     return {
       token,
@@ -240,6 +281,8 @@ export function createApp({
     // Whether a new phone could set itself up from where this request came
     // from, so the app can say "connect to your home Wi-Fi" instead of failing.
     enroll_available: enrollRefusal(req, enroll) === null,
+    // Where phones reach this server from outside the house, when it can be.
+    public_url: publicURL || null,
     server_time: new Date().toISOString(),
     paired_devices: db.prepare('SELECT COUNT(*) AS n FROM devices WHERE revoked_at IS NULL').get().n,
     babies: db.prepare('SELECT COUNT(*) AS n FROM babies WHERE deleted_at IS NULL').get().n,
@@ -267,7 +310,13 @@ export function createApp({
     if (refusal) {
       throw new HttpError(403, 'A new phone can only set itself up on the same Wi-Fi as the server.', 'enroll_lan_only')
     }
-    if (!enrollLimiter(ctx.socketKey)) throw new HttpError(429, 'Too many attempts. Wait a minute.')
+    // Open to anywhere, requests come through Caddy, so the forwarded address
+    // is the one to limit; on the home network it's the socket's own.
+    const enrollKey = enroll === 'open' ? ctx.clientKey : ctx.socketKey
+    if (!enrollLimiter(enrollKey)) throw new HttpError(429, 'Too many attempts. Wait a minute.')
+    if (enroll === 'open' && !enrollDailyLimiter('all')) {
+      throw new HttpError(429, 'This server has set up as many new phones as it will today. Try again tomorrow.', 'enroll_full')
+    }
     if (!isJSONRequest(req)) throw new HttpError(415, 'Send JSON.', 'bad_content_type')
     const body = await readJSON(req)
 
@@ -370,7 +419,7 @@ export function createApp({
     if (caller) {
       const existing = db.prepare('SELECT * FROM invites WHERE code = ?').get(code)
       if (existing && !existing.revoked_at && membership(existing.baby_id, caller.user.id)) {
-        return pairingResponse(null, caller.user.id, existing.baby_id)
+        return pairingResponse(null, caller.user.id, existing.baby_id, req)
       }
     }
 
@@ -379,6 +428,8 @@ export function createApp({
     if (!baby || baby.deleted_at) {
       throw new HttpError(410, 'The log that invite was for is gone.', 'baby_gone')
     }
+    // Before spending the code: an older build couldn't open the log it joined.
+    requireCanRead(req, invite.baby_id)
 
     const now = new Date().toISOString()
     const at = stamp()
@@ -398,7 +449,7 @@ export function createApp({
         throw error
       }
       log(`[pair] "${caller.user.display_name || offeredName || 'unnamed'}" (already paired) joined baby ${invite.baby_id}`)
-      return pairingResponse(null, caller.user.id, invite.baby_id)
+      return pairingResponse(null, caller.user.id, invite.baby_id, req)
     }
 
     const userID = randomUUID().toUpperCase()
@@ -416,7 +467,7 @@ export function createApp({
     }
 
     log(`[pair] "${offeredName || 'unnamed'}" joined baby ${invite.baby_id}`)
-    return pairingResponse(token, userID, invite.baby_id)
+    return pairingResponse(token, userID, invite.baby_id, req)
   })
 
   // ------------------------------------------------------------- recovery
@@ -514,7 +565,7 @@ export function createApp({
    * phones follow, and the phone keeps the token it has. Nothing anybody
    * logged is lost, and no phone ends up holding two identities.
    */
-  function recoverPerson(account, caller, deviceName) {
+  function recoverPerson(account, caller, deviceName, req) {
     const userID = account.user_id
     const now = new Date().toISOString()
     let token = null
@@ -532,7 +583,8 @@ export function createApp({
           if (!mine) {
             db.prepare(`INSERT INTO members (baby_id, user_id, role, display_name, joined_at, server_ms)
                         VALUES (?, ?, ?, ?, ?, ?)`)
-              .run(seat.baby_id, userID, seat.role, person?.display_name ?? '', now, stamp().ms)
+              .run(seat.baby_id, userID, seat.role, isSealedBaby(seat.baby_id) ? '' : person?.display_name ?? '',
+                now, stamp().ms)
           } else if (seat.role === 'owner' && mine.role !== 'owner') {
             db.prepare("UPDATE members SET role = 'owner', server_ms = ? WHERE baby_id = ? AND user_id = ?")
               .run(stamp().ms, seat.baby_id, userID)
@@ -554,7 +606,7 @@ export function createApp({
     }
 
     log(`[recovery] phrase used for ${userID}${merged ? ` (folded in ${caller.user.id})` : ''}`)
-    return { ...pairingResponse(token, userID, null), merged, retired_key: retiredKey }
+    return { ...pairingResponse(token, userID, null, req), merged, retired_key: retiredKey }
   }
 
   // Redeeming a phrase or an older per-baby key. No token required — the key
@@ -574,7 +626,7 @@ export function createApp({
     const keyHash = hashToken(key)
     const account = db.prepare('SELECT * FROM account_keys WHERE key_hash = ?').get(keyHash)
     if (account) {
-      return recoverPerson(account, authenticate(db, req.headers.authorization), body.device_name)
+      return recoverPerson(account, authenticate(db, req.headers.authorization), body.device_name, req)
     }
 
     const row = db.prepare('SELECT * FROM recovery_keys WHERE key_hash = ?').get(keyHash)
@@ -611,7 +663,8 @@ export function createApp({
       } else {
         db.prepare(`INSERT INTO members (baby_id, user_id, role, display_name, joined_at, server_ms)
                     VALUES (?, ?, 'owner', ?, ?, ?)`)
-          .run(row.baby_id, userID, caller?.user.display_name ?? displayName, now, at.ms)
+          .run(row.baby_id, userID, isSealedBaby(row.baby_id) ? '' : caller?.user.display_name ?? displayName,
+            now, at.ms)
       }
       db.prepare('UPDATE recovery_keys SET last_used_at = ? WHERE baby_id = ?').run(now, row.baby_id)
       db.exec('COMMIT')
@@ -623,7 +676,7 @@ export function createApp({
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userID)
     const token = caller ? null : issueDevice(userID, body.device_name)
     log(`[recovery] baby ${row.baby_id} recovered by "${user.display_name || 'unnamed'}"`)
-    return pairingResponse(token, userID, row.baby_id)
+    return pairingResponse(token, userID, row.baby_id, req)
   })
 
   // ---------------------------------------------------------------- account
@@ -634,7 +687,7 @@ export function createApp({
       user_id: user.id,
       display_name: user.display_name,
       device_id: device.id,
-      babies: membershipsOf(user.id),
+      babies: membershipsOf(user.id, req),
       recovery_key: recoveryKeyStatus(user.id),
       server_id: SERVER_ID,
       server_time: new Date().toISOString(),
@@ -648,7 +701,9 @@ export function createApp({
     db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(displayName, user.id)
     // The name shows next to every row this caregiver logged, so a rename has
     // to reach the member list the other phone reads, not just this one.
-    db.prepare('UPDATE members SET display_name = ?, server_ms = ? WHERE user_id = ?')
+    // Not on a sealed log: there the name is the sealed one the phone sets.
+    db.prepare(`UPDATE members SET display_name = ?, server_ms = ?
+                WHERE user_id = ? AND baby_id NOT IN (SELECT id FROM babies WHERE sealed = 1)`)
       .run(displayName, stamp().ms, user.id)
     return { user_id: user.id, display_name: displayName }
   })
@@ -740,6 +795,39 @@ export function createApp({
     return { revoked: code }
   })
 
+  // This caregiver's locked copy of a sealed baby's key: the baby's key,
+  // encrypted on the phone with a key made from their recovery phrase. It is
+  // what lets the phrase bring an encrypted log back on a new phone, and the
+  // server can't open it.
+  route('PUT', '/v1/babies/:babyID/key', async (req, res, params) => {
+    const { user } = requireUser(req)
+    const babyID = params.babyID.toUpperCase()
+    requireMember(babyID, user.id)
+    if (!isSealedBaby(babyID)) throw new HttpError(409, 'This log is not encrypted.', 'not_sealed')
+    const body = await readJSON(req)
+    const wrapped = String(body.wrapped ?? '')
+    if (!WRAPPED_KEY_RE.test(wrapped)) throw new HttpError(400, "That isn't a locked key.", 'bad_wrapped_key')
+    db.prepare(`INSERT INTO baby_keys (baby_id, user_id, wrapped, updated_at) VALUES (?, ?, ?, ?)
+                ON CONFLICT(baby_id, user_id) DO UPDATE SET wrapped = excluded.wrapped, updated_at = excluded.updated_at`)
+      .run(babyID, user.id, wrapped, new Date().toISOString())
+    return { baby_id: babyID, stored: true }
+  })
+
+  // This caregiver's name on a sealed log, encrypted with the log's key, so
+  // the other phones can show who logged what and the server can't.
+  route('PUT', '/v1/babies/:babyID/members/me', async (req, res, params) => {
+    const { user } = requireUser(req)
+    const babyID = params.babyID.toUpperCase()
+    requireMember(babyID, user.id)
+    if (!isSealedBaby(babyID)) throw new HttpError(409, 'This log is not encrypted.', 'not_sealed')
+    const body = await readJSON(req)
+    const sealedName = String(body.sealed_name ?? '')
+    if (!SEALED_NAME_RE.test(sealedName)) throw new HttpError(400, "That isn't a sealed name.", 'bad_sealed_name')
+    db.prepare('UPDATE members SET sealed_name = ?, display_name = ?, server_ms = ? WHERE baby_id = ? AND user_id = ?')
+      .run(sealedName, '', stamp().ms, babyID, user.id)
+    return { baby_id: babyID, stored: true }
+  })
+
   route('DELETE', '/v1/babies/:babyID/members/:userID', (req, res, params) => {
     const { user } = requireUser(req)
     const babyID = params.babyID.toUpperCase()
@@ -787,7 +875,9 @@ export function createApp({
           // separate "start sharing" call to get out of step with this.
           let claimsOwnership = false
           if (table === 'babies') {
-            const existing = db.prepare('SELECT id, created_by FROM babies WHERE id = ?').get(row.id)
+            const existing = db.prepare('SELECT id, created_by, sealed FROM babies WHERE id = ?').get(row.id)
+            // Sealed or not is settled when the baby first arrives.
+            sealBabyRow(row, existing ? existing.sealed : undefined)
             if (!existing) {
               claimsOwnership = true
               row.created_by = user.id
@@ -801,6 +891,11 @@ export function createApp({
             }
           } else if (!membership(row.baby_id, user.id)) {
             rejected.push({ table, id: row.id, reason: 'not a caregiver on this baby', code: 'not_a_member' })
+            continue
+          } else if (isSealedBaby(row.baby_id)) {
+            // A readable row in an encrypted log would be the one thing the
+            // log promised not to hold. Refused, not stored.
+            rejected.push({ table, id: row.id, reason: 'this log is encrypted', code: 'sealed_baby' })
             continue
           } else {
             // Checked where the row is stored, not only where the phone says
@@ -823,9 +918,41 @@ export function createApp({
             db.prepare(`INSERT INTO members (baby_id, user_id, role, display_name, joined_at, server_ms)
                         VALUES (?, ?, 'owner', ?, ?, ?)
                         ON CONFLICT(baby_id, user_id) DO NOTHING`)
-              .run(row.id, user.id, user.display_name, at.iso, at.ms)
+              .run(row.id, user.id, row.sealed === 1 ? '' : user.display_name, at.iso, at.ms)
           }
           applied.push({ table, id: row.id, ...result })
+        }
+      }
+
+      // Sealed rows, after the babies above so a new sealed baby's first rows
+      // can ride in the same push as the baby itself.
+      if (body.sealed !== undefined && body.sealed !== null) {
+        if (!Array.isArray(body.sealed)) throw new HttpError(400, 'sealed must be a list of rows.')
+        for (const raw of body.sealed) {
+          let row
+          try {
+            row = normalizeSealedRow(raw)
+          } catch (error) {
+            if (error instanceof RowError) {
+              rejected.push({ table: 'sealed', id: raw?.id ?? null, reason: error.message, code: 'malformed' })
+              continue
+            }
+            throw error
+          }
+          if (!membership(row.baby_id, user.id)) {
+            rejected.push({ table: 'sealed', id: row.id, reason: 'not a caregiver on this baby', code: 'not_a_member' })
+            continue
+          }
+          if (!isSealedBaby(row.baby_id)) {
+            rejected.push({ table: 'sealed', id: row.id, reason: 'this log is not encrypted', code: 'not_sealed' })
+            continue
+          }
+          const stored = db.prepare('SELECT baby_id FROM sealed_rows WHERE id = ?').get(row.id)
+          if (stored && stored.baby_id !== row.baby_id) {
+            rejected.push({ table: 'sealed', id: row.id, reason: 'that row belongs to another baby', code: 'not_a_member' })
+            continue
+          }
+          applied.push({ table: 'sealed', id: row.id, ...upsertSealedRow(db, row, { userID: user.id }) })
         }
       }
       db.exec('COMMIT')
@@ -845,6 +972,7 @@ export function createApp({
     const babyID = String(ctx.query.get('baby_id') ?? '').toUpperCase()
     if (!babyID) throw new HttpError(400, 'baby_id is required.')
     requireMember(babyID, user.id)
+    requireCanRead(req, babyID)
 
     const sinceRaw = ctx.query.get('since')
     const sinceMs = sinceRaw ? new Date(sinceRaw).getTime() : 0
@@ -859,15 +987,19 @@ export function createApp({
     // falls between pages and nothing is sent twice.
     const pages = {}
     let cutoff = Infinity
-    for (const table of ROW_TABLES) {
-      const rows = rowsSince(db, table, babyID, sinceMs, limit)
+    // Sealed rows page alongside the readable tables, under the same cutoff.
+    const pagedTables = [...ROW_TABLES, 'sealed']
+    for (const table of pagedTables) {
+      const rows = table === 'sealed'
+        ? sealedRowsSince(db, babyID, sinceMs, limit)
+        : rowsSince(db, table, babyID, sinceMs, limit)
       pages[table] = rows
       if (rows.length >= limit) cutoff = Math.min(cutoff, msOf(rows[rows.length - 1]))
     }
     const hasMore = Number.isFinite(cutoff)
     const payload = { baby_id: babyID }
     let newest = sinceMs
-    for (const table of ROW_TABLES) {
+    for (const table of pagedTables) {
       const rows = hasMore ? pages[table].filter((row) => msOf(row) <= cutoff) : pages[table]
       payload[table] = rows
       for (const row of rows) newest = Math.max(newest, msOf(row))

@@ -48,6 +48,11 @@ const dbPath = env.BABYFEED_DB || join(DATA_DIR, 'babyfeed.db')
 const setupSecret = env.BABYFEED_SETUP_SECRET || ''
 // Who may set a brand-new phone up with nothing typed. See createApp.
 const enroll = env.BABYFEED_ENROLL || 'lan'
+// The address phones use away from home, e.g. https://<your-name>.duckdns.org:4443.
+// Told to every phone so the QR it shows works from anywhere. Never commit it.
+const publicURL = (env.BABYFEED_PUBLIC_URL || '').trim().replace(/\/+$/, '')
+// With BABYFEED_ENROLL=open, the most new phones a day.
+const enrollDailyLimit = Number(env.BABYFEED_ENROLL_DAILY || 50)
 
 function log(...args) {
   console.log(new Date().toISOString(), ...args)
@@ -58,17 +63,24 @@ if (!ENROLL_MODES.includes(enroll)) {
   process.exit(1)
 }
 
-const { server } = createApp({ dbPath, setupSecret, enroll, log })
+if (publicURL && !/^https:\/\//.test(publicURL)) {
+  log(`[error] BABYFEED_PUBLIC_URL must start with https:// — phones never send a token over plain http to the internet.`)
+  process.exit(1)
+}
+
+const { server } = createApp({ dbPath, setupSecret, enroll, log, publicURL, enrollDailyLimit })
 
 const ENROLL_DESCRIPTIONS = {
   lan: 'a phone on the home Wi-Fi sets itself up with nothing typed',
   off: 'only by invite or recovery phrase',
   'lan+loopback': 'a phone on the home Wi-Fi, or anything on this Mac, sets itself up (testing only)',
+  open: 'any phone that reaches this server sets itself up, within the rate limits',
 }
 
 server.listen(port, host, () => {
   log(`[babyfeed] listening on http://${host}:${port} — database ${dbPath}`)
   log(`[babyfeed] new phones: ${ENROLL_DESCRIPTIONS[enroll]} (BABYFEED_ENROLL=${enroll})`)
+  log(`[babyfeed] away from home: ${publicURL ? publicURL : 'not set (BABYFEED_PUBLIC_URL)'}`)
   if (enroll !== 'off' && (host === '127.0.0.1' || host === 'localhost' || host === '::1')) {
     log('[warn] Listening on loopback only, so phones on the Wi-Fi can\'t reach this server or set themselves up. '
       + 'Set BABYFEED_BIND=0.0.0.0 in ~/baby-feed-data/.env for home Wi-Fi.')

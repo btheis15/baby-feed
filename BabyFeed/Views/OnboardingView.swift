@@ -239,7 +239,7 @@ struct OnboardingView: View {
                 step(3, "Tap the banner that appears. Baby Feed opens and joins.")
             }
             .padding(.horizontal, 32)
-            Text("Both phones need to be on your home Wi‑Fi. Got a link instead? Open it on this phone.")
+            Text("It works from anywhere. Got a link instead? Open it on this phone.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -289,7 +289,7 @@ struct OnboardingView: View {
             } header: {
                 Text("Recovery phrase")
             } footer: {
-                Text("The \(RecoveryKey.length) letters and numbers you wrote down. Dashes, spaces and capitals don't matter. Be on your home Wi‑Fi.")
+                Text("The \(RecoveryKey.length) letters and numbers you wrote down. Dashes, spaces and capitals don't matter.\(SyncEngine.syncsAwayFromHome ? "" : " Be on your home Wi‑Fi.")")
             }
 
             if let errorMessage {
@@ -326,7 +326,7 @@ struct OnboardingView: View {
         } catch let error as SyncError {
             errorMessage = switch error {
             case .server(404, _, _): "That phrase doesn't match any log on your Mac mini. Check it character by character."
-            case .away: "Can't reach your Mac mini. Connect to your home Wi‑Fi and try again."
+            case .away: error.errorDescription
             case .notConfigured: "This build doesn't know your Mac mini's address. Settings → Caregivers & sync → Advanced can take it."
             default: error.errorDescription
             }

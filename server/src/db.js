@@ -23,7 +23,7 @@ export const ROW_TABLES = ['babies', 'feeds', 'weights', 'care_notes', 'diapers'
  * migration (CREATE TABLE IF NOT EXISTS makes them); a column added to a
  * table that already exists does, and goes in COLUMN_ADDITIONS below.
  */
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 /**
  * Columns added to existing tables, oldest first. Append only: an entry is
@@ -31,6 +31,12 @@ export const SCHEMA_VERSION = 2
  */
 export const COLUMN_ADDITIONS = [
   ['care_notes', 'concern_id', 'TEXT'],
+  // Babies added by newer builds are end-to-end encrypted ("sealed"): the
+  // server keeps only ids and timestamps for them, and their rows live in
+  // sealed_rows. Babies from before stay as they are, readable, forever.
+  ['babies', 'sealed', 'INTEGER NOT NULL DEFAULT 0'],
+  // A sealed baby's caregiver names, encrypted with that baby's key.
+  ['members', 'sealed_name', 'TEXT'],
 ]
 
 const SCHEMA = `
@@ -296,6 +302,35 @@ CREATE TABLE IF NOT EXISTS doctor_visits (
 );
 CREATE INDEX IF NOT EXISTS doctor_visits_pull ON doctor_visits(baby_id, server_ms);
 
+-- Every row of a sealed (end-to-end encrypted) baby, whatever kind it is.
+--
+-- The phone encrypts the whole row with the baby's key before it leaves, kind
+-- and deletion included, so all this server can tell about one is which baby
+-- it belongs to and when it last changed. updated_at is the phone's clock and
+-- decides conflicts exactly as for the readable tables; server_ms is the pull
+-- watermark. Nothing here can be read without a key the server never has.
+CREATE TABLE IF NOT EXISTS sealed_rows (
+  id            TEXT PRIMARY KEY,
+  baby_id       TEXT NOT NULL,
+  sealed        TEXT NOT NULL,
+  logged_by     TEXT,
+  updated_at    TEXT NOT NULL,
+  server_updated_at TEXT NOT NULL,
+  server_ms     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sealed_rows_pull ON sealed_rows(baby_id, server_ms);
+
+-- A sealed baby's key, once per caregiver who has a recovery phrase, locked
+-- with a key made from that phrase on the phone. Restoring with the phrase
+-- unlocks it again; the server can do neither.
+CREATE TABLE IF NOT EXISTS baby_keys (
+  baby_id       TEXT NOT NULL,
+  user_id       TEXT NOT NULL,
+  wrapped       TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  PRIMARY KEY (baby_id, user_id)
+);
+
 -- Invite codes. Six characters, matching SyncMerge.inviteCodeLength, so the
 -- normalising and validation the app already ships against are the rules here.
 CREATE TABLE IF NOT EXISTS invites (
@@ -383,7 +418,7 @@ export function stamp() {
 /** Restores the monotonic counter after a restart. */
 export function primeStamp(db) {
   let high = 0
-  for (const table of [...ROW_TABLES, 'members', 'changes']) {
+  for (const table of [...ROW_TABLES, 'members', 'changes', 'sealed_rows']) {
     const row = db.prepare(`SELECT MAX(server_ms) AS m FROM ${table}`).get()
     if (row?.m > high) high = row.m
   }

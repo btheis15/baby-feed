@@ -141,7 +141,9 @@ struct FamilyView: View {
             Text("Sharing")
         } footer: {
             Text(sync.hasServer
-                 ? "Shows a code the other iPhone scans with its Camera. Both phones need to be on your home Wi‑Fi."
+                 ? (SyncEngine.joinAddress != nil
+                    ? "Shows a code the other iPhone scans with its Camera, from anywhere."
+                    : "Shows a code the other iPhone scans with its Camera. It needs your Mac mini's address from outside the house, which the server tells this phone once BABYFEED_PUBLIC_URL is set.")
                  : "This build doesn't know a server to share through. Add one under Advanced.")
         }
     }
@@ -212,7 +214,9 @@ struct FamilyView: View {
                     router.sheet = .recoverySetup
                 }
             } catch SyncError.away {
-                backUpMessage = "Can't reach your Mac mini from here. It'll back up by itself once this phone is on your home Wi‑Fi."
+                backUpMessage = SyncEngine.syncsAwayFromHome
+                    ? "Can't reach your Mac mini right now. It'll back up by itself once it can."
+                    : "Can't reach your Mac mini from here. It'll back up by itself once this phone is on your home Wi‑Fi."
             } catch {
                 backUpMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }

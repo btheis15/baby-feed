@@ -8,6 +8,11 @@ import Foundation
 ///
 ///     babyfeed://join?code=D8WAQK&server=https%3A%2F%2Fbabyfeed.example.org%3A4443
 ///
+/// For an encrypted (sealed) log it also carries the log's key, `&key=…`: the
+/// other phone needs it to read anything, and the server must never see it.
+/// The link goes from one phone's screen to the other's Camera, or through
+/// Messages, and never to the server, which only ever gets the code.
+///
 /// Two ways to use one: send it (Messages, AirDrop — tapping it opens the app
 /// straight onto the join screen), or show it as a QR code. The stock Camera
 /// app reads a QR and offers to open the URL, so the other phone needs no
@@ -18,9 +23,11 @@ enum SyncLink {
     struct Invitation: Equatable {
         var code: String
         var server: URL
+        /// The sealed log's key, as `BabyKey.linkText`. Nil for a readable log.
+        var key: String? = nil
     }
 
-    static func url(code: String, server: URL) -> URL? {
+    static func url(code: String, server: URL, key: String? = nil) -> URL? {
         var components = URLComponents()
         components.scheme = DeepLink.scheme
         components.host = host
@@ -28,6 +35,7 @@ enum SyncLink {
             URLQueryItem(name: "code", value: SyncMerge.normalizedInviteCode(code)),
             URLQueryItem(name: "server", value: server.absoluteString),
         ]
+        if let key { components.queryItems?.append(URLQueryItem(name: "key", value: key)) }
         return components.url
     }
 
@@ -45,9 +53,15 @@ enum SyncLink {
         let code = SyncMerge.normalizedInviteCode(rawCode)
         guard SyncMerge.isPlausibleInviteCode(code) else { return nil }
 
+        // Joining is from outside only: a link naming a home-network address
+        // (from an older build) isn't followed. The code alone still works on
+        // a phone that knows the public address.
         if let raw = items.first(where: { $0.name == "server" })?.value,
-           let server = normalizedServerURL(raw) {
-            return Invitation(code: code, server: server)
+           let server = normalizedServerURL(raw), let host = server.host, !isPrivateHost(host) {
+            // A key that isn't one is dropped rather than trusted: joining
+            // then says the log can't be opened, instead of storing junk.
+            let key = items.first { $0.name == "key" }?.value.flatMap { BabyKey.fromLinkText($0) != nil ? $0 : nil }
+            return Invitation(code: code, server: server, key: key)
         }
         return nil
     }

@@ -6,6 +6,10 @@
   Mac mini's address. Without it the app works as before, entirely on the phone,
   and sharing asks for an address under Caregivers → Advanced.
   Plain http is only accepted for home-network hosts (.local, 10.x, 192.168.x).
+
+  PublicHost is optional: the same server from outside the house, through Caddy
+  (your DuckDNS name and the router's external port). Always https. Builds you
+  give to other families need it, since their phones are never on your Wi-Fi.
 -->
 <plist version="1.0">
 <dict>
@@ -13,5 +17,7 @@
 	<string>http</string>
 	<key>Host</key>
 	<string>your-mac-mini.local:8791</string>
+	<key>PublicHost</key>
+	<string>your-name.duckdns.org:4443</string>
 </dict>
 </plist>

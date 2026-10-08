@@ -77,7 +77,8 @@ with newborn needs first.
 ## Syncing and the server
 
 - **A new synced type** follows ROADMAP.md Appendix A. On the app side that means the model, the DTO,
-  `SyncEngine` (push, merge, `queueEverything`, `table(of:)`, `pendingCount`), `SyncClient`,
+  `SyncEngine` (push, merge, `queueEverything`, `table(of:)`, `pendingCount`), `SealedSync` (seal and
+  open), `SyncClient`,
   `BabyStore.removeLocally`/`rowCount`, `DebugSeed`, and a `TimelineItem` case. On the server side it
   means `db.js`, `sync.js` and tests.
 - **A new column on an existing synced table** goes through `COLUMN_ADDITIONS` + `LATE_COLUMNS` on the
@@ -87,6 +88,13 @@ with newborn needs first.
   offers the amount a parent entered, and notices never block Save.
 - **Deploy order:** the server goes out before any app build that needs it (ROADMAP.md Appendix B). The
   mini runs its own checkout at `~/baby-feed`.
+- **Sealed (end-to-end encrypted) logs** are every baby created from Phase 9 on (`Baby.isSealed`).
+  Their rows go up only as `SealedLog` boxes through `SealedSync`, never as readable DTOs, and never
+  to a server without the `sealed` feature. Babies from before stay readable; never convert one
+  without the parent asking. The baby key lives in `BabyKey` and leaves the phone only in a Share
+  link or locked with the recovery phrase. A new synced type needs its case in `SealedSync` too.
+- **Joining is external only.** Share links carry `SyncEngine.joinAddress` (the public address),
+  never the home one, and a link naming a home-network address isn't followed.
 - **Connecting** goes through `SyncEngine.ensureConnected(_:)`, one operation at a time. Nothing
   reaches for the network on a cold launch unless the parent asked for it before (so the Local
   Network prompt never appears unexplained). A phone that joined by QR never makes an identity of
@@ -113,9 +121,8 @@ Changing them breaks existing installs, pairing or widgets:
 - **The GitHub repo is public.** Never commit an internet-reachable hostname (DuckDNS), a token or a key.
   `BabyFeed/ServerConfig.plist`, the server this build syncs with, is gitignored for that reason
   (`Config/ServerConfig.example.plist` shows the shape).
-- `project.pbxproj` has an uncommitted `MARKETING_VERSION = 1.2`. Keep it when editing the project.
-  The widget target is still at 1.0, and an extension's version must match its app's, so bump both
-  together.
+- `project.pbxproj` has an uncommitted `MARKETING_VERSION = 1.4` on both the app and the widget. Keep
+  it when editing the project. An extension's version must match its app's, so bump both together.
 - In an xcconfig, `//` starts a comment anywhere on a line.
 - `UIDevice.current.name` returns just "iPhone" on iOS 16 and later.
 - Tests run inside the app (`TEST_HOST`), so `Bundle.main` is the app bundle.

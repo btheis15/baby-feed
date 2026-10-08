@@ -96,7 +96,9 @@ struct SyncSetupCard: View {
                     try await sync.ensureConnected(.backUp)
                     router.sheet = .recoverySetup
                 } catch SyncError.away {
-                    message = "Can't reach your Mac mini from here. It'll back up by itself once this phone is on your home Wi‑Fi."
+                    message = SyncEngine.syncsAwayFromHome
+                        ? "Can't reach your Mac mini right now. It'll back up by itself once it can."
+                        : "Can't reach your Mac mini from here. It'll back up by itself once this phone is on your home Wi‑Fi."
                 } catch {
                     message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 }

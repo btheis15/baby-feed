@@ -327,7 +327,7 @@ enum DebugLaunch {
                 }
                 if arguments.contains("--debug-invite"), let baby = BabyStore.currentBaby(in: context) {
                     let invite = try await engine.invite(for: baby)
-                    if let server = SyncCredentials.serverURL, let link = SyncLink.url(code: invite.code, server: server) {
+                    if let link = engine.link(for: invite, baby: baby) {
                         NSLog("%@", "[DebugLaunch] invite: \(link.absoluteString)")
                     }
                 }
