@@ -727,3 +727,52 @@ struct MembershipDTO: Codable, Equatable, Identifiable {
                 serverUpdatedAt: serverUpdatedAt, sealed: sealed)
     }
 }
+
+// `sealed` is a SQLite integer on the server, and one route (pull) once sent
+// it as 1 or 0 instead of true or false. JSONDecoder won't read a number as a
+// Bool, so that one key failed the whole page and a newly joined phone never
+// got its first pull through. Read either, so a server already deployed can't
+// do that again. In extensions, so the memberwise and other inits stay.
+
+extension KeyedDecodingContainer {
+    /// A Bool sent as true/false or as a number (non-zero is true), or nil.
+    func decodeLenientBoolIfPresent(forKey key: Key) throws -> Bool? {
+        if let flag = try? decodeIfPresent(Bool.self, forKey: key) { return flag }
+        return try decodeIfPresent(Int.self, forKey: key).map { $0 != 0 }
+    }
+}
+
+extension BabyDTO {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try container.decode(UUID.self, forKey: .id),
+                  name: try container.decode(String.self, forKey: .name),
+                  birthDate: try container.decodeIfPresent(Date.self, forKey: .birthDate),
+                  sex: try container.decodeIfPresent(String.self, forKey: .sex),
+                  dueDate: try container.decodeIfPresent(Date.self, forKey: .dueDate),
+                  createdBy: try container.decodeIfPresent(UUID.self, forKey: .createdBy),
+                  updatedAt: try container.decode(Date.self, forKey: .updatedAt),
+                  deletedAt: try container.decodeIfPresent(Date.self, forKey: .deletedAt),
+                  serverUpdatedAt: try container.decodeIfPresent(Date.self, forKey: .serverUpdatedAt),
+                  sealed: try container.decodeLenientBoolIfPresent(forKey: .sealed))
+    }
+}
+
+extension MembershipDTO {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try container.decode(UUID.self, forKey: .id),
+                  name: try container.decode(String.self, forKey: .name),
+                  role: try container.decode(String.self, forKey: .role),
+                  birthDate: try container.decodeIfPresent(Date.self, forKey: .birthDate),
+                  sex: try container.decodeIfPresent(String.self, forKey: .sex),
+                  dueDate: try container.decodeIfPresent(Date.self, forKey: .dueDate),
+                  createdBy: try container.decodeIfPresent(UUID.self, forKey: .createdBy),
+                  updatedAt: try container.decode(Date.self, forKey: .updatedAt),
+                  deletedAt: try container.decodeIfPresent(Date.self, forKey: .deletedAt),
+                  serverUpdatedAt: try container.decodeIfPresent(Date.self, forKey: .serverUpdatedAt),
+                  sealed: try container.decodeLenientBoolIfPresent(forKey: .sealed),
+                  wrappedKey: try container.decodeIfPresent(String.self, forKey: .wrappedKey),
+                  sealedName: try container.decodeIfPresent(String.self, forKey: .sealedName))
+    }
+}
