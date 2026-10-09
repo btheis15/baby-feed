@@ -1001,7 +1001,10 @@ export function createApp({
     let newest = sinceMs
     for (const table of pagedTables) {
       const rows = hasMore ? pages[table].filter((row) => msOf(row) <= cutoff) : pages[table]
-      payload[table] = rows
+      // SQLite keeps `sealed` as 1 or 0, and the phone reads it as a Bool, so
+      // send it as one, the way babyPayload and membershipsOf do. Done here
+      // rather than in rowsSince, which push and last-writer-wins don't touch.
+      payload[table] = table === 'babies' ? rows.map((row) => ({ ...row, sealed: row.sealed === 1 })) : rows
       for (const row of rows) newest = Math.max(newest, msOf(row))
     }
     payload.members = membersOf(babyID)
